@@ -69,6 +69,22 @@ export function computeLedger(d, start, end) {
       if (m === 0 && s.quantity) c.unmapped_qty += s.quantity;
     }
   }
+  // 예전 엑셀 4번 시트 값: 그 날 옵션별 판매/광고 데이터가 없는 쪽만 채운다 (있으면 새 데이터가 우선)
+  const salesTouched = new Set();
+  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end) continue; for (const s of Object.values(day)) { const camp = campaignOf[s.option_id]; if (camp) salesTouched.add(camp + '|' + date); } }
+  for (const [date, day] of Object.entries(d.legacy || {})) {
+    if (date < start || date > end) continue;
+    for (const [camp, L] of Object.entries(day)) {
+      const c = get(camp, date);
+      const adsFromLegacy = !c.has_ads, salesFromLegacy = !salesTouched.has(camp + '|' + date);
+      if (adsFromLegacy && (L.spend_vat || L.impressions || L.ad_orders)) {
+        Object.assign(c, { has_ads: true, target_roas: L.target_roas || 0, budget: L.budget || 0, spend: L.spend || 0, spend_vat: L.spend_vat || 0, ad_revenue: L.ad_revenue || 0,
+          roas: L.roas || 0, cpc: L.cpc || 0, impressions: L.impressions || 0, clicks: L.clicks || 0, ctr: L.ctr || 0, conversion: L.conversion || 0, ad_orders: L.ad_orders || 0 });
+      }
+      if (salesFromLegacy && (L.actual_qty || L.margin_total)) { c.has_sales = true; c.actual_qty = L.actual_qty || 0; c.margin_total = L.margin_total || 0; c.revenue = c.ad_revenue; c.legacy = true; }
+      if (adsFromLegacy && salesFromLegacy) c.legacy = true;
+    }
+  }
   const dates = dateRange(start, end);
   const total_profit = {}, month_profit = {};
   const result = [];

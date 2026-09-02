@@ -127,21 +127,36 @@ console.log('extension logic: all checks passed');
   console.log('ad-center parsing: all checks passed');
 }
 
-// 예전 엑셀 장부 가져오기 + 자연매출 지표
+// 예전 엑셀 장부 가져오기(4번 시트) + 미리보기/적용/되돌리기/삭제 + 자연매출 지표
 {
   const { readFileSync } = await import('node:fs');
-  const { importLegacyWorkbook } = await import('../../extension/lib/legacy.js');
+  const L = await import('../../extension/lib/legacy.js');
   await S.replaceAll({});
   const buf = readFileSync(new URL('./fixtures/legacy_small.xlsx', import.meta.url));
-  const r = await importLegacyWorkbook(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-  assert.deepEqual([r.options, r.margins, r.ads, r.sales, r.from, r.to], [3, 3, 2, 3, '2025-06-08', '2025-06-08']);
-  const d = await S.load();
-  assert.equal(d.ads['2025-06-08']['2_조거팬츠_238%'].action, '메모'); assert.equal(d.sales['2025-06-08']['12340330543'].revenue, 90000);
-  assert.equal(d.options.length, 4); // 매핑에 없는 판매 옵션도 이름만 등록
-  const led = computeLedger(d, '2025-06-08', '2025-06-08');
-  const b = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
-  assert.equal(b.revenue, 135000); assert.equal(b.organic_qty, 0); assert.equal(b.organic_revenue, 0); // 광고판매 12 = 실제판매 12
-  const g = led.grand; assert.equal(g.revenue, 135000); assert.equal(g.ad_orders, 35); approx(g.profit, -1965.1 + (0 - 77360.8), 0.01); // 조거는 판매 데이터 없음 → 마진 0
-  assert.ok(led.daily['2025-06-08'].spend_vat > 0);
-  console.log('legacy import + organic metrics: all checks passed');
+  const parsed = await L.parseLegacyWorkbook(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'small.xlsx');
+  assert.deepEqual([parsed.from, parsed.to, parsed.campaigns.length, parsed.cells, parsed.mapping.length, parsed.marginFrom], ['2025-06-08', '2025-06-08', 2, 2, 3, '2025-06-09']);
+  const b = parsed.legacy['2025-06-08']['1_버킷햇_240%'];
+  approx(b.spend_vat, 73965.1); approx(b.spend, 67241, 0.01); approx(b.ad_revenue, 180000, 5); assert.equal(b.actual_qty, 12); assert.equal(b.margin_total, 72000); approx(b.profit, -1965.1);
+  let d = await S.load(); assert.deepEqual(L.previewAgainst(d, parsed), { overlapDays: 0, dailyDays: 0, newOptions: 3, changedOptions: 0 });
+  const r = await L.applyLegacy(parsed, { withMapping: true }); d = await S.load();
+  assert.equal(d.options.length, 3); assert.equal(d.margins.length, 3); assert.equal(d.margins[0].effective_from, ''); // 이력 없으면 처음부터
+  let led = computeLedger(d, '2025-06-08', '2025-06-08');
+  const c1 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
+  assert.equal(c1.legacy, true); approx(c1.profit, -1965.1); assert.equal(c1.actual_qty, 12); assert.equal(c1.organic_qty, 0); approx(c1.roas, 2.6769, 1e-3);
+  approx(led.total_profit['2025-06-08'], -1965.1 + 64639.2);
+  // 옵션별 판매 데이터가 있는 날은 그쪽이 우선 (마진 이력으로 계산)
+  S.upsertSales(d, [{ date: '2025-06-08', option_id: '12340330543', option_name: 'x', product_name: '', product_id: '', category: '', sales_type: '', revenue: 100000, orders: 10, quantity: 10, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  await S.save(d); led = computeLedger(d, '2025-06-08', '2025-06-08');
+  const c2 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
+  assert.equal(c2.actual_qty, 10); assert.equal(c2.margin_total, 60000); assert.equal(c2.revenue, 100000); approx(c2.spend_vat, 73965.1); // 광고 쪽은 여전히 엑셀 값
+  // 되돌리기 → 가져오기 전 상태
+  await L.undoImport(r.id); d = await S.load();
+  assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0);
+  // 다시 적용 → 장부 값만 삭제
+  const r2 = await L.applyLegacy(parsed); const n = await L.removeImportData(r2.id); d = await S.load();
+  assert.equal(n, 2); assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 3); assert.equal((await L.listImports()).length, 0);
+  // 마진 이력이 이미 있으면 엑셀 다음 날부터 적용
+  S.setMargin(d, '12340330543', 5000, ''); await S.save(d); await L.applyLegacy(parsed); d = await S.load();
+  assert.deepEqual(S.marginHistory(d, '12340330543').map((m) => [m.effective_from, m.margin]), [['', 5000], ['2025-06-09', 6000]]);
+  console.log('legacy sheet4 import: all checks passed');
 }

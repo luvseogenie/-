@@ -2,7 +2,7 @@ import * as S from './lib/store.js';
 import { computeLedger, METRICS } from './lib/ledger.js';
 import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse.js';
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
-import { importLegacyWorkbook } from './lib/legacy.js';
+import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
 
@@ -58,7 +58,7 @@ function showPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'dash') renderDash(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') loadSettings();
+  if (page === 'dash') renderDash(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
 function renderFoot() {
@@ -99,7 +99,9 @@ function renderDash() {
   lineChart($('#ch-cost'), dates, [{ label: '광고비', cls: 'cost', color: '#eb6834', values: D('spend_vat') }, { label: '광고 매출', cls: 'rev', color: '#2a78d6', values: D('ad_revenue') }]);
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
-  $('#notice').innerHTML = led.unmapped_options.length ? `<div class="notice">캠페인이 없는 옵션 ${led.unmapped_options.length}개의 판매는 '자연 판매'에만 들어가고 캠페인 표에는 없습니다. 광고를 돌리는 옵션이면 <a href="#options">캠페인 · 옵션</a>에서 캠페인 이름을 넣어 주세요.</div>` : '';
+  const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
+  $('#notice').innerHTML = (led.unmapped_options.length ? `<div class="notice">캠페인이 없는 옵션 ${led.unmapped_options.length}개의 판매는 '자연 판매'에만 들어가고 캠페인 표에는 없습니다. 광고를 돌리는 옵션이면 <a href="#options">캠페인 · 옵션</a>에서 캠페인 이름을 넣어 주세요.</div>` : '')
+    + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일은 엑셀 4번 시트에서 가져온 확정 값입니다. 엑셀에는 옵션별 매출이 없어 그 날의 총 매출은 광고 매출로, 자연 매출은 0으로 표시됩니다 (자연 판매 수는 있습니다).</div>` : '');
 }
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
@@ -317,11 +319,39 @@ $('#import-ads').onchange = async (ev) => {
   try { const r = await importAdsFile(await f.arrayBuffer(), f.name, $('#import-date').value || null); msg('#import-msg', `${f.name} → ${r.date} 광고 ${r.saved}건 저장`, 'ok'); } catch (e) { msg('#import-msg', e.message, 'err'); }
   ev.target.value = ''; await reload(); renderFoot();
 };
+let legacyParsed = null;
 $('#import-legacy').onchange = async (ev) => {
-  const f = ev.target.files[0]; if (!f) return; msg('#legacy-msg', '엑셀을 읽는 중… (큰 파일은 10초 정도 걸립니다)');
-  try { const r = await importLegacyWorkbook(await f.arrayBuffer()); msg('#legacy-msg', `가져옴: 옵션 ${r.options}개, 마진 ${r.margins}개, 광고 ${fmtInt(r.ads)}행, 판매 ${fmtInt(r.sales)}행 (${r.from} ~ ${r.to}). 대시보드에서 확인하세요.`, 'ok'); }
+  const f = ev.target.files[0]; if (!f) return; msg('#legacy-msg', '엑셀을 읽는 중… (큰 파일은 10초 정도 걸립니다)'); $('#legacy-preview').style.display = 'none';
+  try {
+    legacyParsed = await parseLegacyWorkbook(await f.arrayBuffer(), f.name);
+    const pv = previewAgainst(DATA, legacyParsed);
+    $('#legacy-summary').innerHTML = `파일: <b>${esc(f.name)}</b><br>기간 <b>${legacyParsed.from} ~ ${legacyParsed.to}</b> (${legacyParsed.dates.length}일) · 캠페인 ${legacyParsed.campaigns.length}개 · 캠페인×날짜 ${fmtInt(legacyParsed.cells)}칸<br>`
+      + (pv.overlapDays ? `이미 엑셀에서 가져온 날짜 ${pv.overlapDays}일은 덮어씁니다.<br>` : '')
+      + (pv.dailyDays ? `확장 프로그램으로 저장한 날짜 ${pv.dailyDays}일은 그 데이터가 우선이고, 엑셀 값은 비어 있는 쪽만 채웁니다.<br>` : '')
+      + `1번 시트: 옵션 ${legacyParsed.mapping.length}개 (새 옵션 ${pv.newOptions}개) · 마진은 <b>${legacyParsed.marginFrom}</b>부터 적용`;
+    $('#legacy-preview').style.display = 'block'; msg('#legacy-msg', '내용을 확인하고 적용을 누르세요.');
+  } catch (e) { msg('#legacy-msg', e.message, 'err'); legacyParsed = null; }
+  ev.target.value = '';
+};
+$('#legacy-cancel').onclick = () => { legacyParsed = null; $('#legacy-preview').style.display = 'none'; msg('#legacy-msg', ''); };
+$('#legacy-apply').onclick = async () => {
+  if (!legacyParsed) return; msg('#legacy-msg', '적용 중…');
+  try { const r = await applyLegacy(legacyParsed, { withMapping: $('#legacy-with-mapping').checked }); msg('#legacy-msg', `적용됨: ${r.from} ~ ${r.to}, ${fmtInt(r.cells)}칸` + (r.mappedOptions ? ` · 옵션 ${r.mappedOptions}개, 마진 ${r.mappedMargins}개` : '') + '. 대시보드에서 확인하세요. 잘못됐으면 아래 기록에서 되돌리기.', 'ok'); }
   catch (e) { msg('#legacy-msg', e.message, 'err'); }
-  ev.target.value = ''; await reload(); renderFoot();
+  legacyParsed = null; $('#legacy-preview').style.display = 'none'; await reload(); renderFoot(); renderImports();
+};
+async function renderImports() {
+  const list = await listImports(); const box = $('#legacy-history');
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<b class="sub">가져오기 기록</b>' + list.map((i) => `<div class="row" style="margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><span><b>${esc(i.source || '엑셀')}</b> <span class="sub">${new Date(i.at).toLocaleString('ko-KR')} · ${i.from} ~ ${i.to} · 캠페인 ${i.campaigns}개 · ${fmtInt(i.cells)}칸${i.mappedOptions ? ` · 옵션 ${i.mappedOptions}개` : ''}</span></span><span class="grow"></span><button class="btn sm" data-undo="${i.id}">되돌리기</button><button class="btn danger sm" data-remove="${i.id}">장부 값 삭제</button></div>`).join('')
+    + '<div class="sub" style="margin-top:4px">되돌리기 = 가져오기 전 상태로 복구(옵션·마진 포함). 장부 값 삭제 = 이 가져오기로 들어온 캠페인×날짜 값만 지우고 옵션·마진은 둠.</div>';
+  box.querySelectorAll('[data-undo]').forEach((b) => b.onclick = async () => { if (confirm('이 가져오기를 되돌릴까요? 가져오기 전 상태로 복구됩니다.')) { await undoImport(b.dataset.undo); msg('#legacy-msg', '되돌렸습니다.', 'ok'); refreshAll(); renderImports(); } });
+  box.querySelectorAll('[data-remove]').forEach((b) => b.onclick = async () => { if (confirm('이 가져오기로 들어온 장부 값을 삭제할까요? (옵션·마진은 남습니다)')) { const n = await removeImportData(b.dataset.remove); msg('#legacy-msg', `${fmtInt(n)}칸 삭제`, 'ok'); refreshAll(); renderImports(); } });
+}
+$('#wipe').onclick = async () => {
+  if (!confirm('정말 모든 데이터(판매·광고·엑셀 장부·옵션·마진)를 지울까요? 백업 파일을 먼저 받아 두세요.')) return;
+  if (!confirm('마지막 확인: 지운 데이터는 백업 파일로만 복구할 수 있습니다. 진행할까요?')) return;
+  await S.replaceAll({}); msg('#data-msg', '모두 지웠습니다.', 'ok'); refreshAll(); renderImports();
 };
 { const a = new Date(yday); a.setDate(a.getDate() - 6); $('#range-start').value = localIso(a); $('#range-end').value = localIso(yday); }
 const rangeDates = () => { const out = []; for (let d = $('#range-start').value; d <= $('#range-end').value; d = addDays(d, 1)) out.push(d); return out; };

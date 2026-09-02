@@ -1,8 +1,10 @@
 // 모든 데이터를 chrome.storage.local 에 보관한다. (서버 없음)
 // 구조: { options:[{option_id, product_name, campaign, sort_order}], margins:[{option_id, effective_from('' = 처음부터), margin, note}],
-//         sales:{ 'YYYY-MM-DD': { option_id: row } }, ads:{ 'YYYY-MM-DD': { campaign: row } } }
+//         sales:{ 'YYYY-MM-DD': { option_id: row } }, ads:{ 'YYYY-MM-DD': { campaign: row } },
+//         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
+//         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {} });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [] });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -65,9 +67,10 @@ export function campaigns(d) {
   const out = [];
   for (const o of sortedOptions(d)) if (o.campaign && !out.includes(o.campaign)) out.push(o.campaign);
   for (const day of Object.values(d.ads)) for (const c of Object.keys(day)) if (!out.includes(c)) out.push(c);
+  for (const day of Object.values(d.legacy || {})) for (const c of Object.keys(day)) if (!out.includes(c)) out.push(c);
   return out;
 }
-export function dates(d) { return [...new Set([...Object.keys(d.sales), ...Object.keys(d.ads)])].sort(); }
+export function dates(d) { return [...new Set([...Object.keys(d.sales), ...Object.keys(d.ads), ...Object.keys(d.legacy || {})])].sort(); }
 export function unmappedOptionIds(d) {
   const mapped = new Set(d.options.filter((o) => o.campaign).map((o) => o.option_id));
   const ids = new Set();
