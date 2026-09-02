@@ -115,6 +115,7 @@ export const api = {
       monthly_min?: number | null;
       monthly_sales_min?: number | null;
     };
+    pace?: string;
   }) =>
     request<{ job_id: number; list_targets: number; message: string }>("/api/scan/start", {
       method: "POST",

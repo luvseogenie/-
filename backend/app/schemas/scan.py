@@ -29,6 +29,8 @@ class ScanStartRequest(BaseModel):
     conditions: ScanConditions = Field(default_factory=ScanConditions)
     # 2단계에서 상세를 확인할 최대 상품 수 (0이면 2단계 생략)
     detail_limit: int = Field(default=50, ge=0, le=500)
+    # 상세 방문 속도 (fast / normal / slow). 빠를수록 쿠팡 차단 위험이 커진다.
+    pace: str = Field(default="slow", pattern="^(fast|normal|slow)$")
 
 
 class ScanTargetOut(BaseModel):
@@ -81,6 +83,7 @@ class ScanStatusOut(BaseModel):
     last_done_label: str | None = None
     last_product_count: int | None = None
     last_done_note: str | None = None
+    pace: str | None = None
     status: str
     phase: str
     list: ScanPhaseProgress

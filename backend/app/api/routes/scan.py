@@ -35,6 +35,7 @@ def start(payload: ScanStartRequest, db: Session = Depends(get_db)):
         list_size=payload.list_size,
         conditions=payload.conditions.model_dump(),
         detail_limit=payload.detail_limit,
+        pace=payload.pace,
     )
     if count == 0:
         job.status = ScanStatus.STOPPED

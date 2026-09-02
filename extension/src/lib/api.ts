@@ -120,6 +120,7 @@ export type ScanStatus = {
   total: number;
   done: number;
   failed: number;
+  pace?: string | null;
   current_label: string | null;
 };
 

@@ -110,6 +110,7 @@ def start_scan(
     list_size: int = DEFAULT_LIST_SIZE,
     conditions: dict | None = None,
     detail_limit: int = 50,
+    pace: str = "slow",
 ) -> tuple[ScanJob, int]:
     """스캔 작업을 만들고 1단계 대상을 채운다."""
     # 진행 중인 작업이 있으면 정리한다.
@@ -129,6 +130,7 @@ def start_scan(
         list_size=max(1, min(list_size, 120)),
         conditions=json.dumps(conditions or {}, ensure_ascii=False),
         detail_limit=max(0, min(detail_limit, MAX_DETAIL)),
+        pace=pace,
     )
     db.add(job)
     db.flush()
@@ -477,6 +479,7 @@ def job_status(db: Session, job: ScanJob) -> dict:
         "last_done_label": last_done.label if last_done else None,
         "last_product_count": last_done.product_count if last_done else None,
         "last_done_note": last_done.note if last_done else None,
+        "pace": job.pace,
         "job_id": job.id,
         "status": job.status,
         "phase": job.phase,

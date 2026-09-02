@@ -25,8 +25,13 @@ import { openBackgroundTab, sendWhenReady, sleep, waitForLoad } from "./tab_util
  * 대상 사이 대기(ms) — 사람이 페이지를 넘기는 속도. 너무 빠르면 쿠팡이 접근을 막는다.
  * (실제로 상세 50개를 2.5초 간격으로 열자 Access Denied 가 떴다)
  */
-const DELAY_LIST_MS: [number, number] = [4000, 7000];
-const DELAY_DETAIL_MS: [number, number] = [6000, 10000];
+const DELAY_LIST_MS: [number, number] = [3000, 5000];
+/** 상세 방문 간격 — 대시보드 「속도」 설정 (기본 slow) */
+const DELAY_DETAIL_BY_PACE: Record<string, [number, number]> = {
+  fast: [2000, 4000],
+  normal: [4000, 7000],
+  slow: [6000, 10000],
+};
 /** 이만큼 처리할 때마다 잠깐 쉰다 */
 const REST_EVERY = 10;
 const REST_MS: [number, number] = [20000, 35000];
@@ -52,6 +57,8 @@ type RunnerState = {
   consecutiveFailures: number;
   lastMessage: string;
   stopReason: string | null;
+  /** 상세 방문 속도 (대시보드 설정) */
+  pace: string;
 };
 
 const state: RunnerState = {
@@ -64,6 +71,7 @@ const state: RunnerState = {
   consecutiveFailures: 0,
   lastMessage: "",
   stopReason: null,
+  pace: "slow",
 };
 
 export function getRunnerState(): RunnerState {
@@ -383,8 +391,9 @@ async function loop(): Promise<void> {
     }
 
     state.currentTarget = null;
-    await sleep(jitter(target.kind === "detail" ? DELAY_DETAIL_MS : DELAY_LIST_MS));
-    if (state.processed > 0 && state.processed % REST_EVERY === 0) {
+    const detailDelay = DELAY_DETAIL_BY_PACE[state.pace] ?? DELAY_DETAIL_BY_PACE.slow!;
+    await sleep(jitter(target.kind === "detail" ? detailDelay : DELAY_LIST_MS));
+    if (state.pace !== "fast" && state.processed > 0 && state.processed % REST_EVERY === 0) {
       state.lastMessage = "잠깐 쉬는 중 (차단 방지)";
       await sleep(jitter(REST_MS));
     }
@@ -398,6 +407,7 @@ export async function startRunner(): Promise<{ ok: boolean; error?: string }> {
     return { ok: false, error: "진행 중인 스캔 작업이 없습니다. 대시보드에서 [소싱 시작]을 먼저 누르세요." };
   }
   if (status.status === "paused") await api.scanResume().catch(() => undefined);
+  state.pace = status.pace ?? "slow";
 
   // 상세 페이지 자동 수집이 꺼져 있어도 스캔은 직접 수집하므로 상관없다.
   void getAutoCollect();

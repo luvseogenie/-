@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DETAIL_LIMIT_OPTIONS, PAGES_OPTIONS, type ScanStatus } from "@/lib/types";
+import { DETAIL_LIMIT_OPTIONS, PACE_OPTIONS, PAGES_OPTIONS, type ScanStatus } from "@/lib/types";
 
 const STATUS_LABEL: Record<ScanStatus["status"], string> = {
   running: "수집 중",
@@ -35,6 +35,8 @@ export function ScanPanel({
   starting,
   onPagesChange,
   onDetailLimitChange,
+  pace,
+  onPaceChange,
   onStart,
   onPause,
   onResume,
@@ -51,6 +53,8 @@ export function ScanPanel({
   starting: boolean;
   onPagesChange: (pages: number) => void;
   onDetailLimitChange: (limit: number) => void;
+  pace: string;
+  onPaceChange: (pace: string) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -113,6 +117,22 @@ export function ScanPanel({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>상세 방문 속도</Label>
+        <Select value={pace} onValueChange={onPaceChange}>
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PACE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <p className="text-[10px] leading-relaxed text-muted-foreground">

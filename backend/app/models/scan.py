@@ -74,6 +74,8 @@ class ScanJob(Base, TimestampMixin):
     # 1차 조건 (2단계 대상 선정에 쓴다). JSON 문자열.
     conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 2단계에서 상세를 확인할 최대 상품 수
+    # 상세 방문 속도: fast(2~4초) / normal(4~7초) / slow(6~10초, 차단 방지 기본)
+    pace: Mapped[str | None] = mapped_column(String(16), nullable=True)
     detail_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     # 2단계 대상을 이미 만들었는지
     detail_prepared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

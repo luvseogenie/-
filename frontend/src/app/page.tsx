@@ -54,6 +54,7 @@ export default function DashboardPage() {
   /** 자동 스캔 설정·상태 */
   const [scanPages, setScanPages] = React.useState(1);
   const [scanDetailLimit, setScanDetailLimit] = React.useState(30);
+  const [scanPace, setScanPace] = React.useState<string>("slow");
   const [scanStatus, setScanStatus] = React.useState<ScanStatus | null>(null);
   const [scanStarting, setScanStarting] = React.useState(false);
   const [sort, setSort] = React.useState<string>("monthly_revenue_desc");
@@ -338,14 +339,24 @@ export default function DashboardPage() {
   React.useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastTableReload = 0;
     const tick = async () => {
       try {
         const status = await api.scanStatus();
         if (cancelled) return;
         setScanStatus(status);
         const active = status?.status === "running" || status?.status === "paused";
-        // 수집이 진행되는 동안 결과 테이블도 같이 갱신한다.
-        if (status?.status === "running") setReloadKey((k) => k + 1);
+        // 수집이 진행되는 동안 결과 테이블도 갱신하되, 화면이 버벅이지 않게 12초에 한 번만,
+        // 그리고 사용자가 입력 중(조건 칸에 커서)일 때는 건너뛴다.
+        const typing =
+          typeof document !== "undefined" &&
+          document.activeElement instanceof HTMLElement &&
+          ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+        const now = Date.now();
+        if (status?.status === "running" && !typing && now - lastTableReload > 12000) {
+          lastTableReload = now;
+          setReloadKey((k) => k + 1);
+        }
         timer = setTimeout(() => void tick(), active ? 3000 : 15000);
       } catch {
         if (!cancelled) timer = setTimeout(() => void tick(), 15000);
@@ -376,6 +387,7 @@ export default function DashboardPage() {
         category_ids: selectedIds,
         pages_per_category: scanPages,
         detail_limit: scanDetailLimit,
+        pace: scanPace,
         conditions: {
           price_min: toNumber(conditions.price_min),
           price_max: toNumber(conditions.price_max),
@@ -514,6 +526,8 @@ export default function DashboardPage() {
             starting={scanStarting}
             onPagesChange={setScanPages}
             onDetailLimitChange={setScanDetailLimit}
+            pace={scanPace}
+            onPaceChange={setScanPace}
             onStart={() => void startScan()}
             onPause={() => void scanControl("pause")}
             onResume={() => void scanControl("resume")}

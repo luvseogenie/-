@@ -38,6 +38,7 @@ def init_db() -> None:
 _LATE_COLUMNS = [
     ("products", "last_scan_job_id", "INTEGER"),
     ("scan_targets", "note", "VARCHAR(300)"),
+    ("scan_jobs", "pace", "VARCHAR(16)"),
 ]
 
 

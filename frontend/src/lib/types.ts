@@ -218,6 +218,7 @@ export type ScanStatus = {
   last_product_count: number | null;
   /** 방금 처리한 대상의 메모 (정렬 확인 결과, 읽음/저장 개수) */
   last_done_note: string | null;
+  pace?: string | null;
   status: "running" | "paused" | "completed" | "stopped";
   phase: "list" | "detail";
   list: ScanPhaseProgress;
@@ -266,3 +267,10 @@ export type SavedProduct = {
   monthly_purchase_text: string | null;
   product: Product;
 };
+
+/** 상세 방문 속도. 빠를수록 쿠팡 차단 위험이 커진다 */
+export const PACE_OPTIONS = [
+  { value: "slow", label: "느림 (6~10초, 차단 방지)" },
+  { value: "normal", label: "보통 (4~7초)" },
+  { value: "fast", label: "빠름 (2~4초, 차단 위험)" },
+] as const;
