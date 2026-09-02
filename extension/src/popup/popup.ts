@@ -25,6 +25,8 @@ const resultSub = $<HTMLElement>("result-sub");
 const errorPanel = $<HTMLElement>("error");
 const reviewPanel = $<HTMLElement>("review-panel");
 const analyzeButton = $<HTMLButtonElement>("analyze-reviews");
+const resetButton = $<HTMLButtonElement>("reset-reviews");
+const reviewProgress = $<HTMLElement>("review-progress");
 const reviewResult = $<HTMLElement>("review-result");
 const apiBaseInput = $<HTMLInputElement>("api-base");
 const saveApiButton = $<HTMLButtonElement>("save-api");
@@ -63,6 +65,7 @@ function renderScan(result: ParseResult) {
   // 최근 30일 리뷰 분석은 상품 상세 페이지에서만 의미가 있다.
   reviewPanel.classList.toggle("hidden", result.pageType !== "product");
   reviewResult.textContent = "";
+  reviewProgress.textContent = "";
 
   if (detected === 0 && result.errors.length > 0) {
     showError(result.errors[0] ?? "상품을 찾지 못했습니다.");
@@ -98,7 +101,9 @@ function renderReviewAnalysis(analysis: ReviewDateResult, result?: MonthlyReview
   }
 
   lines.push(
-    `읽은 리뷰 ${nf.format(analysis.sampleSize)}건 · 30일 이내 ${nf.format(analysis.reviewsInWindow)}건`,
+    `누적 리뷰 ${nf.format(analysis.sampleSize)}건` +
+      (analysis.pagesSeen > 0 ? ` (${nf.format(analysis.pagesSeen)}페이지)` : "") +
+      ` · 30일 이내 ${nf.format(analysis.reviewsInWindow)}건`,
   );
   if (analysis.newestReviewDate && analysis.oldestReviewDate) {
     lines.push(`표본 기간 ${analysis.oldestReviewDate} ~ ${analysis.newestReviewDate}`);
@@ -111,11 +116,24 @@ function renderReviewAnalysis(analysis: ReviewDateResult, result?: MonthlyReview
   reviewResult.innerHTML = head + lines.join("<br />");
 }
 
+async function resetReviews() {
+  clearError();
+  resetButton.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ type: "RESET_REVIEWS" });
+    reviewResult.textContent = "";
+    reviewProgress.textContent = "누적을 초기화했습니다. 리뷰 페이지를 다시 넘겨주세요.";
+  } finally {
+    resetButton.disabled = false;
+  }
+}
+
 async function analyzeReviews() {
   clearError();
   analyzeButton.disabled = true;
   analyzeButton.textContent = "분석 중...";
   reviewResult.textContent = "";
+  reviewProgress.textContent = "";
   try {
     const response = await chrome.runtime.sendMessage({ type: "ANALYZE_REVIEWS" });
     if (response?.analysis) {
@@ -166,6 +184,7 @@ async function collect() {
 collectButton.addEventListener("click", () => void collect());
 rescanButton.addEventListener("click", () => void scan());
 analyzeButton.addEventListener("click", () => void analyzeReviews());
+resetButton.addEventListener("click", () => void resetReviews());
 saveApiButton.addEventListener("click", () => {
   const value = apiBaseInput.value.trim() || DEFAULT_API_BASE;
   void setApiBase(value).then(() => {

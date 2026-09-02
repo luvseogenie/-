@@ -6,8 +6,10 @@ import {
   analyzeReviewDates,
   collectReviewDates,
   detectSortedByNewest,
+  extractReviewEntries,
   extractTotalReviewCount,
   parseReviewDate,
+  type ReviewEntry,
 } from "@/parsers/coupang_review_parser";
 
 function loadFixture(name: string): string {
@@ -86,7 +88,7 @@ describe("리뷰 영역 분석 — 30일을 못 덮은 표본", () => {
     expect(result.reviewsInWindow).toBe(10);
     expect(result.coversWindow).toBe(false);
     expect(result.sampleSpanDays).toBeCloseTo(4, 1);
-    expect(result.warnings.some((w) => w.includes("리뷰를 더 불러오면"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("다음 페이지로 넘기면"))).toBe(true);
   });
 });
 
@@ -127,5 +129,126 @@ describe("리뷰 영역 분석 — 예외 상황", () => {
     expect(result.reviewsInWindow).toBe(2);
     expect(result.coversWindow).toBe(true);
     expect(result.warnings.some((w) => w.includes("날짜 패턴만으로"))).toBe(true);
+  });
+});
+
+/**
+ * 쿠팡 리뷰 목록은 페이지네이션 방식이라 다음 페이지로 넘기면
+ * 이전 리뷰가 DOM에서 사라진다. 한 페이지(보통 5건)만으로는 30일을 덮을 수 없으므로
+ * 확장이 페이지를 넘나들며 리뷰를 누적한다.
+ */
+describe("리뷰 페이지 누적", () => {
+  /** 한 페이지 분량의 리뷰 목록 HTML */
+  function page(reviews: { date: string; text: string }[]): string {
+    return `
+      <section id="sdpReview">
+        <div class="sdp-review__article__order__sort">
+          <div class="sdp-review__article__order__sort__newest-btn active">최신순</div>
+        </div>
+        ${reviews
+          .map(
+            (r) => `
+          <article class="sdp-review__article__list">
+            <div class="sdp-review__article__list__info__product-info__reg-date">${r.date}</div>
+            <div class="sdp-review__article__list__review__content">${r.text}</div>
+          </article>`,
+          )
+          .join("")}
+      </section>`;
+  }
+
+  /** 확장이 누적하는 방식과 동일하게 key 기준으로 합친다. */
+  function accumulate(store: Map<string, Date>): ReviewEntry[] {
+    for (const entry of extractReviewEntries(document).entries) {
+      if (!store.has(entry.key)) store.set(entry.key, entry.date);
+    }
+    return [...store.entries()].map(([key, date]) => ({ key, date }));
+  }
+
+  it("한 페이지(5건)만으로는 30일을 덮지 못한다", () => {
+    document.body.innerHTML = page([
+      { date: "2026.09.01", text: "리뷰1" },
+      { date: "2026.08.31", text: "리뷰2" },
+      { date: "2026.08.30", text: "리뷰3" },
+      { date: "2026.08.29", text: "리뷰4" },
+      { date: "2026.08.28", text: "리뷰5" },
+    ]);
+    const result = analyzeReviewDates(document, NOW);
+    expect(result.sampleSize).toBe(5);
+    expect(result.coversWindow).toBe(false);
+    expect(result.warnings.some((w) => w.includes("다음 페이지"))).toBe(true);
+  });
+
+  it("페이지를 넘기며 누적하면 30일 실측에 도달한다", () => {
+    const store = new Map<string, Date>();
+
+    // 1페이지
+    document.body.innerHTML = page([
+      { date: "2026.09.01", text: "리뷰1" },
+      { date: "2026.08.28", text: "리뷰2" },
+      { date: "2026.08.25", text: "리뷰3" },
+    ]);
+    let carry = accumulate(store);
+    expect(analyzeReviewDates(document, NOW, carry).coversWindow).toBe(false);
+
+    // 2페이지 (이전 리뷰는 DOM에서 사라진다)
+    document.body.innerHTML = page([
+      { date: "2026.08.20", text: "리뷰4" },
+      { date: "2026.08.12", text: "리뷰5" },
+      { date: "2026.08.05", text: "리뷰6" },
+    ]);
+    carry = accumulate(store);
+    expect(analyzeReviewDates(document, NOW, carry).sampleSize).toBe(6);
+
+    // 3페이지 — 30일보다 오래된 리뷰가 나온다
+    document.body.innerHTML = page([
+      { date: "2026.08.01", text: "리뷰7" },
+      { date: "2026.07.20", text: "리뷰8" },
+      { date: "2026.06.30", text: "리뷰9" },
+    ]);
+    carry = accumulate(store);
+    const result = analyzeReviewDates(document, NOW, carry);
+
+    expect(result.sampleSize).toBe(9);
+    expect(result.coversWindow).toBe(true); // 30일 경계를 넘었다 → 실측
+    // 2026-08-03 이후(30일 이내) 리뷰: 09.01, 08.28, 08.25, 08.20, 08.12, 08.05 = 6건
+    expect(result.reviewsInWindow).toBe(6);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("같은 페이지를 다시 봐도 중복으로 세지 않는다", () => {
+    const store = new Map<string, Date>();
+    const html = page([
+      { date: "2026.09.01", text: "리뷰1" },
+      { date: "2026.08.28", text: "리뷰2" },
+    ]);
+    document.body.innerHTML = html;
+    accumulate(store);
+    document.body.innerHTML = html; // 뒤로 갔다가 다시 앞으로
+    const carry = accumulate(store);
+    expect(carry).toHaveLength(2);
+    expect(analyzeReviewDates(document, NOW, carry).sampleSize).toBe(2);
+  });
+
+  it("같은 날짜의 서로 다른 리뷰는 별개로 센다", () => {
+    const store = new Map<string, Date>();
+    document.body.innerHTML = page([
+      { date: "2026.09.01", text: "정말 좋아요" },
+      { date: "2026.09.01", text: "배송이 빨라요" },
+      { date: "2026.09.01", text: "가성비 최고" },
+    ]);
+    const carry = accumulate(store);
+    expect(carry).toHaveLength(3);
+  });
+
+  it("data-review-id가 있으면 그것으로 중복을 판별한다", () => {
+    document.body.innerHTML = `
+      <section id="sdpReview">
+        <article class="sdp-review__article__list" data-review-id="R-1">
+          <div class="sdp-review__article__list__info__product-info__reg-date">2026.09.01</div>
+        </article>
+      </section>`;
+    const { entries } = extractReviewEntries(document);
+    expect(entries[0]?.key).toBe("id:R-1");
   });
 });

@@ -25,10 +25,13 @@
     <section id="review-panel" class="panel hidden">
       <div class="section-title">최근 30일 리뷰 분석</div>
       <p class="meta">
-        쿠팡은 최근 1달 리뷰수를 표시하지 않습니다. 상세 페이지 리뷰를
-        <b>최신순</b>으로 정렬하고 더보기로 리뷰를 충분히 불러온 뒤 아래 버튼을 누르세요.
+        쿠팡은 최근 1달 리뷰수를 표시하지 않습니다. 리뷰를 <b>최신순</b>으로 정렬한 뒤
+        <b>30일보다 오래된 리뷰가 나올 때까지</b> 페이지를 넘기세요.
+        넘기는 동안 확장이 자동으로 리뷰를 모읍니다.
       </p>
+      <div id="review-progress" class="meta"></div>
       <button id="analyze-reviews" type="button" class="ghost">리뷰 날짜 분석</button>
+      <button id="reset-reviews" type="button" class="ghost small-full">누적 초기화</button>
       <div id="review-result" class="meta"></div>
     </section>
 

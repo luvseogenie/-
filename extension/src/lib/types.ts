@@ -56,6 +56,8 @@ export type ReviewDateResult = {
   warnings: string[];
   productId: string | null;
   productUrl: string;
+  /** 지금까지 누적한 리뷰 페이지 수 */
+  pagesSeen: number;
 };
 
 export type MonthlyReviewResponse = {
@@ -74,12 +76,14 @@ export type CollectMessage = { type: "COLLECT" };
 export type GetStateMessage = { type: "GET_STATE" };
 
 export type AnalyzeReviewsMessage = { type: "ANALYZE_REVIEWS" };
+export type ResetReviewsMessage = { type: "RESET_REVIEWS" };
 
 export type ExtensionMessage =
   | ScanMessage
   | CollectMessage
   | GetStateMessage
-  | AnalyzeReviewsMessage;
+  | AnalyzeReviewsMessage
+  | ResetReviewsMessage;
 
 export type ScanSummary = {
   detected: number;

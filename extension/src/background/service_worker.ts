@@ -197,7 +197,22 @@ async function handleAnalyzeReviews(): Promise<{
   }
 }
 
+async function handleResetReviews(): Promise<{ ok: boolean; error?: string }> {
+  const tab = await getActiveTab();
+  if (!tab?.id) return { ok: false, error: "활성 탭을 찾을 수 없습니다." };
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "RESET_REVIEWS" });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "RESET_REVIEWS") {
+    void handleResetReviews().then(sendResponse);
+    return true;
+  }
   if (message?.type === "ANALYZE_REVIEWS") {
     void handleAnalyzeReviews().then(sendResponse);
     return true;

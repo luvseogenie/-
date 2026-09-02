@@ -67,7 +67,9 @@ button.ghost {
 button.small { width: auto; padding: 6px 10px; margin: 0; font-size: 11px; }
 
 .section-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
-#review-panel button { margin-top: 8px; margin-bottom: 6px; }
+#review-panel button { margin-top: 8px; margin-bottom: 0; }
+#review-panel button.small-full { margin-top: 4px; padding: 5px; font-size: 11px; opacity: 0.75; }
+#review-progress { margin-top: 6px; color: var(--primary); }
 #review-result { line-height: 1.6; }
 #review-result .big { display: block; font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
 #review-result .warn { color: var(--warn); }

@@ -29,6 +29,12 @@ import { parseReviewCount } from "@/parsers/normalize";
 export const WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** 리뷰 한 건. key는 페이지를 넘나들며 중복을 걸러내기 위한 식별자다. */
+export type ReviewEntry = {
+  key: string;
+  date: Date;
+};
+
 export type ReviewDateAnalysis = {
   /** 30일 이내로 확인된 리뷰 개수 */
   reviewsInWindow: number;
@@ -92,6 +98,10 @@ export function parseReviewDate(raw: string | null | undefined): Date | null {
   return null;
 }
 
+function oldestReviewLabel(oldest: Date): string {
+  return formatDate(oldest);
+}
+
 function formatDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -109,6 +119,30 @@ export function detectSortedByNewest(root: ParentNode): boolean | null {
   return REVIEW_NEWEST_KEYWORDS.some((k) => text.includes(k.toLowerCase()));
 }
 
+const ID_ATTRIBUTES = ["data-review-id", "data-id", "id"] as const;
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * 리뷰 한 건의 식별자.
+ *
+ * 쿠팡 리뷰 목록은 페이지를 넘기면 이전 리뷰가 DOM에서 사라진다.
+ * 여러 페이지를 오가며 읽은 리뷰를 중복 없이 누적하려면 안정적인 키가 필요하다.
+ * data-* 아이디가 있으면 그것을, 없으면 (작성일 + 본문 앞부분)으로 만든다.
+ */
+function entryKey(item: Element | null, date: Date, fallbackText: string): string {
+  if (item) {
+    for (const attr of ID_ATTRIBUTES) {
+      const value = item.getAttribute(attr);
+      if (value && value.trim() !== "") return `id:${value.trim()}`;
+    }
+  }
+  const iso = date.toISOString().slice(0, 10);
+  return `txt:${iso}|${normalizeText(fallbackText).slice(0, 80)}`;
+}
+
 /**
  * 렌더된 리뷰들의 작성일을 모은다.
  *
@@ -116,12 +150,15 @@ export function detectSortedByNewest(root: ParentNode): boolean | null {
  * 2차(fallback): 리뷰 영역 전체 텍스트에서 날짜 패턴을 훑는다.
  *                (클래스명이 바뀌어도 최소한의 동작을 보장하기 위한 안전망)
  */
-export function collectReviewDates(root: ParentNode): { dates: Date[]; usedFallback: boolean } {
+export function extractReviewEntries(root: ParentNode): {
+  entries: ReviewEntry[];
+  usedFallback: boolean;
+} {
   const section = queryFirst(root, REVIEW_SECTION_SELECTORS) ?? root;
 
   const items = queryAll(section, REVIEW_ITEM_SELECTORS);
   if (items.length > 0) {
-    const dates: Date[] = [];
+    const entries: ReviewEntry[] = [];
     for (const item of items) {
       const dateEl = queryFirst(item, REVIEW_DATE_SELECTORS);
       const date =
@@ -129,20 +166,31 @@ export function collectReviewDates(root: ParentNode): { dates: Date[]; usedFallb
         parseReviewDate(dateEl?.textContent) ??
         // 날짜 전용 요소를 못 찾으면 카드 텍스트에서 첫 날짜를 찾는다.
         parseReviewDate(item.textContent);
-      if (date) dates.push(date);
+      if (date) entries.push({ key: entryKey(item, date, item.textContent ?? ""), date });
     }
-    if (dates.length > 0) return { dates, usedFallback: false };
+    if (entries.length > 0) return { entries, usedFallback: false };
   }
 
-  // fallback: 리뷰 영역 안의 모든 요소에서 날짜만 훑는다.
-  const dates: Date[] = [];
-  const walker = section.querySelectorAll("*");
-  for (const el of Array.from(walker)) {
-    if (el.children.length > 0) continue; // 잎 노드만 본다(중복 방지)
+  // fallback: 리뷰 영역 안의 잎 노드에서 날짜만 훑는다.
+  const entries: ReviewEntry[] = [];
+  const seen = new Map<string, number>();
+  for (const el of Array.from(section.querySelectorAll("*"))) {
+    if (el.children.length > 0) continue;
     const date = parseReviewDate(el.textContent);
-    if (date) dates.push(date);
+    if (!date) continue;
+    // 같은 날짜가 여러 건일 수 있으므로 순번을 붙여 구분한다.
+    const iso = date.toISOString().slice(0, 10);
+    const index = (seen.get(iso) ?? 0) + 1;
+    seen.set(iso, index);
+    entries.push({ key: `fb:${iso}#${index}`, date });
   }
-  return { dates, usedFallback: dates.length > 0 };
+  return { entries, usedFallback: entries.length > 0 };
+}
+
+/** 하위 호환: 날짜만 필요할 때 */
+export function collectReviewDates(root: ParentNode): { dates: Date[]; usedFallback: boolean } {
+  const { entries, usedFallback } = extractReviewEntries(root);
+  return { dates: entries.map((e) => e.date), usedFallback };
 }
 
 /** 상세 페이지에 표시된 누적 리뷰수 */
@@ -157,11 +205,27 @@ export function extractTotalReviewCount(root: ParentNode): number | null {
 
 /**
  * 현재 화면의 리뷰 작성일을 분석해 최근 30일 리뷰수 산출에 필요한 값을 만든다.
- * @param now 테스트에서 기준 시각을 고정하기 위한 인자
+ *
+ * @param root      분석 대상 문서
+ * @param now       테스트에서 기준 시각을 고정하기 위한 인자
+ * @param carryOver 사용자가 앞서 넘겨 본 페이지에서 누적해 둔 리뷰들.
+ *                  쿠팡 리뷰는 페이지를 넘기면 이전 리뷰가 DOM에서 사라지므로,
+ *                  이걸 합쳐야 30일 구간을 덮을 수 있다.
  */
-export function analyzeReviewDates(root: ParentNode, now: Date = new Date()): ReviewDateAnalysis {
+export function analyzeReviewDates(
+  root: ParentNode,
+  now: Date = new Date(),
+  carryOver: ReviewEntry[] = [],
+): ReviewDateAnalysis {
   const warnings: string[] = [];
-  const { dates, usedFallback } = collectReviewDates(root);
+  const { entries: current, usedFallback } = extractReviewEntries(root);
+
+  // 누적분과 현재 페이지를 key로 합친다(중복 제거).
+  const merged = new Map<string, Date>();
+  for (const entry of carryOver) merged.set(entry.key, entry.date);
+  for (const entry of current) merged.set(entry.key, entry.date);
+  const dates = [...merged.values()];
+
   const sortedByNewest = detectSortedByNewest(root);
   const totalReviewCount = extractTotalReviewCount(root);
 
@@ -207,7 +271,8 @@ export function analyzeReviewDates(root: ParentNode, now: Date = new Date()): Re
   if (!coversWindow) {
     warnings.push(
       `읽은 리뷰 ${dates.length}건이 모두 최근 ${Math.max(1, Math.round(sampleSpanDays))}일 안에 있습니다. ` +
-        "리뷰를 더 불러오면(다음 페이지/더보기) 30일 실측값을 얻을 수 있습니다.",
+        `리뷰 목록에서 ${oldestReviewLabel(oldest)} 이전 리뷰가 나올 때까지 다음 페이지로 넘기면 ` +
+        "확장이 자동으로 누적해 30일 실측값을 만듭니다.",
     );
   }
 
