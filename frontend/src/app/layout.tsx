@@ -9,8 +9,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className="dark">
-      <body className="antialiased">{children}</body>
+    // suppressHydrationWarning: 다른 크롬 확장이 <html>/<body>에 속성을 끼워 넣으면
+    // (예: ap-style="") React 가 hydration 경고를 낸다. 기능과 무관하므로 무시한다.
+    <html lang="ko" className="dark" suppressHydrationWarning>
+      <body className="antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
