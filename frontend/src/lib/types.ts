@@ -198,8 +198,14 @@ export const MULTIPLIER_PRESETS = [10, 15, 20, 25, 30, 50];
 /** 자동 스캔 진행 상태 (backend/app/schemas/scan.py 와 대응) */
 export type ScanPhaseProgress = { total: number; done: number; failed: number; pending: number };
 
+export type ScanTargetError = { kind: "list" | "detail"; label: string; error: string };
+
 export type ScanStatus = {
   job_id: number;
+  /** 최근 실패 3건 — 2단계가 왜 안 되는지 화면에서 바로 보이게 */
+  recent_errors: ScanTargetError[];
+  last_done_label: string | null;
+  last_product_count: number | null;
   status: "running" | "paused" | "completed" | "stopped";
   phase: "list" | "detail";
   list: ScanPhaseProgress;

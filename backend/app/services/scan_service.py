@@ -410,9 +410,30 @@ def job_status(db: Session, job: ScanJob) -> dict:
         .limit(1)
     )
 
+    # 최근 실패 사유 — 2단계가 왜 안 되는지 화면에서 바로 볼 수 있게
+    failed_rows = db.scalars(
+        select(ScanTarget)
+        .where(ScanTarget.job_id == job.id, ScanTarget.status == TargetStatus.FAILED)
+        .order_by(ScanTarget.finished_at.desc(), ScanTarget.id.desc())
+        .limit(3)
+    ).all()
+    recent_errors = [
+        {"kind": t.kind, "label": (t.label or t.url)[:80], "error": (t.error or "")[:200]}
+        for t in failed_rows
+    ]
+    last_done = db.scalar(
+        select(ScanTarget)
+        .where(ScanTarget.job_id == job.id, ScanTarget.status == TargetStatus.DONE)
+        .order_by(ScanTarget.finished_at.desc(), ScanTarget.id.desc())
+        .limit(1)
+    )
+
     list_part = part(TargetKind.LIST)
     detail_part = part(TargetKind.DETAIL)
     return {
+        "recent_errors": recent_errors,
+        "last_done_label": last_done.label if last_done else None,
+        "last_product_count": last_done.product_count if last_done else None,
         "job_id": job.id,
         "status": job.status,
         "phase": job.phase,

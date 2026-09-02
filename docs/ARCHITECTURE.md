@@ -273,6 +273,20 @@ popup [쿠팡 카테고리 전체 가져오기]
 자동 스캔의 목록 대상 처리 후에도 같은 파서로 좌측 메뉴의 하위 카테고리를 등록한다 (부모가 확인된 행만).
 ```
 
+## 5-5. 대시보드 → 확장 다리 (popup 없이 한 번 클릭)
+
+```
+대시보드 페이지(localhost:3000)
+  window.postMessage({source:"coupang-sourcing-dashboard", requestId, type})
+    └▶ 확장 content script bridge.js (manifest: localhost:3000 에 주입)
+         · 페이지에 <html data-coupang-sourcing-extension="확장ID"> 를 심어 "연결됨"을 알린다
+         · 허용된 type(SCAN_START/PAUSE/RESUME/STOP/STATE, IMPORT_CATEGORIES)만
+           chrome.runtime.sendMessage 로 service worker 에 전달하고 답을 postMessage 로 돌려준다
+[소싱 시작] = POST /api/scan/start → SCAN_START,  [쿠팡 카테고리 가져오기] = IMPORT_CATEGORIES
+GET /api/scan/status 는 recent_errors(최근 실패 3건)·last_done_label·last_product_count 를 포함해
+2단계가 왜 안 되는지 대시보드에서 바로 보이게 한다.
+```
+
 ## 6. 파서 설계 원칙
 
 1. selector는 `selectors.ts` 한 파일에만 존재한다. 다른 파일에 CSS selector 문자열을 쓰지 않는다.

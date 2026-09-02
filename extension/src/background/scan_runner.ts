@@ -138,17 +138,43 @@ function looksBlocked(parsed: ParseResult): boolean {
   return url.includes("captcha") || url.includes("access-denied") || url.includes("blocked");
 }
 
+/**
+ * 목록 페이지를 끝까지 스크롤한다.
+ * 쿠팡은 화면에 들어온 상품부터 그리므로, 스크롤하지 않으면 뒤쪽 상품이 DOM에 없을 수 있다.
+ * 페이지를 조작하는 게 아니라 사람이 스크롤하는 것과 같은 동작이다.
+ */
+async function scrollToBottom(tabId: number): Promise<void> {
+  try {
+    for (let i = 0; i < 6; i += 1) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => window.scrollTo(0, document.documentElement.scrollHeight),
+      });
+      await sleep(400);
+    }
+    await chrome.scripting.executeScript({ target: { tabId }, func: () => window.scrollTo(0, 0) });
+    await sleep(300);
+  } catch (e) {
+    log.warn("스크롤 실패(무시)", e);
+  }
+}
+
 async function processTarget(target: ScanTarget): Promise<{ count: number; discovered: DiscoveredChild[] }> {
   const tabId = await ensureTab(target.url);
   await waitForLoad(tabId, target.url, 25000);
   await sleep(SETTLE_AFTER_LOAD_MS);
+  if (target.kind === "list") await scrollToBottom(tabId);
 
   const parsed = await scanWhenReady(tabId);
   if (looksBlocked(parsed)) {
     throw new Error("쿠팡이 접근을 제한한 것으로 보입니다. 잠시 후 다시 시도하세요.");
   }
   if (parsed.products.length === 0) {
-    throw new Error(parsed.errors[0] ?? "상품을 찾지 못했습니다.");
+    const where = parsed.pageType === "product" ? "상세 페이지" : "목록 페이지";
+    throw new Error(
+      `${where}에서 상품을 읽지 못했습니다 (${parsed.errors[0] ?? "이유 불명"}). ` +
+        "쿠팡 화면이 바뀌었을 수 있습니다 — 그 페이지에서 [진단 정보 복사]를 보내주세요.",
+    );
   }
 
   await api.collect({

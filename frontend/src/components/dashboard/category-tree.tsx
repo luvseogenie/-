@@ -122,9 +122,12 @@ export type CategoryTreeProps = {
   error: string | null;
   selected: Set<number>;
   onChange: (next: Set<number>) => void;
+  /** 확장을 통해 쿠팡 첫 화면 메뉴에서 전체 카테고리를 가져온다 */
+  onImport?: () => void;
+  importing?: boolean;
 };
 
-export function CategoryTree({ tree, loading, error, selected, onChange }: CategoryTreeProps) {
+export function CategoryTree({ tree, loading, error, selected, onChange, onImport, importing }: CategoryTreeProps) {
   const [expanded, setExpanded] = React.useState<Set<number>>(new Set());
   const [keyword, setKeyword] = React.useState("");
 
@@ -178,11 +181,25 @@ export function CategoryTree({ tree, loading, error, selected, onChange }: Categ
           <FolderTree className="h-3.5 w-3.5 text-primary" />
           카테고리
         </div>
-        {selected.size > 0 && (
-          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px]" onClick={() => onChange(new Set())}>
-            전체 해제
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {onImport && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-[11px]"
+              disabled={importing}
+              onClick={onImport}
+              title="크롬 확장을 통해 쿠팡 첫 화면 메뉴에서 전체 카테고리를 읽어옵니다"
+            >
+              {importing ? "가져오는 중..." : tree.length === 0 ? "쿠팡 카테고리 가져오기" : "카테고리 갱신"}
+            </Button>
+          )}
+          {selected.size > 0 && (
+            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px]" onClick={() => onChange(new Set())}>
+              전체 해제
+            </Button>
+          )}
+        </div>
       </div>
 
       <Input
@@ -203,8 +220,7 @@ export function CategoryTree({ tree, loading, error, selected, onChange }: Categ
           <p className="p-3 text-xs leading-relaxed text-muted-foreground">
             카테고리가 아직 없습니다.
             <br />
-            크롬 확장 아이콘 → <b>[쿠팡 카테고리 전체 가져오기]</b>를 누르면 쿠팡 메뉴에서 전체 트리를
-            읽어옵니다. 그 다음 위의 [새로고침]을 누르세요.
+            아래 버튼을 누르면 쿠팡 첫 화면 메뉴에서 전체 카테고리를 읽어옵니다 (탭이 몇 초 열렸다 닫힙니다).
           </p>
         )}
         <ul>

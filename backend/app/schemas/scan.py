@@ -64,8 +64,17 @@ class ScanPhaseProgress(BaseModel):
     pending: int
 
 
+class ScanTargetError(BaseModel):
+    kind: str
+    label: str
+    error: str
+
+
 class ScanStatusOut(BaseModel):
     job_id: int
+    recent_errors: list[ScanTargetError] = Field(default_factory=list)
+    last_done_label: str | None = None
+    last_product_count: int | None = None
     status: str
     phase: str
     list: ScanPhaseProgress

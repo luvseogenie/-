@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { api, buildQuery } from "@/lib/api";
+import { extensionId, sendToExtension } from "@/lib/extension-bridge";
 import {
   DEFAULT_CONDITIONS,
   SORT_OPTIONS,
@@ -62,6 +63,48 @@ export default function DashboardPage() {
 
   // 카테고리 트리 + 설정 최초 로드
   const [treeReloadKey, setTreeReloadKey] = React.useState(0);
+  /** 크롬 확장이 이 페이지에 연결되어 있는지 (null = 확인 중) */
+  const [extensionConnected, setExtensionConnected] = React.useState<boolean | null>(null);
+  const [importingCategories, setImportingCategories] = React.useState(false);
+
+  // 확장의 content script 는 페이지가 뜬 뒤에 붙으므로 몇 초 동안 다시 확인한다.
+  React.useEffect(() => {
+    let cancelled = false;
+    let tries = 0;
+    const probe = () => {
+      if (cancelled) return;
+      const found = extensionId() !== null;
+      tries += 1;
+      if (found) setExtensionConnected(true);
+      else if (tries >= 8) setExtensionConnected(false);
+      if (!found && tries < 8) setTimeout(probe, 500);
+      else if (found) setTimeout(probe, 10000); // 연결이 끊기는지도 가끔 본다
+    };
+    probe();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 확장을 통해 쿠팡 첫 화면 메뉴에서 전체 카테고리를 가져온다 (popup 불필요). */
+  const importCategories = async () => {
+    setError(null);
+    setImportingCategories(true);
+    try {
+      const res = await sendToExtension("IMPORT_CATEGORIES", 90000);
+      if (!res.ok) {
+        setError(res.error ?? "카테고리를 가져오지 못했습니다.");
+        return;
+      }
+      const n = (v: unknown) => Number(v ?? 0).toLocaleString("ko-KR");
+      setNotice(
+        `카테고리 ${n(res.received)}개 등록 (신규 ${n(res.created)} / 갱신 ${n(res.updated)}) · 최상위 ${n(res.roots)}개 · 깊이 ${n(res.maxDepth)}단계`,
+      );
+      setTreeReloadKey((k) => k + 1);
+    } finally {
+      setImportingCategories(false);
+    }
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -210,8 +253,14 @@ export default function DashboardPage() {
           delivery_types: conditions.delivery_types,
         },
       });
+      // popup 을 열 필요 없이 확장을 바로 구동한다.
+      const ext = await sendToExtension("SCAN_START");
       setScanStatus(await api.scanStatus());
-      setNotice(`${res.message}`);
+      if (ext.ok) {
+        setNotice(`목록 ${res.list_targets}페이지부터 자동 수집을 시작했습니다. 탭 하나가 열려 알아서 진행됩니다.`);
+      } else {
+        setNotice(`${res.message} (자동 시작 실패: ${ext.error ?? "확장 응답 없음"})`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "스캔을 시작하지 못했습니다.");
     } finally {
@@ -228,6 +277,8 @@ export default function DashboardPage() {
           : action === "resume"
             ? await api.scanResume()
             : await api.scanStop();
+      // 확장의 실행기도 같은 상태로 맞춘다 (없으면 조용히 넘어간다).
+      void sendToExtension(action === "pause" ? "SCAN_PAUSE" : action === "resume" ? "SCAN_RESUME" : "SCAN_STOP", 10000);
       setScanStatus(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : "요청에 실패했습니다.");
@@ -289,6 +340,8 @@ export default function DashboardPage() {
             error={treeError}
             selected={selected}
             onChange={setSelected}
+            onImport={() => void importCategories()}
+            importing={importingCategories}
           />
           <Separator />
           <ConditionPanel conditions={conditions} onChange={setConditions} />
@@ -308,6 +361,7 @@ export default function DashboardPage() {
             onResume={() => void scanControl("resume")}
             onStop={() => void scanControl("stop")}
             onExport={exportExcel}
+            extensionConnected={extensionConnected}
             exportCount={stats?.condition_passed_products ?? 0}
           />
 

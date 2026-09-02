@@ -21,7 +21,7 @@ await mkdir(outdir, { recursive: true });
 
 /** content script: IIFE (MV3 제약) */
 const contentOptions = {
-  entryPoints: { content: "src/content/content.ts" },
+  entryPoints: { content: "src/content/content.ts", bridge: "src/content/bridge.ts" },
   bundle: true,
   format: "iife",
   target: "chrome110",

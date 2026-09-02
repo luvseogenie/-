@@ -577,6 +577,19 @@ export function parseProductList(root: ParentNode, sourceUrl: string): ParseResu
         result.categoryPath = [{ code, name: nextData.categoryName }];
       }
     }
+    // DOM 에만 있는 상품(늦게 그려진 카드 등)이 있으면 보탠다. 같은 상품은 페이지 데이터를 우선한다.
+    const known = new Set(result.products.map((p) => p.product_id));
+    const { cards } = findCards(root);
+    let added = 0;
+    for (const card of cards) {
+      const outcome = parseProductCard(card, { rank: result.products.length + 1, baseUrl: sourceUrl });
+      if (outcome.ok && !known.has(outcome.product.product_id)) {
+        known.add(outcome.product.product_id);
+        result.products.push(outcome.product);
+        added += 1;
+      }
+    }
+    if (added > 0) result.matchedCardSelector = `__next_f (페이지 데이터) + DOM ${added}개`;
     return result;
   }
 

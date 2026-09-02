@@ -41,6 +41,7 @@ export function ScanPanel({
   onStop,
   onExport,
   exportCount,
+  extensionConnected,
 }: {
   selectedCount: number;
   pages: number;
@@ -55,15 +56,27 @@ export function ScanPanel({
   onStop: () => void;
   onExport: () => void;
   exportCount: number;
+  /** 크롬 확장이 이 페이지에 연결되어 있는지 (null = 아직 확인 중) */
+  extensionConnected: boolean | null;
 }) {
   const active = status?.status === "running" || status?.status === "paused";
   const percent = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-1.5 text-xs font-semibold">
-        <Play className="h-3.5 w-3.5 text-primary" />
-        실행
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-semibold">
+          <Play className="h-3.5 w-3.5 text-primary" />
+          실행
+        </div>
+        <span
+          className={`text-[10px] ${
+            extensionConnected ? "text-[var(--success)]" : extensionConnected === false ? "text-destructive" : "text-muted-foreground"
+          }`}
+          title="크롬 확장 프로그램이 이 페이지에 연결되어 있으면 [소싱 시작]만으로 자동 수집이 돌아갑니다"
+        >
+          {extensionConnected ? "● 확장 연결됨" : extensionConnected === false ? "● 확장 미감지" : "확장 확인 중"}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -155,9 +168,30 @@ export function ScanPanel({
               <Square /> 중단
             </Button>
           </div>
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
-            크롬 확장 popup에서 <b>[자동 수집 시작]</b>을 눌러야 실제로 페이지를 방문합니다.
-          </p>
+          {status!.last_done_label && (
+            <p className="truncate text-[10px] text-muted-foreground" title={status!.last_done_label}>
+              방금: {status!.last_done_label}
+              {status!.last_product_count !== null && ` — 상품 ${status!.last_product_count}개`}
+            </p>
+          )}
+          {!extensionConnected && (
+            <p className="text-[10px] leading-relaxed text-destructive">
+              확장이 연결되지 않아 자동으로 시작하지 못했습니다. 크롬 확장 popup에서 <b>[자동 수집 시작]</b>을 누르세요.
+            </p>
+          )}
+        </div>
+      )}
+
+      {status && status.recent_errors.length > 0 && (
+        <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10px] text-destructive">
+          <div className="font-semibold">최근 실패 사유</div>
+          {status.recent_errors.map((e, i) => (
+            <p key={i} className="leading-snug" title={e.error}>
+              [{e.kind === "list" ? "목록" : "상세"}] {e.label}
+              <br />
+              <span className="opacity-80">{e.error}</span>
+            </p>
+          ))}
         </div>
       )}
 
