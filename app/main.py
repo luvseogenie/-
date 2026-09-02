@@ -387,14 +387,18 @@ def tools(name: str):
                 lines.append("-----")
             return {"ok": True, "message": msg, "result": r, "text": "\n".join(lines)}
         if name == "test_wing":
-            r = browser.call(wing.test_connection, "윙 연결 테스트", timeout=120)
-            lines = [f"윙 탭 주소: {r.get('page_url')}", "",
+            r = browser.call(wing.test_connection, "윙 연결 테스트", timeout=180)
+            lines = [f"윙 탭 주소: {r.get('page_url')} → {r.get('page_url_after')}", "",
+                     f"[카탈로그 매칭 · 카테고리번호 없이] {'오류: ' + r['prematch_error'] if r.get('prematch_error') else ('응답 없음' if not r.get('prematch_nocat') else '정상')}",
+                     json.dumps(r.get("prematch_nocat"), ensure_ascii=False) if r.get("prematch_nocat") else "",
+                     f"[카탈로그 매칭 · 카테고리번호 1839] {'응답 없음' if not r.get('prematch') else '정상'}",
+                     json.dumps(r.get("prematch"), ensure_ascii=False) if r.get("prematch") else "",
+                     f"[쿠팡 공개 카테고리번호] {r.get('public_category') or ('오류: ' + str(r.get('public_category_error')) if r.get('public_category_error') else '없음')}",
+                     "",
                      f"[인기상품검색] {'오류: ' + r['trends_error'] if r.get('trends_error') else '상품 ' + str(r.get('trends_count')) + '개'}",
-                     json.dumps(r.get("trends_first"), ensure_ascii=False) if r.get("trends_first") else "",
-                     "", f"[카탈로그 매칭] {'오류: ' + r['prematch_error'] if r.get('prematch_error') else ('응답 없음' if not r.get('prematch') else '정상')}",
-                     json.dumps(r.get("prematch"), ensure_ascii=False) if r.get("prematch") else ""]
-            ok = bool(r.get("prematch")) or bool(r.get("trends_first"))
-            msg = "윙 연결 정상입니다." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
+                     json.dumps(r.get("trends_first"), ensure_ascii=False) if r.get("trends_first") else ""]
+            ok = bool(r.get("prematch")) or bool(r.get("prematch_nocat"))
+            msg = "윙 연결 정상입니다 (정확한 조회수 조회 가능)." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
             log.info(msg)
             return {"ok": True, "message": msg, "text": "\n".join(lines)}
         if name == "wing_login":

@@ -330,6 +330,28 @@ def _trends_search(page, query: str, limit: int = 100) -> list:
 
 
 PREMATCH_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/productmatch/prematch/product-items"
+TRENDS_PAGE_URL = "https://wing.coupang.com/tenants/rfm-ss/coupang-trends/popularity-search"
+_state = {"trends_disabled": False, "trends_fail": 0, "warmed": False}
+
+
+def warmup(bt):
+    """분석 시작 전에 윙 탭을 인기상품검색 화면으로 한 번 이동시켜 세션을 준비한다."""
+    page = wing_page(bt)
+    try:
+        page.goto(TRENDS_PAGE_URL, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2500)
+        if _is_login_url(page.url):
+            raise WingLoginRequired()
+        _state["warmed"] = True
+        log.info("윙 인기상품검색 화면을 열어 두었습니다")
+    except WingLoginRequired:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"인기상품검색 화면 열기 실패(순위 없이 진행): {e}")
+        try:
+            page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=45000)
+        except Exception:  # noqa: BLE001
+            pass
 PUBLIC_CATEGORY_URL = "https://www.coupang.com/next-api/review/batch?productId={pid}&viRoleCode=3"
 
 _trends_cache: dict = {}        # product_id -> trends 필드 (한 실행 동안 재사용)
@@ -339,13 +361,28 @@ _category_cache: dict = {}      # product_id -> 내부 categoryId
 def reset_caches():
     _trends_cache.clear()
     _category_cache.clear()
+    _state.update({"trends_disabled": False, "trends_fail": 0, "warmed": False})
 
 
-def _public_category_id(page, pid):
-    """쿠팡 공개 API 로 내부 categoryId 를 얻는다 (로그인 불필요, 윙 탭에서 교차 요청)."""
+def _coupang_page(bt):
+    ctx = bt.ensure_context()
+    for pg in ctx.pages:
+        try:
+            if "www.coupang.com" in pg.url:
+                return pg
+        except Exception:  # noqa: BLE001
+            continue
+    pg = ctx.new_page()
+    pg.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+    return pg
+
+
+def _public_category_id(bt, pid):
+    """쿠팡 공개 API 로 내부 categoryId 를 얻는다 (쿠팡 탭에서 같은 출처로 요청)."""
     if pid in _category_cache:
         return _category_cache[pid]
     try:
+        page = _coupang_page(bt)
         r = page.evaluate(FETCH_JS, {"url": PUBLIC_CATEGORY_URL.format(pid=pid), "method": "GET",
                                      "headers": {"accept": "application/json"}})
         if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
@@ -354,8 +391,8 @@ def _public_category_id(page, pid):
             if cid:
                 _category_cache[pid] = cid
                 return cid
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"카테고리번호 조회 실패 {pid}: {e}")
     return None
 
 
@@ -430,24 +467,30 @@ def lookup(bt, product: dict):
     """상품 하나를 조회한다. 반환: (fields | None, others: {product_id: fields})
 
     모든 요청은 로그인된 윙 탭 안에서 보낸다 (봇 방어에 걸리지 않도록).
-    1) 카탈로그 매칭 API 로 정확한 28일 조회수·아이템위너 가격·경쟁 판매자 수
-    2) 인기상품검색(캐시)으로 순위·범위 보조
+    1) 카탈로그 매칭 API 로 정확한 28일 조회수·아이템위너 가격·경쟁 판매자 수 (핵심)
+    2) 인기상품검색으로 순위·범위 보조 (안 되면 건너뜀)
     """
     page = wing_page(bt)
     pid = product.get("product_id")
     before = set(_trends_cache.keys())
-    if pid not in _trends_cache:
+    if pid not in _trends_cache and not _state["trends_disabled"]:
         try:
             _trends_fill(page, product)
+            _state["trends_fail"] = 0
         except WingLoginRequired:
             raise
         except Exception as e:  # noqa: BLE001
-            log.warn(f"인기상품검색 실패 {pid}: {e}")
+            _state["trends_fail"] += 1
+            if _state["trends_fail"] >= 3:
+                _state["trends_disabled"] = True
+                log.warn(f"인기상품검색이 계속 실패해 이번 분석에서는 순위 없이 진행합니다 ({e})")
+            else:
+                log.warn(f"인기상품검색 실패 {pid}: {e}")
     base = dict(_trends_cache.get(pid) or {})
     cat = base.get("category_internal")
     exact = _prematch(page, product, cat)
     if exact is None:
-        cat2 = _public_category_id(page, pid)
+        cat2 = _public_category_id(bt, pid)
         if cat2 and cat2 != cat:
             exact = _prematch(page, product, cat2)
     if exact:
@@ -466,18 +509,17 @@ def lookup(bt, product: dict):
 
 
 def test_connection(bt) -> dict:
-    """윙 연결 테스트: 알려진 상품 하나로 두 API 를 호출해 결과를 보여준다."""
+    """윙 연결 테스트: 알려진 상품 하나로 API 들을 호출해 결과를 보여준다."""
     page = wing_page(bt)
     out = {"page_url": page.url}
     sample = {"product_id": 8350616562, "item_id": 24124670002, "name": "코멧 뽑아쓰는 분리수거 배접 비닐봉투, 200개, 60L"}
     try:
-        items = _trends_search(page, "코멧 분리수거 비닐봉투")
-        out["trends_count"] = len(items)
-        out["trends_first"] = {k: items[0].get(k) for k in ("productId", "productName", "lowerPvLast28d", "upperPvLast28d", "pvLast28dRank")} if items else None
+        ex = _prematch(page, sample, None)
+        out["prematch_nocat"] = {k: ex.get(k) for k in ("views_28", "wing_price", "seller_count", "mergeable", "option_total")} if ex else None
     except WingLoginRequired:
-        out["trends_error"] = "로그인 필요"
+        out["prematch_error"] = "로그인 필요"
     except Exception as e:  # noqa: BLE001
-        out["trends_error"] = str(e)
+        out["prematch_error"] = str(e)
     try:
         ex = _prematch(page, sample, 1839)
         out["prematch"] = {k: ex.get(k) for k in ("views_28", "wing_price", "seller_count", "mergeable", "option_total", "wing_category")} if ex else None
@@ -485,6 +527,21 @@ def test_connection(bt) -> dict:
         out["prematch_error"] = "로그인 필요"
     except Exception as e:  # noqa: BLE001
         out["prematch_error"] = str(e)
+    try:
+        out["public_category"] = _public_category_id(bt, sample["product_id"])
+    except Exception as e:  # noqa: BLE001
+        out["public_category_error"] = str(e)
+    try:
+        warmup(bt)
+        page = wing_page(bt)
+        items = _trends_search(page, "코멧 분리수거 비닐봉투")
+        out["trends_count"] = len(items)
+        out["trends_first"] = {k: items[0].get(k) for k in ("productId", "productName", "lowerPvLast28d", "upperPvLast28d", "pvLast28dRank")} if items else None
+    except WingLoginRequired:
+        out["trends_error"] = "로그인 필요"
+    except Exception as e:  # noqa: BLE001
+        out["trends_error"] = str(e)
+    out["page_url_after"] = page.url
     return out
 
 

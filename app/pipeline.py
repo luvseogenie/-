@@ -212,6 +212,17 @@ class JobController:
         done = set()
         fails = 0
         wing.reset_caches()
+        try:
+            wing.warmup(bt)
+        except wing.WingLoginRequired:
+            self.paused = True
+            self.message = "윙 로그인이 필요합니다. 열린 브라우저 창에서 윙에 로그인한 뒤 [재개]를 눌러주세요."
+            log.warn(self.message)
+            try:
+                wing.open_login(bt)
+            except Exception:  # noqa: BLE001
+                pass
+            self._check()
         for p in pending:
             self._check()
             pid = p["product_id"]
