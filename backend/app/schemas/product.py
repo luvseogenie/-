@@ -23,6 +23,12 @@ class CollectedProduct(BaseModel):
     # 조회수 원천이 확보되면 여기로 들어온다. 지금은 항상 None.
     view_count: int | None = None
 
+    # 쿠팡이 표시하는 월간 구매 문구 ("한 달간 3,000명 이상 구매했어요")
+    monthly_purchase_count: int | None = None
+    monthly_purchase_is_minimum: bool | None = None
+    monthly_purchase_unit: str | None = None
+    monthly_purchase_text: str | None = None
+
 
 class CollectRequest(BaseModel):
     source_url: str | None = None
@@ -79,6 +85,8 @@ class ReviewDateAnalysisResult(BaseModel):
     monthly_review_method: str | None = None
     monthly_review_window_days: float | None = None
     monthly_review_is_extrapolated: bool = False
+    monthly_review_sample_size: int | None = None
+    monthly_review_confidence: str | None = None
     message: str
 
 
@@ -107,6 +115,15 @@ class ProductOut(BaseModel):
     monthly_review_window_days: float | None = None
     monthly_review_is_extrapolated: bool = False
     monthly_review_measured_at: datetime | None = None
+    monthly_review_sample_size: int | None = None
+    monthly_review_confidence: str | None = None
+
+    # 쿠팡이 직접 표시한 월간 구매 데이터 (추정이 아님)
+    monthly_purchase_count: int | None = None
+    monthly_purchase_is_minimum: bool | None = None
+    monthly_purchase_unit: str | None = None
+    monthly_purchase_text: str | None = None
+    monthly_purchase_collected_at: datetime | None = None
 
     first_collected_at: datetime
     last_collected_at: datetime

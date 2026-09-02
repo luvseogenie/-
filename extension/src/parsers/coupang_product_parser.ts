@@ -27,6 +27,7 @@ import {
   THUMBNAIL_SELECTORS,
 } from "@/parsers/selectors";
 import { absoluteUrl, parsePrice, parseRating, parseReviewCount } from "@/parsers/normalize";
+import { findMonthlyPurchase } from "@/parsers/coupang_purchase_parser";
 import type { CollectedProduct, DeliveryType, PageType, ParseResult } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -171,7 +172,32 @@ export function parseProductCard(
       rank: options.rank ?? null,
       // 조회수 원천이 없다. 임의 값을 만들지 않는다.
       view_count: null,
+      ...monthlyPurchaseFields(card),
     },
+  };
+}
+
+/** 쿠팡이 표시하는 월간 구매 문구를 상품 필드로 변환한다. 없으면 전부 null. */
+function monthlyPurchaseFields(root: ParentNode): {
+  monthly_purchase_count: number | null;
+  monthly_purchase_is_minimum: boolean | null;
+  monthly_purchase_unit: string | null;
+  monthly_purchase_text: string | null;
+} {
+  const purchase = findMonthlyPurchase(root);
+  if (!purchase) {
+    return {
+      monthly_purchase_count: null,
+      monthly_purchase_is_minimum: null,
+      monthly_purchase_unit: null,
+      monthly_purchase_text: null,
+    };
+  }
+  return {
+    monthly_purchase_count: purchase.count,
+    monthly_purchase_is_minimum: purchase.isMinimum,
+    monthly_purchase_unit: purchase.unit,
+    monthly_purchase_text: purchase.text,
   };
 }
 
@@ -254,6 +280,8 @@ function parseDetailPage(root: ParentNode, url: string): CardParseOutcome {
       thumbnail_url: absoluteUrl(thumb?.getAttribute("src"), url),
       rank: null,
       view_count: null,
+      // 상세 페이지에서는 문서 전체를 대상으로 문구를 찾는다.
+      ...monthlyPurchaseFields(container),
     },
   };
 }

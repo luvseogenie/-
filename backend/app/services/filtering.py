@@ -15,7 +15,14 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import ColumnElement, and_
 
-from app.models.product import Product
+from app.models.product import MonthlyConfidence, Product
+
+# "이 수준 이상"에 해당하는 신뢰도 값들
+CONFIDENCE_AT_LEAST: dict[str, list[str]] = {
+    MonthlyConfidence.LOW: [MonthlyConfidence.LOW, MonthlyConfidence.MEDIUM, MonthlyConfidence.HIGH],
+    MonthlyConfidence.MEDIUM: [MonthlyConfidence.MEDIUM, MonthlyConfidence.HIGH],
+    MonthlyConfidence.HIGH: [MonthlyConfidence.HIGH],
+}
 
 
 @dataclass(slots=True)
@@ -31,6 +38,13 @@ class ProductFilter:
     monthly_sales_max: int | None = None
     monthly_review_min: int | None = None
     monthly_review_max: int | None = None
+    # 쿠팡이 표시한 월간 구매자 수 ("한 달간 3,000명 이상 구매했어요")
+    # 소싱 기준(월 500개/1,000개 이상)을 판단하는 1순위 근거다.
+    purchase_min: int | None = None
+    purchase_max: int | None = None
+    # 신뢰도가 이 수준 미만인 측정값은 조건 통과로 보지 않는다.
+    # (표본 부족으로 튄 값이 소싱 후보에 섞이는 것을 막는다)
+    min_confidence: str | None = None
     rating_min: float | None = None
     rating_max: float | None = None
     # 빈 리스트 또는 None = 전체(배송방식 무관)
@@ -73,6 +87,20 @@ class ProductFilter:
                 Product.monthly_review_count.isnot(None)
                 & (Product.monthly_review_count <= self.monthly_review_max)
             )
+        if self.purchase_min is not None:
+            clauses.append(
+                Product.monthly_purchase_count.isnot(None)
+                & (Product.monthly_purchase_count >= self.purchase_min)
+            )
+        if self.purchase_max is not None:
+            clauses.append(
+                Product.monthly_purchase_count.isnot(None)
+                & (Product.monthly_purchase_count <= self.purchase_max)
+            )
+        if self.min_confidence:
+            allowed = CONFIDENCE_AT_LEAST.get(self.min_confidence)
+            if allowed:
+                clauses.append(Product.monthly_review_confidence.in_(allowed))
         if self.rating_min is not None:
             clauses.append(Product.rating.isnot(None) & (Product.rating >= self.rating_min))
         if self.rating_max is not None:
@@ -97,6 +125,10 @@ class ProductFilter:
         if not self._in_range(product.estimated_sales, self.sales_min, self.sales_max, required=True):
             return False
         if not self._in_range(
+            product.monthly_purchase_count, self.purchase_min, self.purchase_max, required=True
+        ):
+            return False
+        if not self._in_range(
             product.monthly_estimated_sales, self.monthly_sales_min, self.monthly_sales_max, required=True
         ):
             return False
@@ -108,6 +140,10 @@ class ProductFilter:
             return False
         if self.delivery_types and product.delivery_type not in self.delivery_types:
             return False
+        if self.min_confidence:
+            allowed = CONFIDENCE_AT_LEAST.get(self.min_confidence)
+            if allowed and product.monthly_review_confidence not in allowed:
+                return False
         return True
 
     @staticmethod
@@ -129,6 +165,8 @@ class ProductFilter:
 
 
 SORT_FIELDS = {
+    "purchase_desc": (Product.monthly_purchase_count, "desc"),
+    "purchase_asc": (Product.monthly_purchase_count, "asc"),
     "monthly_sales_desc": (Product.monthly_estimated_sales, "desc"),
     "monthly_sales_asc": (Product.monthly_estimated_sales, "asc"),
     "monthly_review_desc": (Product.monthly_review_count, "desc"),

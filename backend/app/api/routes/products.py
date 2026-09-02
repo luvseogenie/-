@@ -86,6 +86,8 @@ def submit_review_dates(payload: ReviewDateAnalysis, db: Session = Depends(get_d
         monthly_review_method=product.monthly_review_method,
         monthly_review_window_days=product.monthly_review_window_days,
         monthly_review_is_extrapolated=product.monthly_review_is_extrapolated,
+        monthly_review_sample_size=product.monthly_review_sample_size,
+        monthly_review_confidence=product.monthly_review_confidence,
         message=message,
     )
 

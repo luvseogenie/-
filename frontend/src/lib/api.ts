@@ -55,6 +55,8 @@ export function buildQuery(
     "review_max",
     "sales_min",
     "sales_max",
+    "purchase_min",
+    "purchase_max",
     "monthly_sales_min",
     "monthly_sales_max",
     "monthly_review_min",

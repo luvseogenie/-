@@ -92,6 +92,11 @@ extension/src/
 | category_id | INTEGER FK NULL | |
 | rank | INTEGER NULL | 마지막 수집 시 노출 순위(부가) |
 | first_collected_at / last_collected_at | DATETIME | |
+| monthly_purchase_count | INTEGER NULL | **쿠팡이 표시한 한 달 구매자 수** (실제 데이터, 1순위) |
+| monthly_purchase_is_minimum | BOOLEAN NULL | "이상" 구간값인지 |
+| monthly_purchase_unit | VARCHAR NULL | 명 / 개 |
+| monthly_purchase_text | VARCHAR NULL | 원문 문구 |
+| monthly_purchase_collected_at | DATETIME NULL | |
 | monthly_review_count | INTEGER NULL | **최근 30일 리뷰수** — 유도값, 못 구하면 NULL |
 | monthly_estimated_sales | INTEGER NULL | 최근 30일 리뷰수 × 배수 |
 | monthly_review_method | VARCHAR NULL | `review_dates` / `snapshot_delta` |
@@ -157,7 +162,21 @@ popup [현재 페이지 수집]
                  → popup "36개 중 35개 저장 / 중복 1개"
 ```
 
-## 5-1. 최근 30일 리뷰수를 구하는 방법
+## 5-1. 판매량 지표 — 2단 구조
+
+```
+1순위  monthly_purchase_count   쿠팡이 표시한 "한 달간 3,000명 이상 구매했어요"
+       └ 실제 판매 데이터. 수집 즉시 확보. 소싱 조건의 기본 근거.
+       └ 주의: "명"=구매자 수(수량은 그 이상), "이상"=구간값 → 둘 다 과소 추정 방향
+
+2순위  monthly_estimated_sales  리뷰 기반 추정 (문구가 없는 상품용)
+       └ 최근 30일 리뷰수 × 배수. 아래 두 방법으로 유도.
+```
+
+파서: `extension/src/parsers/coupang_purchase_parser.ts`
+문구 자체를 앵커로 삼아 클래스명 변경에 영향받지 않는다.
+
+## 5-2. 최근 30일 리뷰수를 구하는 방법
 
 쿠팡은 최근 1달 리뷰수를 표시하지 않는다. 카드/상세의 리뷰수는 모두 **누적값**이다.
 따라서 두 가지 방법으로 유도한다.

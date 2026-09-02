@@ -119,6 +119,11 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
                 thumbnail_url=item.thumbnail_url,
                 # 조회수 원천이 없으면 None 그대로 저장한다. 숫자를 만들어내지 않는다.
                 view_count=item.view_count,
+                monthly_purchase_count=item.monthly_purchase_count,
+                monthly_purchase_is_minimum=item.monthly_purchase_is_minimum,
+                monthly_purchase_unit=item.monthly_purchase_unit,
+                monthly_purchase_text=item.monthly_purchase_text,
+                monthly_purchase_collected_at=now if item.monthly_purchase_count is not None else None,
                 category_id=category.id if category else None,
                 rank=item.rank,
                 first_collected_at=now,
@@ -147,6 +152,14 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
                 existing.thumbnail_url = item.thumbnail_url
             if item.view_count is not None:
                 existing.view_count = item.view_count
+            # 쿠팡 월간 구매 문구는 최신 값으로 갱신한다.
+            # 이번에 문구가 없다면(카드에는 없고 상세에만 있는 경우 등) 기존 값을 지우지 않는다.
+            if item.monthly_purchase_count is not None:
+                existing.monthly_purchase_count = item.monthly_purchase_count
+                existing.monthly_purchase_is_minimum = item.monthly_purchase_is_minimum
+                existing.monthly_purchase_unit = item.monthly_purchase_unit
+                existing.monthly_purchase_text = item.monthly_purchase_text
+                existing.monthly_purchase_collected_at = now
             if category is not None:
                 existing.category_id = category.id
             if item.rank is not None:

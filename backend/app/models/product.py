@@ -10,6 +10,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 
+class MonthlyConfidence:
+    """최근 30일 값을 얼마나 믿을 수 있는지."""
+
+    HIGH = "high"  # 30일 구간 실측 + 표본 충분
+    MEDIUM = "medium"  # 실측이지만 표본이 적거나, 긴 구간을 환산
+    LOW = "low"  # 표본이 너무 적어 오차가 큼
+
+    ALL = (HIGH, MEDIUM, LOW)
+
+    LABELS = {HIGH: "높음", MEDIUM: "보통", LOW: "낮음"}
+
+
 class MonthlyReviewMethod:
     """최근 30일 리뷰수를 어떻게 구했는지."""
 
@@ -96,6 +108,31 @@ class Product(Base, TimestampMixin):
         Boolean, nullable=False, default=False
     )
     monthly_review_measured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 측정 근거가 된 리뷰 건수.
+    #   snapshot_delta → 관측 구간에 실제로 늘어난 리뷰 수
+    #   review_dates   → 작성일을 읽어낸 리뷰 수
+    # 이 값이 작으면 30일 환산 오차가 커진다.
+    monthly_review_sample_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # high / medium / low — 표본 크기와 관측 구간으로 판정
+    monthly_review_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    # ------------------------------------------------------------------
+    # 쿠팡이 직접 표시하는 월간 구매 데이터
+    #   "한 달간 3,000명 이상 구매했어요"
+    #
+    # 우리가 추정한 값이 아니라 쿠팡이 계산해 붙여 준 실제 판매 데이터다.
+    # 그래서 판매량 판단의 1순위 근거로 쓴다.
+    # 주의: 단위가 "명"이면 구매자 수이므로 실제 판매 수량은 그 이상이다.
+    #       "이상"이 붙은 구간값이라 정확한 수치가 아니다.
+    # 문구가 없는 상품은 전부 NULL. 만들어내지 않는다.
+    # ------------------------------------------------------------------
+    monthly_purchase_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_purchase_is_minimum: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    monthly_purchase_unit: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    monthly_purchase_text: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    monthly_purchase_collected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

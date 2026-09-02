@@ -13,7 +13,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber, formatPrice, formatRating } from "@/lib/format";
-import { DELIVERY_TYPES, MONTHLY_METHODS, type Product } from "@/lib/types";
+import {
+  CONFIDENCE_LABELS,
+  DELIVERY_TYPES,
+  MONTHLY_METHODS,
+  type Product,
+} from "@/lib/types";
 
 function DeliveryBadge({ type }: { type: Product["delivery_type"] }) {
   if (!type) return <span className="text-muted-foreground">-</span>;
@@ -21,6 +26,32 @@ function DeliveryBadge({ type }: { type: Product["delivery_type"] }) {
   const variant =
     type === "rocket_growth" ? "default" : type === "rocket" ? "warning" : "muted";
   return <Badge variant={variant}>{label}</Badge>;
+}
+
+/**
+ * 쿠팡이 표시한 한 달 구매 데이터.
+ * 추정치가 아니라 쿠팡의 실제 판매 데이터이므로 가장 강조해서 보여준다.
+ */
+function PurchaseCell({ product }: { product: Product }) {
+  if (product.monthly_purchase_count === null) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+  const suffix = product.monthly_purchase_is_minimum ? "+" : "";
+  const unit = product.monthly_purchase_unit ?? "명";
+  return (
+    <span
+      className="font-semibold text-[var(--success)]"
+      title={
+        product.monthly_purchase_text
+          ? `쿠팡 표시: "${product.monthly_purchase_text}했어요" (실제 판매 데이터)`
+          : undefined
+      }
+    >
+      {formatNumber(product.monthly_purchase_count)}
+      {suffix}
+      <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{unit}</span>
+    </span>
+  );
 }
 
 /**
@@ -44,9 +75,16 @@ function MonthlyCell({
 
   const method = MONTHLY_METHODS[product.monthly_review_method];
   const days = product.monthly_review_window_days;
+  const confidence = product.monthly_review_confidence
+    ? CONFIDENCE_LABELS[product.monthly_review_confidence]
+    : null;
   const title = [
     method?.hint,
     days ? `관측 구간 ${days}일` : null,
+    product.monthly_review_sample_size !== null
+      ? `표본 ${product.monthly_review_sample_size}건`
+      : null,
+    confidence ? `신뢰도 ${confidence.label}` : null,
     product.monthly_review_is_extrapolated
       ? "30일을 다 덮지 못해 환산한 추정값입니다"
       : "30일 구간 실측값입니다",
@@ -56,11 +94,19 @@ function MonthlyCell({
 
   return (
     <span className="inline-flex items-center justify-end gap-1" title={title}>
-      <span className={emphasize ? "font-semibold text-[var(--success)]" : undefined}>
+      <span className={emphasize ? "font-medium text-primary" : undefined}>
         {formatNumber(value)}
       </span>
-      {product.monthly_review_is_extrapolated && (
-        <span className="text-[10px] text-[var(--warning)]">추정</span>
+      {emphasize && confidence && product.monthly_review_confidence !== "high" && (
+        <span
+          className={
+            product.monthly_review_confidence === "low"
+              ? "text-[10px] text-muted-foreground"
+              : "text-[10px] text-[var(--warning)]"
+          }
+        >
+          {product.monthly_review_is_extrapolated ? "추정" : confidence.label}
+        </span>
       )}
     </span>
   );
@@ -85,7 +131,8 @@ export function ProductTable({
           <TableHeader>
             <TableRow>
               <TableHead className="w-24">판정</TableHead>
-              <TableHead className="min-w-64">상품명</TableHead>
+              <TableHead className="min-w-56">상품명</TableHead>
+              <TableHead className="w-28 whitespace-nowrap text-right">한 달 구매</TableHead>
               <TableHead className="w-32">카테고리</TableHead>
               <TableHead className="w-28 whitespace-nowrap text-right">가격</TableHead>
               <TableHead className="w-20 text-right">리뷰수</TableHead>
@@ -101,14 +148,14 @@ export function ProductTable({
           <TableBody>
             {loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={12} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={13} className="py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                 </TableCell>
               </TableRow>
             )}
             {!loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={12} className="py-10 text-center text-xs text-muted-foreground">
+                <TableCell colSpan={13} className="py-10 text-center text-xs text-muted-foreground">
                   수집된 상품이 없습니다.
                   <br />
                   Chrome에서 쿠팡 페이지를 열고 확장 프로그램의 [현재 페이지 수집]을 눌러주세요.
@@ -136,6 +183,9 @@ export function ProductTable({
                   >
                     {p.product_name}
                   </a>
+                </TableCell>
+                <TableCell className="tabular text-right">
+                  <PurchaseCell product={p} />
                 </TableCell>
                 <TableCell className="truncate text-xs text-muted-foreground">
                   {p.category_name ?? "-"}

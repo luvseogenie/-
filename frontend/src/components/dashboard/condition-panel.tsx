@@ -1,16 +1,23 @@
 "use client";
 
-import { SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal, Target } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DELIVERY_TYPES, type Conditions, type DeliveryType } from "@/lib/types";
+import {
+  DELIVERY_TYPES,
+  SOURCING_PRESETS,
+  type Conditions,
+  type DeliveryType,
+} from "@/lib/types";
 
 type RangeKeys =
   | ["price_min", "price_max"]
   | ["review_min", "review_max"]
   | ["sales_min", "sales_max"]
+  | ["purchase_min", "purchase_max"]
   | ["monthly_review_min", "monthly_review_max"]
   | ["monthly_sales_min", "monthly_sales_max"]
   | ["rating_min", "rating_max"];
@@ -24,6 +31,12 @@ type Range = {
 };
 
 const RANGES: Range[] = [
+  {
+    label: "한 달 구매 (쿠팡 표시)",
+    keys: ["purchase_min", "purchase_max"],
+    placeholder: ["1000", ""],
+    note: "쿠팡 실제 데이터",
+  },
   { label: "판매가격 (원)", keys: ["price_min", "price_max"], placeholder: ["9000", "100000"] },
   { label: "리뷰 수 (누적)", keys: ["review_min", "review_max"], placeholder: ["0", "250"] },
   { label: "예상 판매량 (누적)", keys: ["sales_min", "sales_max"], placeholder: ["1000", "10000"] },
@@ -68,6 +81,42 @@ export function ConditionPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* 소싱 기준 프리셋 — 쿠팡이 표시하는 "한 달간 N명 이상 구매" 문구 기준 */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold">
+          <Target className="h-3.5 w-3.5 text-primary" />
+          소싱 기준
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {SOURCING_PRESETS.map((preset) => (
+            <Button
+              key={preset.purchaseMin}
+              size="sm"
+              variant={
+                conditions.purchase_min === String(preset.purchaseMin) ? "default" : "outline"
+              }
+              className="h-6 px-2 text-[11px]"
+              title={`${preset.note} · 쿠팡 "한 달간 ${preset.purchaseMin.toLocaleString()}명 이상 구매" 이상`}
+              onClick={() =>
+                onChange({
+                  ...conditions,
+                  purchase_min:
+                    conditions.purchase_min === String(preset.purchaseMin)
+                      ? ""
+                      : String(preset.purchaseMin),
+                })
+              }
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          쿠팡이 상품 페이지에 표시하는 <b>&quot;한 달간 N명 이상 구매했어요&quot;</b> 기준입니다.
+          추정치가 아니라 쿠팡의 실제 판매 데이터입니다.
+        </p>
+      </div>
+
       <div className="flex items-center gap-1.5 text-xs font-semibold">
         <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
         상품 조건

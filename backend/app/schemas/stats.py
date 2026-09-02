@@ -12,4 +12,6 @@ class StatsOut(BaseModel):
     condition_passed_products: int  # 현재 조건을 통과한 상품 수
     # 최근 30일 리뷰수를 확보한 상품 수 (전체 대비 얼마나 측정됐는지)
     monthly_measured_products: int = 0
+    # 쿠팡 월간 구매 문구를 확보한 상품 수
+    purchase_labeled_products: int = 0
     review_sales_multiplier: int

@@ -14,6 +14,16 @@ export type CollectedProduct = {
   rank: number | null;
   /** 현재 DOM에서 조회수를 얻을 수 없다. 항상 null로 보낸다. */
   view_count: null;
+
+  /**
+   * 쿠팡이 표시하는 월간 구매 문구 ("한 달간 3,000명 이상 구매했어요").
+   * 우리가 추정한 값이 아니라 쿠팡이 계산한 실제 데이터다.
+   * 문구가 없으면 전부 null — 만들어내지 않는다.
+   */
+  monthly_purchase_count: number | null;
+  monthly_purchase_is_minimum: boolean | null;
+  monthly_purchase_unit: string | null;
+  monthly_purchase_text: string | null;
 };
 
 export type PageType = "category" | "search" | "list" | "product" | "unknown";

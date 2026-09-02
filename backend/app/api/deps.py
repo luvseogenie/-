@@ -36,6 +36,14 @@ def product_filter_params(
     monthly_sales_max: int | None = Query(None, ge=0, description="최근 30일 예상 판매량 최대"),
     monthly_review_min: int | None = Query(None, ge=0, description="최근 30일 리뷰수 최소"),
     monthly_review_max: int | None = Query(None, ge=0, description="최근 30일 리뷰수 최대"),
+    purchase_min: int | None = Query(
+        None, ge=0, description="쿠팡 월간 구매자 수 최소 (한 달간 N명 이상 구매)"
+    ),
+    purchase_max: int | None = Query(None, ge=0, description="쿠팡 월간 구매자 수 최대"),
+    min_confidence: str | None = Query(
+        None,
+        description="최근 30일 값 신뢰도 하한: low|medium|high (표본 부족 값 제외용)",
+    ),
     rating_min: float | None = Query(None, ge=0, le=5, description="평점 최소"),
     rating_max: float | None = Query(None, ge=0, le=5, description="평점 최대"),
     delivery_types: str | None = Query(
@@ -56,6 +64,9 @@ def product_filter_params(
         monthly_sales_max=monthly_sales_max,
         monthly_review_min=monthly_review_min,
         monthly_review_max=monthly_review_max,
+        purchase_min=purchase_min,
+        purchase_max=purchase_max,
+        min_confidence=min_confidence if min_confidence in {"low", "medium", "high"} else None,
         rating_min=rating_min,
         rating_max=rating_max,
         delivery_types=_split_strs(delivery_types),

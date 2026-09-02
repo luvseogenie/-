@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, CalendarClock, Play, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Play, RefreshCw, Search, ShoppingCart } from "lucide-react";
 
 import { CategoryTree } from "@/components/dashboard/category-tree";
 import { ConditionPanel } from "@/components/dashboard/condition-panel";
@@ -231,32 +231,31 @@ export default function DashboardPage() {
 
           <Separator />
 
-          {/* 최근 30일 지표를 얻는 방법 안내 — 쿠팡이 제공하지 않는 값이라 설명이 필요하다 */}
+          {/* 판매량 지표를 얻는 방법 안내 */}
           <div className="space-y-1.5 pb-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold">
-              <CalendarClock className="h-3.5 w-3.5 text-primary" />
-              최근 30일 지표
+              <ShoppingCart className="h-3.5 w-3.5 text-primary" />
+              판매량 지표
             </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              쿠팡은 최근 1달 리뷰수를 표시하지 않습니다. 두 가지 방법으로 구합니다.
-            </p>
             <ol className="ml-3.5 list-decimal space-y-1 text-[11px] leading-relaxed text-muted-foreground">
               <li>
-                <b className="text-foreground">리뷰 날짜 분석</b> — 상품 상세 페이지에서 리뷰를
-                <b> 최신순</b>으로 정렬하고 더보기로 충분히 불러온 뒤, 확장의
-                [리뷰 날짜 분석]을 누르면 바로 실측됩니다.
+                <b className="text-[var(--success)]">한 달 구매 (1순위)</b> — 쿠팡이 상품 페이지에
+                표시하는 &quot;한 달간 N명 이상 구매했어요&quot; 문구입니다. 추정치가 아니라
+                <b> 쿠팡의 실제 판매 데이터</b>이며, 수집만 하면 바로 채워집니다.
               </li>
               <li>
-                <b className="text-foreground">리뷰수 변화 추적</b> — 같은 목록을 며칠 간격으로 다시
-                수집하면 누적 리뷰수의 차이로 자동 계산됩니다. 전체 상품에 적용되지만 시간이 필요합니다.
+                <b className="text-foreground">최근 30일 예상 판매량 (보조)</b> — 구매 문구가 없는
+                상품용입니다. 리뷰수 변화를 추적하거나 리뷰 작성일을 분석해 추정합니다.
               </li>
             </ol>
-            {stats && stats.unique_products > 0 && stats.monthly_measured_products === 0 && (
+            {stats && stats.unique_products > 0 && stats.purchase_labeled_products === 0 && (
               <p className="rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 p-2 text-[11px] leading-relaxed text-[var(--warning)]">
-                아직 최근 30일 지표가 측정된 상품이 없습니다. 위 두 방법 중 하나를 먼저 진행하세요.
+                수집한 상품 중 &quot;한 달간 N명 구매&quot; 문구가 확보된 상품이 없습니다.
+                목록 페이지에 문구가 없다면 상품 상세 페이지에서 수집해 보세요.
               </p>
             )}
           </div>
+
         </aside>
 
         {/* 오른쪽 75% */}

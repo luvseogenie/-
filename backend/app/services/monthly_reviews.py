@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.models.product import MonthlyReviewMethod, Product
+from app.models.product import MonthlyConfidence, MonthlyReviewMethod, Product
 from app.models.review_snapshot import ReviewSnapshot
 
 logger = get_logger(__name__)
@@ -40,6 +40,11 @@ MIN_SNAPSHOT_WINDOW_DAYS = 1.0
 MIN_REVIEW_DATE_WINDOW_DAYS = 1.0
 
 
+# 표본이 이 정도는 되어야 30일 환산을 믿을 만하다.
+CONFIDENCE_HIGH_SAMPLE = 10
+CONFIDENCE_MEDIUM_SAMPLE = 5
+
+
 @dataclass(slots=True)
 class MonthlyReviewResult:
     """최근 30일 리뷰수 산출 결과."""
@@ -49,6 +54,25 @@ class MonthlyReviewResult:
     window_days: float
     is_extrapolated: bool
     measured_at: datetime
+    # 측정 근거가 된 리뷰 건수 (관측된 리뷰 증가 수 또는 읽어낸 리뷰 수)
+    sample_size: int = 0
+
+    @property
+    def confidence(self) -> str:
+        """표본 크기와 환산 여부로 신뢰도를 판정한다.
+
+        월 500개(=리뷰 25건) 같은 기준을 판별하려면 표본이 충분해야 한다.
+        예: 1일 간격 재수집으로 리뷰 1건 증가 → 30일 환산 30건 → 오차가 매우 크다.
+        """
+        if self.is_extrapolated:
+            if self.sample_size >= CONFIDENCE_HIGH_SAMPLE and self.window_days >= 7:
+                return MonthlyConfidence.MEDIUM
+            return MonthlyConfidence.LOW
+        if self.sample_size >= CONFIDENCE_HIGH_SAMPLE:
+            return MonthlyConfidence.HIGH
+        if self.sample_size >= CONFIDENCE_MEDIUM_SAMPLE:
+            return MonthlyConfidence.MEDIUM
+        return MonthlyConfidence.LOW
 
 
 def _now() -> datetime:
@@ -145,6 +169,8 @@ def monthly_from_snapshots(db: Session, product: Product) -> MonthlyReviewResult
         window_days=round(effective_window, 2),
         is_extrapolated=is_extrapolated,
         measured_at=latest_at,
+        # 실제로 관측한 리뷰 증가 건수가 곧 표본이다.
+        sample_size=int(delta),
     )
 
 
@@ -176,6 +202,7 @@ def monthly_from_review_dates(
             window_days=float(WINDOW_DAYS),
             is_extrapolated=False,
             measured_at=now,
+            sample_size=int(reviews_in_window),
         )
 
     if sample_span_days is None or sample_span_days < MIN_REVIEW_DATE_WINDOW_DAYS:
@@ -189,6 +216,7 @@ def monthly_from_review_dates(
             window_days=round(float(sample_span_days or 0), 2),
             is_extrapolated=True,
             measured_at=now,
+            sample_size=int(sample_size),
         )
 
     per_day = sample_size / sample_span_days
@@ -198,15 +226,27 @@ def monthly_from_review_dates(
         window_days=round(float(sample_span_days), 2),
         is_extrapolated=True,
         measured_at=now,
+        sample_size=int(sample_size),
     )
 
 
 # ---------------------------------------------------------------------------
 # 저장
 # ---------------------------------------------------------------------------
-def _quality(result: MonthlyReviewResult) -> tuple[int, float]:
+_CONFIDENCE_RANK = {
+    MonthlyConfidence.LOW: 0,
+    MonthlyConfidence.MEDIUM: 1,
+    MonthlyConfidence.HIGH: 2,
+}
+
+
+def _quality(result: MonthlyReviewResult) -> tuple[int, int, float]:
     """어느 결과를 채택할지 비교하는 기준. 클수록 좋다."""
-    return (0 if result.is_extrapolated else 1, result.window_days)
+    return (
+        _CONFIDENCE_RANK.get(result.confidence, 0),
+        0 if result.is_extrapolated else 1,
+        result.window_days,
+    )
 
 
 def apply_result(
@@ -223,6 +263,7 @@ def apply_result(
             window_days=product.monthly_review_window_days or 0.0,
             is_extrapolated=product.monthly_review_is_extrapolated,
             measured_at=_as_utc(product.monthly_review_measured_at) or _now(),
+            sample_size=product.monthly_review_sample_size or 0,
         )
         # 같은 방법이면 항상 최신 값으로 갱신하고,
         # 다른 방법이면 신뢰도가 높은 쪽을 남긴다.
@@ -235,6 +276,8 @@ def apply_result(
     product.monthly_review_window_days = result.window_days
     product.monthly_review_is_extrapolated = result.is_extrapolated
     product.monthly_review_measured_at = result.measured_at
+    product.monthly_review_sample_size = result.sample_size
+    product.monthly_review_confidence = result.confidence
     return True
 
 
