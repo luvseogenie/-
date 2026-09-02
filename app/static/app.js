@@ -445,6 +445,12 @@
     if (el.dataset.action === 'logs') return showLogs();
     if (el.dataset.action === 'archive') return showArchive();
     if (el.dataset.action === 'capture_summary') return showCaptureSummary();
+    if (el.dataset.action === 'capture_headers') {
+      const txt = await api('/api/capture/headers');
+      openModal('윙 캡처 요청 헤더 (복사해서 보내주세요)', `<button class="btn" id="copy-hd">전체 복사</button><pre>${esc(txt)}</pre>`);
+      $('#copy-hd').addEventListener('click', () => { navigator.clipboard.writeText(txt).then(() => toast('복사했습니다.')); });
+      return;
+    }
     if (el.dataset.action === 'diag') return runDiag();
     if (el.dataset.action === 'diag_site') return runDiagSite();
     if (el.dataset.action === 'update') return runUpdate();

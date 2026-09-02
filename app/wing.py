@@ -415,7 +415,14 @@ def warmup(bt):
         page.goto(TRENDS_PAGE_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(2500)
         if _is_login_url(page.url):
-            raise WingLoginRequired()
+            # 이 화면만 로그인을 다시 요구하는 경우: 윙 홈으로 돌아가 계속 진행
+            log.warn("인기상품검색 화면이 로그인을 요구합니다. 순위 없이 진행합니다")
+            _state["trends_disabled"] = True
+            page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(1500)
+            if _is_login_url(page.url):
+                raise WingLoginRequired()
+            return
         _state["warmed"] = True
         log.info("윙 인기상품검색 화면을 열어 두었습니다")
     except WingLoginRequired:
@@ -555,8 +562,13 @@ def lookup(bt, product: dict):
         try:
             _trends_fill(page, product)
             _state["trends_fail"] = 0
-        except WingLoginRequired:
-            raise
+        except WingLoginRequired as e:
+            # 인기상품검색만 로그인 페이지로 돌려보내는 경우가 있다. 카탈로그 매칭이 되면 로그인은 살아 있는 것이므로
+            # 여기서는 멈추지 않고 실패로만 센다.
+            _state["trends_fail"] += 1
+            if _state["trends_fail"] >= 3:
+                _state["trends_disabled"] = True
+                log.warn("인기상품검색이 로그인 페이지로 돌려보내 이번 분석에서는 순위 없이 진행합니다")
         except Exception as e:  # noqa: BLE001
             _state["trends_fail"] += 1
             if _state["trends_fail"] >= 3:

@@ -534,6 +534,32 @@ def diag_site():
     return {"ok": True, "text": "\n".join(L), "screenshots": shots}
 
 
+@app.get("/api/capture/headers", response_class=PlainTextResponse)
+def capture_headers():
+    """캡처 기록에서 인기상품검색·카탈로그 매칭 요청의 헤더를 보여준다 (쿠키 제외)."""
+    files = sorted(config.CAPTURE_DIR.glob("wing_capture_*.jsonl"))
+    if not files:
+        return "캡처 기록 파일이 없습니다."
+    out = []
+    keys = ("trends/search", "prematch/product-items", "pre-matching/search", "coupang-trends")
+    for f in files[-3:]:
+        for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                rec = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            if any(k in rec.get("url", "") for k in keys):
+                out.append("=" * 60)
+                out.append(f"{rec.get('method')} {rec.get('url')}  → HTTP {rec.get('status')} ({rec.get('resource_type')})")
+                for k, v in (rec.get("request_headers") or {}).items():
+                    out.append(f"  {k}: {str(v)[:300]}")
+                if rec.get("post_data"):
+                    out.append("  [보낸 데이터] " + rec["post_data"][:400])
+                body = rec.get("body") or ""
+                out.append("  [응답 앞부분] " + body[:300].replace("\n", " "))
+    return "\n".join(out) if out else "해당 요청이 캡처 기록에 없습니다."
+
+
 @app.get("/api/capture/summary", response_class=PlainTextResponse)
 def capture_summary():
     files = sorted(config.CAPTURE_DIR.glob("*_요약.txt"))
