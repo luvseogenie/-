@@ -40,7 +40,7 @@ DEFAULT_CONDITIONS = {
     "review_max": 250,
     "sales_min": 0,
     "sales_max": 0,
-    "views_min": 100000,
+    "views_min": 10000,
     "views_max": 0,
     "conv_min": 0,
     "buyers_min": 0,

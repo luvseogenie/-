@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price
+from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, reset_debug_budget
 from .metrics import restricted_reason
 
 
@@ -290,6 +290,7 @@ class JobController:
 
     def _verify(self, bt, run_id, product_ids):
         try:
+            reset_debug_budget(3)
             rows = {p["product_id"]: p for p in db.products(run_id)}
             for pid in product_ids:
                 self._check()
@@ -300,10 +301,13 @@ class JobController:
                 data = self._with_retry(lambda: fetch_detail_price(bt.page(), pid, p.get("item_id"), p.get("vendor_item_id")))
                 if data:
                     db.save_verified_price(run_id, pid, data.get("price"), data.get("buyers_min"), data.get("sellers"))
-                    if data.get("buyers_min"):
-                        log.info(f"{self.progress['label']}: 월 구매 {data['buyers_min']:,}명 이상")
+                    parts = []
+                    if data.get("price"):
+                        parts.append(f"실제가 {data['price']:,}원({data.get('source')})")
+                    parts.append(f"월 구매 {data['buyers_min']:,}명 이상" if data.get("buyers_min") else "구매자 문구 없음")
+                    log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay()
+                human_delay(0.6, 1.5)
             self._finish()
         except Stopped:
             self.message = "완전중단됨"

@@ -209,17 +209,7 @@ def _to_int(v):
 
 TRENDS_URL = "https://wing.coupang.com/tenants/rfm-ss/api/trends/search"
 
-FETCH_JS = """
-async (args) => {
-  const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {} };
-  if (args.body !== undefined && args.body !== null) opt.body = args.body;
-  try {
-    const r = await fetch(args.url, opt);
-    const text = await r.text();
-    return { status: r.status, url: r.url, ctype: r.headers.get('content-type') || '', text: text.slice(0, 2000000), redirected: r.redirected };
-  } catch (e) { return { status: 0, url: args.url, ctype: '', text: '', error: String(e) }; }
-}
-"""
+from .coupang_list import FETCH_JS  # noqa: E402
 
 
 def _is_login_url(url: str) -> bool:

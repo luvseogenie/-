@@ -16,6 +16,40 @@ class BlockedError(Exception):
     """쿠팡이 접근을 막았을 때."""
 
 
+# 페이지 안에서 같은 출처로 fetch 를 실행하는 스크립트 (윙·쿠팡 공용)
+FETCH_JS = """
+async (args) => {
+  const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {} };
+  if (args.body !== undefined && args.body !== null) opt.body = args.body;
+  try {
+    const r = await fetch(args.url, opt);
+    const text = await r.text();
+    return { status: r.status, url: r.url, ctype: r.headers.get('content-type') || '', text: text.slice(0, 2000000), redirected: r.redirected };
+  } catch (e) { return { status: 0, url: args.url, ctype: '', text: '', error: String(e) }; }
+}
+"""
+
+QUANTITY_URL = ("https://www.coupang.com/next-api/products/quantity-info?productId={pid}&vendorItemId={vid}"
+                "&deliveryToggle=true&landingItemId={iid}&landingProductId={pid}&landingVendorItemId={vid}")
+_debug_budget = {"left": 3}
+
+
+def reset_debug_budget(n: int = 3):
+    _debug_budget["left"] = n
+
+
+def _num(v):
+    if v is None:
+        return None
+    m = re.search(r"[\d,]+", str(v))
+    return int(m.group(0).replace(",", "")) if m else None
+
+
+def _buyers_from_text(text: str):
+    m = re.search(r"([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매", text) or re.search(r"([\d,]+)\s*개\s*이상\s*(?:판매|구매)", text)
+    return _num(m.group(1)) if m else None
+
+
 # 상품 목록 한 페이지에서 상품 정보를 뽑아내는 브라우저 스크립트
 EXTRACT_JS = r"""
 () => {
@@ -453,7 +487,42 @@ def fetch_children(page, cid: int, exclude: list[int]) -> dict:
     return data
 
 
+def _ensure_coupang(page):
+    try:
+        if "www.coupang.com" not in page.url:
+            page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(800)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
+    """실제 판매가와 '월 구매 N명 이상' 문구를 읽는다.
+
+    1) 가격: 쿠팡 공개 가격 API (quantity-info) - 빠르고 정확
+    2) 구매자 문구: 상품 페이지 HTML 을 받아 찾고, 없으면 화면을 직접 열어 한 번 더 찾는다
+    """
+    out = {"price": None, "buyers_min": None, "coupon": False, "sold_out": False, "sellers": None, "source": ""}
+    _ensure_coupang(page)
+    # 1) 가격
+    if vendor_item_id:
+        try:
+            url = QUANTITY_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or "")
+            r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json"}})
+            if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
+                data = json.loads(r["text"])
+                first = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
+                price = (first or {}).get("price") or {}
+                final = _num(price.get("finalPrice")) or _num(price.get("couponPrice")) or _num(price.get("salePrice"))
+                if final:
+                    out["price"] = final
+                    out["origin_price"] = _num(price.get("originPrice"))
+                    out["coupon"] = bool(price.get("hasNormalCouponDiscount") or price.get("hasWowCouponDiscount"))
+                    out["wow_only"] = bool(price.get("hasWowInstantDiscount") or price.get("wowCouponDiscount"))
+                    out["source"] = "api"
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"가격 API 실패 {product_id}: {e}")
+    # 2) 구매자 문구: HTML 먼저
     url = config.PRODUCT_URL.format(pid=product_id)
     params = []
     if item_id:
@@ -462,20 +531,42 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         params.append(f"vendorItemId={vendor_item_id}")
     if params:
         url += "?" + "&".join(params)
-    _goto(page, url, None)
-    page.wait_for_timeout(1200)
-    data = page.evaluate(DETAIL_PRICE_JS)
-    if data.get("blocked"):
-        _dump_debug(page, f"blocked_detail_{product_id}")
-        raise BlockedError("상품 페이지 접근이 막혔습니다")
-    price = None
-    for c in data.get("candidates", []):
-        price = c["value"]
-        break
-    if price is None:
-        _dump_debug(page, f"detail_{product_id}")
-    data["price"] = price
-    return data
+    html_ok = False
+    try:
+        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "text/html"}})
+        if r.get("status") == 200 and r.get("text"):
+            html_ok = True
+            out["buyers_min"] = _buyers_from_text(r["text"])
+            if "일시품절" in r["text"] or "품절된 상품" in r["text"]:
+                out["sold_out"] = True
+            if out["price"] is None:
+                m = re.search(r'"finalPrice"\s*:\s*"?([\d,]+)', r["text"]) or re.search(r'"salePrice"\s*:\s*"?([\d,]+)', r["text"])
+                if m:
+                    out["price"] = _num(m.group(1))
+                    out["source"] = "html"
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"상세 HTML 실패 {product_id}: {e}")
+    # 3) 문구를 못 찾았으면 화면을 직접 열어 확인 (느림)
+    if out["buyers_min"] is None:
+        _goto(page, url, None)
+        page.wait_for_timeout(1200)
+        data = page.evaluate(DETAIL_PRICE_JS)
+        if data.get("blocked"):
+            _dump_debug(page, f"blocked_detail_{product_id}")
+            raise BlockedError("상품 페이지 접근이 막혔습니다")
+        out["buyers_min"] = data.get("buyers_min")
+        out["sellers"] = data.get("sellers")
+        out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
+        if out["price"] is None:
+            for c in data.get("candidates", []):
+                out["price"] = c["value"]
+                out["source"] = "page"
+                break
+        if out["price"] is None and out["buyers_min"] is None and _debug_budget["left"] > 0:
+            _debug_budget["left"] -= 1
+            _dump_debug(page, f"detail_{product_id}")
+    out["buyers_text_found"] = out["buyers_min"] is not None
+    return out
 
 
 def parse_scope_url(url: str) -> dict | None:

@@ -121,6 +121,7 @@ def apply_update(zip_path: str | None = None) -> dict:
         raise RuntimeError("받은 파일이 비어 있습니다.")
     top = names[0].split("/")[0]
     changed, failed = 0, []
+    req_changed = False
     for name in names:
         if name.endswith("/"):
             continue
@@ -144,16 +145,20 @@ def apply_update(zip_path: str | None = None) -> dict:
             tmp.write_bytes(new)
             os.replace(tmp, dest)
             changed += 1
+            if rel == "requirements.txt":
+                req_changed = True
         except Exception as e:  # noqa: BLE001
             failed.append(f"{rel}: {e}")
             _note(f"파일 쓰기 실패 {rel}: {e}")
-    # 구성요소가 바뀌었을 수 있으니 조용히 다시 설치
-    try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(config.BASE_DIR / "requirements.txt"),
-                        "--quiet", "--disable-pip-version-check"], timeout=600, check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:  # noqa: BLE001
-        _note(f"구성요소 재설치 건너뜀: {e}")
+    # requirements.txt 가 바뀐 경우에만 구성요소를 다시 설치 (평소엔 건너뛰어 빠르게)
+    if req_changed:
+        _note("requirements.txt 변경됨 → 구성요소 재설치")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(config.BASE_DIR / "requirements.txt"),
+                            "--quiet", "--disable-pip-version-check"], timeout=600, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:  # noqa: BLE001
+            _note(f"구성요소 재설치 건너뜀: {e}")
     ver = current_version()
     _note(f"업데이트 완료: 파일 {changed}개 변경, 실패 {len(failed)}개, 버전 {ver}")
     if failed and changed == 0:
