@@ -1,0 +1,24 @@
+{
+  "_note": "카테고리 import 포맷 예시입니다. category_code와 category_url은 실제 쿠팡 값이 아니라 자리표시자(placeholder)이므로, 실제 쿠팡 카테고리 코드/URL을 확보한 뒤 교체해서 사용하세요. 계층 구조(무한 depth)와 import 동작을 확인하기 위한 샘플입니다.",
+  "_format": ["category_code", "category_name", "parent_category_code", "depth", "category_url"],
+  "categories": [
+    { "category_code": "SAMPLE-1000", "category_name": "홈인테리어", "parent_category_code": null, "depth": 1, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1000" },
+    { "category_code": "SAMPLE-1010", "category_name": "카페트/매트", "parent_category_code": "SAMPLE-1000", "depth": 2, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1010" },
+    { "category_code": "SAMPLE-1011", "category_name": "발매트", "parent_category_code": "SAMPLE-1010", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1011" },
+    { "category_code": "SAMPLE-1012", "category_name": "주방매트", "parent_category_code": "SAMPLE-1010", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1012" },
+    { "category_code": "SAMPLE-1013", "category_name": "미끄럼방지 발매트", "parent_category_code": "SAMPLE-1011", "depth": 4, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1013" },
+    { "category_code": "SAMPLE-1020", "category_name": "커튼/블라인드", "parent_category_code": "SAMPLE-1000", "depth": 2, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1020" },
+    { "category_code": "SAMPLE-1021", "category_name": "암막커튼", "parent_category_code": "SAMPLE-1020", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-1021" },
+
+    { "category_code": "SAMPLE-2000", "category_name": "주방용품", "parent_category_code": null, "depth": 1, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2000" },
+    { "category_code": "SAMPLE-2010", "category_name": "조리도구", "parent_category_code": "SAMPLE-2000", "depth": 2, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2010" },
+    { "category_code": "SAMPLE-2011", "category_name": "채칼/슬라이서", "parent_category_code": "SAMPLE-2010", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2011" },
+    { "category_code": "SAMPLE-2012", "category_name": "국자/뒤집개", "parent_category_code": "SAMPLE-2010", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2012" },
+    { "category_code": "SAMPLE-2020", "category_name": "밀폐용기", "parent_category_code": "SAMPLE-2000", "depth": 2, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2020" },
+    { "category_code": "SAMPLE-2021", "category_name": "유리밀폐용기", "parent_category_code": "SAMPLE-2020", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-2021" },
+
+    { "category_code": "SAMPLE-3000", "category_name": "생활용품", "parent_category_code": null, "depth": 1, "category_url": "https://www.coupang.com/np/categories/SAMPLE-3000" },
+    { "category_code": "SAMPLE-3010", "category_name": "청소용품", "parent_category_code": "SAMPLE-3000", "depth": 2, "category_url": "https://www.coupang.com/np/categories/SAMPLE-3010" },
+    { "category_code": "SAMPLE-3011", "category_name": "밀대걸레", "parent_category_code": "SAMPLE-3010", "depth": 3, "category_url": "https://www.coupang.com/np/categories/SAMPLE-3011" }
+  ]
+}

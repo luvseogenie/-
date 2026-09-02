@@ -1,0 +1,117 @@
+"""상품 조건 필터.
+
+요구사항 8의 조건(가격/리뷰수/예상 판매량/평점/배송방식)을 하나의 객체로 묶고,
+  - SQLAlchemy where 절 생성
+  - 개별 상품의 condition_passed 판정
+두 가지 용도로 함께 쓴다. 두 경로가 항상 같은 규칙을 쓰도록 한 곳에 둔다.
+
+condition_passed는 DB 컬럼이 아니다. 조건이 바뀌면 결과도 바뀌어야 하므로
+조회 시점에 계산한다.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from sqlalchemy import ColumnElement, and_
+
+from app.models.product import Product
+
+
+@dataclass(slots=True)
+class ProductFilter:
+    price_min: int | None = None
+    price_max: int | None = None
+    review_min: int | None = None
+    review_max: int | None = None
+    sales_min: int | None = None
+    sales_max: int | None = None
+    rating_min: float | None = None
+    rating_max: float | None = None
+    # 빈 리스트 또는 None = 전체(배송방식 무관)
+    delivery_types: list[str] = field(default_factory=list)
+    category_ids: list[int] = field(default_factory=list)
+    keyword: str | None = None
+
+    # ---------------- SQL 조건 ----------------
+    def where_clauses(self) -> list[ColumnElement[bool]]:
+        clauses: list[ColumnElement[bool]] = []
+        if self.price_min is not None:
+            clauses.append(Product.price.isnot(None) & (Product.price >= self.price_min))
+        if self.price_max is not None:
+            clauses.append(Product.price.isnot(None) & (Product.price <= self.price_max))
+        if self.review_min is not None:
+            clauses.append(Product.review_count >= self.review_min)
+        if self.review_max is not None:
+            clauses.append(Product.review_count <= self.review_max)
+        if self.sales_min is not None:
+            clauses.append(Product.estimated_sales >= self.sales_min)
+        if self.sales_max is not None:
+            clauses.append(Product.estimated_sales <= self.sales_max)
+        if self.rating_min is not None:
+            clauses.append(Product.rating.isnot(None) & (Product.rating >= self.rating_min))
+        if self.rating_max is not None:
+            clauses.append(Product.rating.isnot(None) & (Product.rating <= self.rating_max))
+        if self.delivery_types:
+            clauses.append(Product.delivery_type.in_(self.delivery_types))
+        return clauses
+
+    def condition_expression(self) -> ColumnElement[bool] | None:
+        clauses = self.where_clauses()
+        if not clauses:
+            return None
+        return and_(*clauses)
+
+    # ---------------- 파이썬 판정 ----------------
+    def passes(self, product: Product) -> bool:
+        """DB에서 가져온 상품 한 건이 조건을 모두 만족하는지."""
+        if not self._in_range(product.price, self.price_min, self.price_max, required=True):
+            return False
+        if not self._in_range(product.review_count, self.review_min, self.review_max, required=True):
+            return False
+        if not self._in_range(product.estimated_sales, self.sales_min, self.sales_max, required=True):
+            return False
+        if not self._in_range(product.rating, self.rating_min, self.rating_max, required=True):
+            return False
+        if self.delivery_types and product.delivery_type not in self.delivery_types:
+            return False
+        return True
+
+    @staticmethod
+    def _in_range(value, low, high, required: bool) -> bool:
+        if low is None and high is None:
+            return True
+        if value is None:
+            # 값이 없는데 범위 조건이 걸려 있으면 통과로 볼 수 없다.
+            # (없는 값을 임의로 채워 통과시키지 않는다.)
+            return not required
+        if low is not None and value < low:
+            return False
+        if high is not None and value > high:
+            return False
+        return True
+
+    def is_empty(self) -> bool:
+        return not self.where_clauses()
+
+
+SORT_FIELDS = {
+    "price_desc": (Product.price, "desc"),
+    "price_asc": (Product.price, "asc"),
+    "review_desc": (Product.review_count, "desc"),
+    "review_asc": (Product.review_count, "asc"),
+    "sales_desc": (Product.estimated_sales, "desc"),
+    "sales_asc": (Product.estimated_sales, "asc"),
+    "rating_desc": (Product.rating, "desc"),
+    "rating_asc": (Product.rating, "asc"),
+    "collected_desc": (Product.last_collected_at, "desc"),
+    "collected_asc": (Product.last_collected_at, "asc"),
+}
+
+
+def sort_expression(sort: str | None):
+    column, direction = SORT_FIELDS.get(sort or "sales_desc", SORT_FIELDS["sales_desc"])
+    # NULL이 정렬 결과를 어지럽히지 않도록 뒤로 보낸다.
+    if direction == "desc":
+        return [column.is_(None), column.desc(), Product.id.desc()]
+    return [column.is_(None), column.asc(), Product.id.asc()]

@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import pytest
+
+from app.services.estimation import calculate_estimated_sales
+
+
+@pytest.mark.parametrize(
+    "reviews,multiplier,expected",
+    [
+        (50, 20, 1000),
+        (82, 20, 1640),
+        (250, 20, 5000),
+        (82, 30, 2460),
+        (0, 20, 0),
+        (None, 20, 0),
+    ],
+)
+def test_estimated_sales_formula(reviews, multiplier, expected):
+    assert calculate_estimated_sales(reviews, multiplier) == expected
+
+
+def make(pid, price, reviews, rating, delivery):
+    return {
+        "product_id": pid,
+        "product_name": f"상품 {pid}",
+        "product_url": f"https://www.coupang.com/vp/products/{pid}",
+        "price": price,
+        "review_count": reviews,
+        "rating": rating,
+        "delivery_type": delivery,
+    }
+
+
+@pytest.fixture()
+def seeded(client):
+    client.post(
+        "/api/products/collect",
+        json={
+            "products": [
+                make("A", 13900, 82, 4.7, "rocket_growth"),   # 예상 1640
+                make("B", 5000, 300, 4.2, "rocket"),           # 예상 6000, 가격 미달
+                make("C", 50000, 10, 4.9, "seller"),           # 예상 200, 판매량 미달
+                make("D", 25000, 120, 3.1, "rocket"),          # 예상 2400, 평점 미달
+                make("E", 99000, 240, 4.5, "rocket_growth"),   # 예상 4800, 전부 통과
+                make("F", None, 100, None, None),              # 값 없음
+            ]
+        },
+    )
+    return client
+
+
+def test_default_multiplier_is_20(client):
+    assert client.get("/api/settings").json()["review_sales_multiplier"] == 20
+
+
+def test_multiplier_change_recalculates(seeded):
+    res = seeded.put("/api/settings", json={"review_sales_multiplier": 30}).json()
+    assert res["review_sales_multiplier"] == 30
+    assert res["recalculated_products"] == 6
+
+    items = {p["product_id"]: p for p in seeded.get("/api/products").json()["items"]}
+    assert items["A"]["estimated_sales"] == 82 * 30
+    assert items["B"]["estimated_sales"] == 300 * 30
+
+
+def test_multiplier_validation(client):
+    assert client.put("/api/settings", json={"review_sales_multiplier": 0}).status_code == 422
+
+
+CONDITIONS = {
+    "price_min": 9000,
+    "price_max": 100000,
+    "review_min": 0,
+    "review_max": 250,
+    "sales_min": 1000,
+    "sales_max": 10000,
+    "rating_min": 4.0,
+    "rating_max": 5.0,
+}
+
+
+def test_condition_passed_filter(seeded):
+    res = seeded.get("/api/products", params={**CONDITIONS, "condition_passed": "true"}).json()
+    assert sorted(p["product_id"] for p in res["items"]) == ["A", "E"]
+    assert all(p["condition_passed"] for p in res["items"])
+
+
+def test_condition_flag_present_without_filtering(seeded):
+    res = seeded.get("/api/products", params=CONDITIONS).json()
+    flags = {p["product_id"]: p["condition_passed"] for p in res["items"]}
+    assert flags == {"A": True, "B": False, "C": False, "D": False, "E": True, "F": False}
+
+
+def test_missing_values_do_not_pass_range_conditions(seeded):
+    """가격/평점이 null인 상품은 범위 조건을 통과하지 않는다(값을 지어내지 않으므로)."""
+    res = seeded.get(
+        "/api/products", params={"price_min": 1, "condition_passed": "true"}
+    ).json()
+    assert "F" not in [p["product_id"] for p in res["items"]]
+
+
+def test_delivery_type_filter(seeded):
+    res = seeded.get("/api/products", params={"delivery_types": "rocket_growth"}).json()
+    passed = [p["product_id"] for p in res["items"] if p["condition_passed"]]
+    assert sorted(passed) == ["A", "E"]
+
+    # 비우면 전체
+    res_all = seeded.get("/api/products", params={"delivery_types": ""}).json()
+    assert res_all["total"] == 6
+
+
+@pytest.mark.parametrize(
+    "sort,expected_first",
+    [
+        ("price_desc", "E"),
+        ("price_asc", "B"),
+        ("review_desc", "B"),
+        ("review_asc", "C"),
+        ("sales_desc", "B"),
+        ("sales_asc", "C"),
+        ("rating_desc", "C"),
+        ("rating_asc", "D"),
+    ],
+)
+def test_sorting(seeded, sort, expected_first):
+    res = seeded.get("/api/products", params={"sort": sort}).json()
+    assert res["items"][0]["product_id"] == expected_first
+
+
+def test_search_and_pagination(seeded):
+    res = seeded.get("/api/products", params={"q": "상품 A"}).json()
+    assert res["total"] == 1
+
+    page1 = seeded.get("/api/products", params={"page": 1, "page_size": 2, "sort": "review_desc"}).json()
+    page2 = seeded.get("/api/products", params={"page": 2, "page_size": 2, "sort": "review_desc"}).json()
+    assert page1["total"] == 6 and len(page1["items"]) == 2
+    assert page1["items"][0]["product_id"] != page2["items"][0]["product_id"]
+
+
+def test_stats(seeded):
+    res = seeded.get("/api/stats", params={**CONDITIONS, "category_ids": "1,2,3"}).json()
+    assert res["selected_categories"] == 3
+    assert res["unique_products"] == 0  # 카테고리 1,2,3에 속한 상품 없음
+
+    res2 = seeded.get("/api/stats", params=CONDITIONS).json()
+    # 수집 상품 수는 확장이 보낸 총 개수(중복 포함)
+    assert res2["collected_products"] == 6
+    assert res2["unique_products"] == 6
+    assert res2["condition_passed_products"] == 2
+    assert res2["review_sales_multiplier"] == 20
