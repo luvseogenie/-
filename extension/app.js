@@ -68,7 +68,7 @@ function renderFoot() {
 }
 
 /* ===== 대시보드 ===== */
-function renderDash() {
+async function renderDash() {
   const has = S.dates(DATA).length > 0;
   $('#dash-empty').style.display = has ? 'none' : ''; $('#dash-body').style.display = has ? '' : 'none';
   if (!has) return;
@@ -83,7 +83,10 @@ function renderDash() {
     return `<span class="${cls}">${txt}</span> vs 이전 ${Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1}일`;
   };
   const organicShare = g.revenue ? g.organic_revenue / g.revenue : 0, prevOrganicShare = pg.revenue ? pg.organic_revenue / pg.revenue : 0;
+  await loadTaxSettings();
+  const at = periodAfterTax(range.start, range.end), pat = periodAfterTax(ps, pe);
   const kpis = [
+    { k: '세후 순이익 (종합소득세 반영)', v: fmtWon(at.net) + '원', bad: at.net < 0, d: `세금 ${fmtWon(at.tax)}원 · 실효 ${(at.rate * 100).toFixed(1)}% · ${delta(at.net, pat.net)}`, color: at.net < 0 ? '#d03b3b' : '#1baf7a' },
     { k: '순이익 (광고비 제외)', v: fmtWon(g.profit) + '원', bad: g.profit < 0, d: delta(g.profit, pg.profit), color: g.profit < 0 ? '#d03b3b' : '#4a3aa7' },
     { k: '총 매출', v: fmtWon(g.revenue) + '원', d: delta(g.revenue, pg.revenue), color: '#17202a' },
     { k: '자연 매출 (광고 외)', v: fmtWon(g.organic_revenue) + '원', d: `매출의 ${Math.round(organicShare * 100)}% · ${delta(organicShare, prevOrganicShare, true)}`, color: '#1baf7a' },
@@ -383,6 +386,19 @@ $('#set-save').onclick = async () => { const out = {}; for (const k of Object.ke
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
 
 /* ===== 세후 순마진 (종합소득세 추정) ===== */
+// 기간의 세후 순이익: 연도별로 (기간 끝까지 누적 순이익의 세금) − (기간 시작 전날까지 누적 순이익의 세금)
+function yearProfitUntil(y, until) { if (until < `${y}-01-01`) return 0; const led = computeLedger(DATA, `${y}-01-01`, until); return Object.values(led.daily).reduce((a, v) => a + v.profit, 0); }
+function periodAfterTax(start, end) {
+  let profit = 0, tax = 0;
+  for (let y = Number(start.slice(0, 4)); y <= Number(end.slice(0, 4)); y++) {
+    const st = taxSettingsFor(y);
+    const s = start > `${y}-01-01` ? start : `${y}-01-01`, e = end < `${y}-12-31` ? end : `${y}-12-31`;
+    const before = yearProfitUntil(y, addDays(s, -1)), through = yearProfitUntil(y, e);
+    const t = computeYearTax(y, through, st).bizTax - computeYearTax(y, before, st).bizTax;
+    profit += through - before; tax += Math.max(0, t);
+  }
+  return { profit, tax, net: profit - tax, rate: profit > 0 ? tax / profit : 0 };
+}
 let taxSettingsAll = {};
 async function loadTaxSettings() { const r = await chrome.storage.sync.get('taxSettings'); taxSettingsAll = r.taxSettings || {}; }
 const taxSettingsFor = (y) => ({ ...DEFAULT_TAX_SETTINGS, ...(taxSettingsAll.default || {}), ...(taxSettingsAll[y] || {}) });
