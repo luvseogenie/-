@@ -66,7 +66,7 @@ class BrowserThread(threading.Thread):
                 return self.context
             except Exception as e:  # noqa: BLE001
                 last = e
-        raise RuntimeError(f"브라우저를 열 수 없습니다. 설치.bat 을 다시 실행해 주세요. ({last})")
+        raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
 
     def _on_close(self, *_):
         self._closed = True
