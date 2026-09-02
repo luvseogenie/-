@@ -27,8 +27,7 @@ const range = { start: null, end: null, preset: '30' };
 function presetRange(p) {
   const y = localIso(yday);
   if (p === 'yday') return [y, y];
-  if (p === '7') return [addDays(y, -6), y];
-  if (p === '30') return [addDays(y, -29), y];
+  if (/^\d+$/.test(p)) return [addDays(y, -(Number(p) - 1)), y];   // 최근 N일 (어제까지)
   if (p === 'month') return [y.slice(0, 8) + '01', y];
   if (p === 'prev') { const d = new Date(today.getFullYear(), today.getMonth() - 1, 1); const e = new Date(today.getFullYear(), today.getMonth(), 0); return [localIso(d), localIso(e)]; }
   if (p === 'all') { const ds = S.dates(DATA); return ds.length ? [ds[0], ds[ds.length - 1]] : [y, y]; }
