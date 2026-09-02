@@ -104,9 +104,14 @@ def list_products(
             "false면 아직 상세 페이지를 확인하지 않은 상품만 (2단계 작업 목록)"
         ),
     ),
+    measured: bool | None = Query(
+        None,
+        description="최근 30일 리뷰수 측정 여부. false면 아직 상세 리뷰를 세지 않은 상품만 (2단계 대기)",
+    ),
     sort: str = Query(
-        "sales_desc",
+        "monthly_revenue_desc",
         description=(
+            "monthly_revenue_desc|monthly_revenue_asc|"
             "price_desc|price_asc|review_desc|review_asc|sales_desc|sales_asc|"
             "monthly_sales_desc|monthly_sales_asc|monthly_review_desc|monthly_review_asc|"
             "rating_desc|rating_asc|collected_desc|collected_asc"
@@ -130,6 +135,10 @@ def list_products(
         scope.append(Product.monthly_purchase_count.isnot(None))
     elif has_purchase is False:
         scope.append(Product.monthly_purchase_count.is_(None))
+    if measured is True:
+        scope.append(Product.monthly_review_count.isnot(None))
+    elif measured is False:
+        scope.append(Product.monthly_review_count.is_(None))
     for clause in scope:
         base = base.where(clause)
 

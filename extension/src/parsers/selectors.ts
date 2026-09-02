@@ -236,7 +236,8 @@ export const CATEGORY_NAME_SELECTORS = [
 //
 // 쿠팡은 "최근 1달 리뷰수"를 표시하지 않는다. 상세 페이지의 리뷰 목록을
 // 최신순으로 정렬한 뒤, 화면에 렌더된 리뷰들의 작성일을 직접 읽어서 센다.
-// 자동으로 다음 페이지를 요청하지 않는다(사용자가 화면에 띄운 것만 읽는다).
+// 자동 스캔은 30일 구간을 덮을 때까지 리뷰 페이지의 [다음]을 눌러 넘긴다
+// (사람이 넘기는 것과 같은 동작, 최대 MAX_REVIEW_PAGES_AUTO 페이지). 수동 모드는 화면에 띄운 것만 읽는다.
 // ---------------------------------------------------------------------------
 
 /** 리뷰 목록 영역(루트) */
@@ -448,3 +449,31 @@ export const DETAIL_TITLE_SUFFIX_PATTERNS = [
 
 /** 상품명으로 인정하지 않는 제목 (사이트 이름만 남은 경우) */
 export const DETAIL_TITLE_REJECT = /^(쿠팡!?|coupang!?)$/i;
+
+/** 리뷰 목록 [다음 페이지] 컨트롤 후보 (자동 스캔이 30일 구간을 덮을 때까지 넘긴다) */
+export const REVIEW_NEXT_PAGE_SELECTORS = [
+  "button.js_reviewArticlePageNextBtn",
+  ".sdp-review__article__page__next",
+  "[class*='review'] [class*='page__next']",
+  "[class*='review'] [class*='PageNext']",
+  "[class*='review'] [class*='pageNext']",
+  "[class*='review'] [class*='pagination'] [class*='next']",
+  "[class*='review'] button[aria-label*='다음']",
+  "[class*='review'] a[aria-label*='다음']",
+  "button[aria-label='다음 페이지']",
+  "button[aria-label='Next page']",
+] as const;
+
+/** selector 가 실패했을 때 텍스트로 찾는 [다음] 버튼 */
+export const REVIEW_NEXT_PAGE_TEXTS = ["다음", "다음 페이지", ">", "›", "▶", "next"] as const;
+
+/** 현재 페이지 번호를 표시하는 요소 (다음 번호를 눌러 넘기는 fallback 용) */
+export const REVIEW_CURRENT_PAGE_SELECTORS = [
+  "[class*='review'] [aria-current='page']",
+  "[class*='review'] [class*='page'] [class*='active']",
+  "[class*='review'] [class*='page'] [class*='selected']",
+  "[class*='review'] [class*='page'] [class*='current']",
+] as const;
+
+/** 자동 스캔이 상품 하나에서 넘겨 보는 리뷰 페이지 상한 (상품당 시간 제한) */
+export const MAX_REVIEW_PAGES_AUTO = 20;

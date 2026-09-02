@@ -149,3 +149,26 @@ def test_stats(seeded):
     assert res2["unique_products"] == 6
     assert res2["condition_passed_products"] == 2
     assert res2["review_sales_multiplier"] == 20
+
+
+def test_monthly_revenue_sort_and_measured_scope(client):
+    """기본 정렬은 30일 예상매출(30일 예상 판매량 × 가격) 많은순, 미측정 상품은 뒤로 간다."""
+    client.post("/api/products/collect", json={"source_url": "https://www.coupang.com/np/categories/1", "page_type": "category", "products": [
+        {"product_id": "A", "product_name": "A", "product_url": "https://www.coupang.com/vp/products/A", "price": 10000, "review_count": 10},
+        {"product_id": "B", "product_name": "B", "product_url": "https://www.coupang.com/vp/products/B", "price": 50000, "review_count": 10},
+        {"product_id": "C", "product_name": "C(미측정)", "product_url": "https://www.coupang.com/vp/products/C", "price": 99000, "review_count": 999},
+    ], "skipped": 0})
+    for pid, n in (("A", 30), ("B", 10)):
+        client.post("/api/products/review-dates", json={
+            "product_id": pid, "product_url": f"https://www.coupang.com/vp/products/{pid}",
+            "reviews_in_window": n, "sample_size": n + 5, "sample_span_days": 40, "covers_window": True,
+            "newest_review_date": "2026-09-01", "oldest_review_date": "2026-07-23", "total_review_count": 10,
+        })
+    items = client.get("/api/products").json()["items"]
+    # A: 30×20×10000 = 6,000,000 / B: 10×20×50000 = 10,000,000 / C: NULL → B, A, C
+    assert [i["product_id"] for i in items] == ["B", "A", "C"]
+    assert client.get("/api/products?measured=false").json()["total"] == 1
+    stats = client.get("/api/stats?monthly_sales_min=300").json()
+    assert stats["condition_passed_products"] == 1  # A(600)만 통과
+    assert stats["passed_monthly_revenue"] == 6_000_000
+    assert stats["monthly_pending_products"] == 1  # C

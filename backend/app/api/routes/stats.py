@@ -13,6 +13,7 @@ from app.models.product import Product
 from app.schemas.stats import StatsOut
 from app.services import estimation
 from app.services.filtering import ProductFilter
+from app.services.filtering import MONTHLY_REVENUE
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -22,6 +23,7 @@ def get_stats(
     has_purchase: bool | None = Query(
         None, description="쿠팡 구매 문구 확보 여부로 범위 제한"
     ),
+    measured: bool | None = Query(None, description="최근 30일 리뷰수 측정 여부로 범위 제한"),
     filters: ProductFilter = Depends(product_filter_params),
     db: Session = Depends(get_db),
 ):
@@ -41,6 +43,10 @@ def get_stats(
         scope.append(Product.monthly_purchase_count.isnot(None))
     elif has_purchase is False:
         scope.append(Product.monthly_purchase_count.is_(None))
+    if measured is True:
+        scope.append(Product.monthly_review_count.isnot(None))
+    elif measured is False:
+        scope.append(Product.monthly_review_count.is_(None))
     for clause in scope:
         unique_stmt = unique_stmt.where(clause)
     unique_count = db.scalar(unique_stmt) or 0
@@ -52,6 +58,14 @@ def get_stats(
     if expr is not None:
         passed_stmt = passed_stmt.where(expr)
     passed_count = db.scalar(passed_stmt) or 0
+
+    # 통과 상품의 30일 예상매출 합계 (30일 예상 판매량 × 가격, 측정된 상품만 더해진다)
+    revenue_stmt = select(func.coalesce(func.sum(MONTHLY_REVENUE), 0))
+    for clause in scope:
+        revenue_stmt = revenue_stmt.where(clause)
+    if expr is not None:
+        revenue_stmt = revenue_stmt.where(expr)
+    passed_revenue = db.scalar(revenue_stmt) or 0
 
     measured_stmt = select(func.count()).select_from(Product).where(
         Product.monthly_review_count.isnot(None)
@@ -79,6 +93,24 @@ def get_stats(
         pending_stmt = pending_stmt.where(pending_expr)
     pending_count = db.scalar(pending_stmt) or 0
 
+    # 30일 리뷰수를 아직 못 잰 상품 중 1차 조건(30일·구매 문구 제외)은 통과한 것 = 2단계 대기
+    monthly_pending_stmt = select(func.count()).select_from(Product).where(
+        Product.monthly_review_count.is_(None)
+    )
+    for clause in scope:
+        monthly_pending_stmt = monthly_pending_stmt.where(clause)
+    first_stage = replace(
+        filters,
+        purchase_min=None, purchase_max=None,
+        monthly_review_min=None, monthly_review_max=None,
+        monthly_sales_min=None, monthly_sales_max=None,
+        min_confidence=None,
+    )
+    first_expr = first_stage.condition_expression()
+    if first_expr is not None:
+        monthly_pending_stmt = monthly_pending_stmt.where(first_expr)
+    monthly_pending_count = db.scalar(monthly_pending_stmt) or 0
+
     multiplier = estimation.get_multiplier(db)
     db.commit()
 
@@ -90,5 +122,7 @@ def get_stats(
         monthly_measured_products=int(measured_count),
         purchase_labeled_products=int(labeled_count),
         purchase_pending_products=int(pending_count),
+        monthly_pending_products=int(monthly_pending_count),
+        passed_monthly_revenue=int(passed_revenue),
         review_sales_multiplier=multiplier,
     )

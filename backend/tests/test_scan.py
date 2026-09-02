@@ -98,16 +98,18 @@ def test_list_phase_then_detail_phase(client, tree):
 
 
 def test_detail_skips_products_already_checked(client, tree):
-    """이미 구매 문구를 확보한 상품은 상세를 다시 보지 않는다."""
+    """최근 30일 리뷰수를 이미 잰 상품은 상세를 다시 보지 않는다 (구매 문구 유무와 무관)."""
     leaf = tree["발매트"]
     client.post("/api/scan/start", json={"category_ids": [leaf["id"]], "detail_limit": 10})
     t = client.get("/api/scan/next").json()
-    checked = product("B1", "이미 확인", 15000, 100)
-    checked.update({"monthly_purchase_count": 3000, "monthly_purchase_is_minimum": True,
-                    "monthly_purchase_unit": "명", "monthly_purchase_text": "한 달간 3,000명 이상 구매"})
     client.post("/api/products/collect", json={
         "category_code": "1011", "category_name": "발매트",
-        "products": [checked, product("B2", "미확인", 15000, 50)],
+        "products": [product("B1", "이미 측정", 15000, 100), product("B2", "미측정", 15000, 50)],
+    })
+    client.post("/api/products/review-dates", json={
+        "product_id": "B1", "product_url": "https://www.coupang.com/vp/products/B1",
+        "reviews_in_window": 12, "sample_size": 20, "sample_span_days": 45, "covers_window": True,
+        "newest_review_date": "2026-09-01", "oldest_review_date": "2026-07-18", "total_review_count": 100,
     })
     client.post(f"/api/scan/targets/{t['id']}/done", json={"product_count": 2})
     d = client.get("/api/scan/next").json()

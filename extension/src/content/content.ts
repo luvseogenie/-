@@ -31,6 +31,10 @@ import {
   CATEGORY_MENU_TRIGGER_TEXTS,
   MIN_CATEGORY_MENU_LINKS,
   PRODUCT_ID_URL_PATTERNS,
+  REVIEW_CURRENT_PAGE_SELECTORS,
+  REVIEW_NEXT_PAGE_SELECTORS,
+  REVIEW_NEXT_PAGE_TEXTS,
+  REVIEW_SECTION_SELECTORS,
 } from "@/parsers/selectors";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
@@ -65,8 +69,8 @@ function currentProductId(): string | null {
 //
 // 쿠팡 리뷰 목록은 페이지네이션 방식이라, 다음 페이지로 넘기면 이전 리뷰가
 // DOM에서 사라진다. 한 페이지(보통 5건)만 봐서는 30일 구간을 덮을 수 없다.
-// 그래서 사용자가 페이지를 넘기는 동안 화면에 나타난 리뷰의 작성일을
-// 여기에 누적해 둔다. (자동으로 페이지를 요청하지는 않는다 — 사용자가 넘긴 것만 읽는다)
+// 그래서 페이지를 넘기는 동안 화면에 나타난 리뷰의 작성일을 여기에 누적해 둔다.
+// 수동 모드에서는 사용자가 넘긴 것만 읽고, 자동 스캔은 NEXT_REVIEW_PAGE 로 [다음]을 눌러 넘긴다.
 // ---------------------------------------------------------------------------
 const reviewStore = new Map<string, Date>();
 let reviewStoreProductId: string | null = null;
@@ -150,6 +154,62 @@ function analyzeReviews(): ReviewDateResult {
   return result;
 }
 
+function isClickable(el: Element | null): el is HTMLElement {
+  if (!el || !(el instanceof HTMLElement)) return false;
+  if ((el as HTMLButtonElement).disabled) return false;
+  if (el.getAttribute("aria-disabled") === "true") return false;
+  const cls = el.getAttribute("class") ?? "";
+  if (/disabled|inactive/i.test(cls)) return false;
+  return true;
+}
+
+/**
+ * 리뷰 목록의 [다음 페이지]를 누른다 (자동 스캔용).
+ * 1) 알려진 selector → 2) "다음" 텍스트 버튼 → 3) 현재 페이지 번호 + 1 번호 버튼.
+ * 사람이 페이지를 넘기는 것과 같은 클릭이며, 마지막 페이지면 아무것도 하지 않는다.
+ */
+function tryNextReviewPage(): { clicked: boolean; how: string | null } {
+  for (const selector of REVIEW_NEXT_PAGE_SELECTORS) {
+    const el = document.querySelector(selector);
+    if (isClickable(el)) {
+      el.click();
+      return { clicked: true, how: selector };
+    }
+  }
+  let section: ParentNode = document;
+  for (const selector of REVIEW_SECTION_SELECTORS) {
+    const found = document.querySelector(selector);
+    if (found) {
+      section = found;
+      break;
+    }
+  }
+  const texts = new Set<string>(REVIEW_NEXT_PAGE_TEXTS.map((t) => t.toLowerCase()));
+  for (const el of Array.from(section.querySelectorAll("button, a, li, span, div"))) {
+    if (el.children.length > 1) continue;
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    const label = (el.getAttribute("aria-label") ?? "").trim().toLowerCase();
+    if ((texts.has(text) || texts.has(label)) && isClickable(el)) {
+      el.click();
+      return { clicked: true, how: `text:${text || label}` };
+    }
+  }
+  for (const selector of REVIEW_CURRENT_PAGE_SELECTORS) {
+    const current = document.querySelector(selector);
+    const n = Number((current?.textContent ?? "").trim());
+    if (!current || !Number.isInteger(n) || n <= 0) continue;
+    const container = current.parentElement?.parentElement ?? current.parentElement;
+    if (!container) continue;
+    for (const el of Array.from(container.querySelectorAll("button, a, li, span"))) {
+      if ((el.textContent ?? "").trim() === String(n + 1) && isClickable(el)) {
+        el.click();
+        return { clicked: true, how: `page:${n + 1}` };
+      }
+    }
+  }
+  return { clicked: false, how: null };
+}
+
 /**
  * 리뷰 정렬을 최신순으로 바꿔본다 (자동 스캔용, 최선 노력).
  * 정렬 컨트롤을 못 찾으면 아무것도 하지 않는다.
@@ -211,6 +271,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     scanCategories()
       .then((result) => sendResponse({ ok: true, result }))
       .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    return true;
+  }
+  if (message?.type === "NEXT_REVIEW_PAGE") {
+    sendResponse({ ok: true, ...tryNextReviewPage() });
     return true;
   }
   if (message?.type === "SORT_REVIEWS_NEWEST") {

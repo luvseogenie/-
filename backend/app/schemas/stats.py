@@ -16,4 +16,8 @@ class StatsOut(BaseModel):
     purchase_labeled_products: int = 0
     # 조건은 통과했지만 아직 구매 문구를 확인하지 못한 상품 수 (= 상세 확인 대기)
     purchase_pending_products: int = 0
+    # 1차 조건은 통과했지만 최근 30일 리뷰수를 아직 못 잰 상품 수 (= 2단계 대기)
+    monthly_pending_products: int = 0
+    # 조건 통과 상품의 30일 예상매출 합계(원) — 30일 예상 판매량 × 가격
+    passed_monthly_revenue: int = 0
     review_sales_multiplier: int

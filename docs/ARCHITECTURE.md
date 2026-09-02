@@ -184,6 +184,18 @@ popup [현재 페이지 수집]
                  → popup "36개 중 35개 저장 / 중복 1개"
 ```
 
+## 5-0. 핵심 지표와 우선순위
+
+```
+30일 리뷰수 (상세 리뷰 최신순 페이지 넘김으로 직접 셈)
+  → 30일 예상 판매량 = 30일 리뷰수 × 배수(기본 20)      ← 소싱 기준 버튼(월 500/1,000/3,000)의 기준
+  → 30일 예상매출   = 30일 예상 판매량 × 가격            ← 기본 정렬, KPI "통과 상품 30일 매출"
+쿠팡 "한 달간 N명 구매" 문구 = 같은 상세 방문에서 함께 저장, 2차 확인용
+누적 리뷰수 × 배수 = 참고용 (표에서 숨김, 엑셀에만)
+2단계 대상 = 1차 조건(가격·리뷰·평점·배송) 통과 & monthly_review_count IS NULL, 누적 리뷰 많은 순
+결과 탭 = 조건 통과(기본) / 전체 / 미달 / 30일 미측정(measured=false)
+```
+
 ## 5-1. 판매량 지표 — 2단 구조
 
 ```
@@ -248,7 +260,8 @@ popup [현재 페이지 수집]
          tabs.update(url) → 로드 대기(status·URL 확인) → content SCAN
            (content script가 없으면 chrome.scripting 으로 1회 주입)
          목록: parseProductList → POST /api/products/collect
-         상세: + 리뷰 최신순 정렬 → ANALYZE_REVIEWS → POST /api/products/review-dates
+         상세: + 리뷰 최신순 정렬 → ANALYZE_REVIEWS → 30일을 못 덮으면 NEXT_REVIEW_PAGE([다음] 클릭) 반복
+               (상품당 최대 20페이지) → POST /api/products/review-dates
          목록: 좌측 메뉴 SCAN_CATEGORIES → 트리 등록 + 직계 하위를 done 에 실어 보냄
          POST /api/scan/targets/{id}/done {product_count | error, discovered_children[]}
            └ 백엔드: 발견한 하위를 현재 카테고리 아래 등록하고, 아직 대상이 아니면 목록 대상 추가

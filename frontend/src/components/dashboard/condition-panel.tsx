@@ -32,28 +32,29 @@ type Range = {
 
 const RANGES: Range[] = [
   {
-    label: "한 달 구매 (쿠팡 표시)",
-    keys: ["purchase_min", "purchase_max"],
-    placeholder: ["1000", ""],
-    note: "쿠팡 실제 데이터",
+    label: "최근 30일 예상 판매량",
+    keys: ["monthly_sales_min", "monthly_sales_max"],
+    placeholder: ["최소", "최대"],
+    note: "30일 리뷰수 × 배수 · 핵심 지표",
   },
-  { label: "판매가격 (원)", keys: ["price_min", "price_max"], placeholder: ["9000", "100000"] },
-  { label: "리뷰 수 (누적)", keys: ["review_min", "review_max"], placeholder: ["0", "250"] },
-  { label: "예상 판매량 (누적)", keys: ["sales_min", "sales_max"], placeholder: ["1000", "10000"] },
   {
     label: "최근 30일 리뷰수",
     keys: ["monthly_review_min", "monthly_review_max"],
-    placeholder: ["10", "500"],
+    placeholder: ["최소", "최대"],
     note: "측정된 상품만 통과합니다",
   },
+  { label: "판매가격 (원)", keys: ["price_min", "price_max"], placeholder: ["최소", "최대"] },
+  { label: "리뷰 수 (누적)", keys: ["review_min", "review_max"], placeholder: ["최소", "최대"] },
+  { label: "평점", keys: ["rating_min", "rating_max"], step: "0.1", placeholder: ["최소", "최대"] },
   {
-    label: "최근 30일 예상 판매량",
-    keys: ["monthly_sales_min", "monthly_sales_max"],
-    placeholder: ["200", "10000"],
-    note: "측정된 상품만 통과합니다",
+    label: "한 달 구매 (쿠팡 표시)",
+    keys: ["purchase_min", "purchase_max"],
+    placeholder: ["최소", "최대"],
+    note: "2차 확인용 · 문구가 있는 상품만 통과",
   },
-  { label: "평점", keys: ["rating_min", "rating_max"], step: "0.1", placeholder: ["4.0", "5.0"] },
+  { label: "예상 판매량 (누적 리뷰 × 배수)", keys: ["sales_min", "sales_max"], placeholder: ["최소", "최대"], note: "참고용" },
 ];
+
 
 const DELIVERY_OPTIONS: DeliveryType[] = ["rocket_growth", "rocket", "seller"];
 
@@ -90,20 +91,20 @@ export function ConditionPanel({
         <div className="flex flex-wrap gap-1">
           {SOURCING_PRESETS.map((preset) => (
             <Button
-              key={preset.purchaseMin}
+              key={preset.monthlySalesMin}
               size="sm"
               variant={
-                conditions.purchase_min === String(preset.purchaseMin) ? "default" : "outline"
+                conditions.monthly_sales_min === String(preset.monthlySalesMin) ? "default" : "outline"
               }
               className="h-6 px-2 text-[11px]"
-              title={`${preset.note} · 쿠팡 "한 달간 ${preset.purchaseMin.toLocaleString()}명 이상 구매" 이상`}
+              title={`${preset.note} · 최근 30일 예상 판매량 ${preset.monthlySalesMin.toLocaleString()}개 이상`}
               onClick={() =>
                 onChange({
                   ...conditions,
-                  purchase_min:
-                    conditions.purchase_min === String(preset.purchaseMin)
+                  monthly_sales_min:
+                    conditions.monthly_sales_min === String(preset.monthlySalesMin)
                       ? ""
-                      : String(preset.purchaseMin),
+                      : String(preset.monthlySalesMin),
                 })
               }
             >
@@ -112,8 +113,8 @@ export function ConditionPanel({
           ))}
         </div>
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          쿠팡이 상품 페이지에 표시하는 <b>&quot;한 달간 N명 이상 구매했어요&quot;</b> 기준입니다.
-          추정치가 아니라 쿠팡의 실제 판매 데이터입니다.
+          <b>최근 30일 리뷰수 × 배수</b>로 추정한 30일 예상 판매량 기준입니다 (배수 20이면 월 1,000개 = 30일
+          리뷰 50건). 쿠팡의 &quot;한 달간 N명 구매&quot; 문구는 2차 확인용으로 함께 저장됩니다.
         </p>
       </div>
 

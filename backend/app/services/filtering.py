@@ -164,7 +164,12 @@ class ProductFilter:
         return not self.where_clauses()
 
 
+# 30일 예상매출 = 30일 예상 판매량 × 가격 (둘 중 하나라도 없으면 NULL → 뒤로)
+MONTHLY_REVENUE = Product.monthly_estimated_sales * Product.price
+
 SORT_FIELDS = {
+    "monthly_revenue_desc": (MONTHLY_REVENUE, "desc"),
+    "monthly_revenue_asc": (MONTHLY_REVENUE, "asc"),
     "purchase_desc": (Product.monthly_purchase_count, "desc"),
     "purchase_asc": (Product.monthly_purchase_count, "asc"),
     "monthly_sales_desc": (Product.monthly_estimated_sales, "desc"),
@@ -185,7 +190,7 @@ SORT_FIELDS = {
 
 
 def sort_expression(sort: str | None):
-    column, direction = SORT_FIELDS.get(sort or "sales_desc", SORT_FIELDS["sales_desc"])
+    column, direction = SORT_FIELDS.get(sort or "monthly_revenue_desc", SORT_FIELDS["monthly_revenue_desc"])
     # NULL이 정렬 결과를 어지럽히지 않도록 뒤로 보낸다.
     if direction == "desc":
         return [column.is_(None), column.desc(), Product.id.desc()]

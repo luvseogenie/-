@@ -132,16 +132,13 @@ export function ProductTable({
             <TableRow>
               <TableHead className="w-24">판정</TableHead>
               <TableHead className="min-w-56">상품명</TableHead>
-              <TableHead className="w-28 whitespace-nowrap text-right">한 달 구매</TableHead>
-              <TableHead className="w-32">카테고리</TableHead>
-              <TableHead className="w-28 whitespace-nowrap text-right">가격</TableHead>
-              <TableHead className="w-20 text-right">리뷰수</TableHead>
-              <TableHead className="w-28 whitespace-nowrap text-right">예상 판매량</TableHead>
               <TableHead className="w-24 whitespace-nowrap text-right">30일 리뷰</TableHead>
               <TableHead className="w-32 whitespace-nowrap text-right">30일 예상판매</TableHead>
               <TableHead className="w-32 whitespace-nowrap text-right">30일 예상매출</TableHead>
+              <TableHead className="w-28 whitespace-nowrap text-right">한 달 구매(쿠팡)</TableHead>
+              <TableHead className="w-28 whitespace-nowrap text-right">가격</TableHead>
+              <TableHead className="w-24 whitespace-nowrap text-right">누적 리뷰</TableHead>
               <TableHead className="w-16 text-right">평점</TableHead>
-              <TableHead className="w-20 text-right">조회수</TableHead>
               <TableHead className="w-28">배송</TableHead>
               <TableHead className="w-20">상품 링크</TableHead>
             </TableRow>
@@ -149,14 +146,14 @@ export function ProductTable({
           <TableBody>
             {loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={14} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                 </TableCell>
               </TableRow>
             )}
             {!loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={14} className="py-10 text-center text-xs text-muted-foreground">
+                <TableCell colSpan={11} className="py-10 text-center text-xs text-muted-foreground">
                   수집된 상품이 없습니다.
                   <br />
                   왼쪽에서 카테고리를 체크하고 [소싱 시작] → 크롬 확장에서 [자동 수집 시작]을 눌러주세요.
@@ -184,17 +181,7 @@ export function ProductTable({
                   >
                     {p.product_name}
                   </a>
-                </TableCell>
-                <TableCell className="tabular text-right">
-                  <PurchaseCell product={p} />
-                </TableCell>
-                <TableCell className="truncate text-xs text-muted-foreground">
-                  {p.category_name ?? "-"}
-                </TableCell>
-                <TableCell className="tabular whitespace-nowrap text-right">{formatPrice(p.price)}</TableCell>
-                <TableCell className="tabular text-right">{formatNumber(p.review_count)}</TableCell>
-                <TableCell className="tabular text-right font-medium text-primary">
-                  {formatNumber(p.estimated_sales)}
+                  <div className="truncate text-[10px] text-muted-foreground">{p.category_name ?? "-"}</div>
                 </TableCell>
                 <TableCell className="tabular text-right">
                   <MonthlyCell value={p.monthly_review_count} product={p} />
@@ -203,16 +190,17 @@ export function ProductTable({
                   <MonthlyCell value={p.monthly_estimated_sales} product={p} emphasize />
                 </TableCell>
                 {/* 30일 예상매출 = 30일 예상 판매량 × 가격. 둘 중 하나라도 없으면 "-" */}
-                <TableCell className="tabular whitespace-nowrap text-right text-muted-foreground">
+                <TableCell className="tabular whitespace-nowrap text-right font-medium">
                   {p.monthly_estimated_sales !== null && p.price !== null
                     ? formatPrice(p.monthly_estimated_sales * p.price)
                     : "-"}
                 </TableCell>
-                <TableCell className="tabular text-right">{formatRating(p.rating)}</TableCell>
-                {/* 조회수는 데이터 원천이 없어 항상 "-" */}
-                <TableCell className="tabular text-right text-muted-foreground">
-                  {formatNumber(p.view_count)}
+                <TableCell className="tabular text-right">
+                  <PurchaseCell product={p} />
                 </TableCell>
+                <TableCell className="tabular whitespace-nowrap text-right">{formatPrice(p.price)}</TableCell>
+                <TableCell className="tabular text-right text-muted-foreground">{formatNumber(p.review_count)}</TableCell>
+                <TableCell className="tabular text-right">{formatRating(p.rating)}</TableCell>
                 <TableCell>
                   <DeliveryBadge type={p.delivery_type} />
                 </TableCell>

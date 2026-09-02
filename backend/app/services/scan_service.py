@@ -157,16 +157,17 @@ def _conditions_filter(job: ScanJob) -> ProductFilter:
 
 
 def prepare_detail_targets(db: Session, job: ScanJob) -> int:
-    """1차 조건을 통과했지만 상세를 아직 안 본 상품을 2단계 대상으로 만든다.
+    """1차 조건을 통과했지만 최근 30일 리뷰수를 아직 못 잰 상품을 2단계 대상으로 만든다.
 
-    "한 달간 N명 구매" 문구와 리뷰 작성일은 상세 페이지에만 있으므로
-    여기서 확보한다. 리뷰가 많은 순으로 우선 확인한다.
+    핵심 지표(30일 리뷰수 → 30일 예상 판매량 → 30일 예상매출)는 상세 페이지의 리뷰를
+    최신순으로 세어야 나온다. 같은 방문에서 "한 달간 N명 구매" 문구도 함께 저장한다(2차 확인용).
+    누적 리뷰가 많은 순으로 우선 확인한다.
     """
     if job.detail_prepared or job.detail_limit <= 0:
         return 0
 
     filters = _conditions_filter(job)
-    stmt = select(Product).where(Product.monthly_purchase_count.is_(None))
+    stmt = select(Product).where(Product.monthly_review_count.is_(None))
 
     category_ids = json.loads(job.category_ids or "[]")
     if category_ids:

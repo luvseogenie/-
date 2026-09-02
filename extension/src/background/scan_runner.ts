@@ -16,6 +16,7 @@ import { api, getAutoCollect, type ScanTarget } from "@/lib/api";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
 import type { CategoryTreeResult } from "@/parsers/coupang_category_parser";
+import { MAX_REVIEW_PAGES_AUTO } from "@/parsers/selectors";
 
 import { openBackgroundTab, sendWhenReady, sleep, waitForLoad } from "./tab_utils";
 
@@ -27,6 +28,8 @@ const SETTLE_AFTER_LOAD_MS = 1500;
 const CONTENT_READY_TIMEOUT_MS = 20000;
 /** 연속 실패 허용 횟수 — 넘으면 멈춘다 */
 const MAX_CONSECUTIVE_FAILURES = 5;
+/** 리뷰 [다음 페이지]를 누른 뒤 새 리뷰가 그려질 시간 */
+const REVIEW_PAGE_SETTLE_MS = 1200;
 
 type RunnerState = {
   running: boolean;
@@ -116,7 +119,21 @@ async function registerDiscoveredCategories(
   }
 }
 
-/** 상세 페이지에서 리뷰 작성일까지 읽는다 (최신순 정렬 시도 포함). */
+/** 지금까지 화면에 나온 리뷰 작성일을 분석한다 */
+async function analyzeOnce(tabId: number): Promise<ReviewDateResult | null> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "ANALYZE_REVIEWS" });
+    return response?.ok ? (response.result as ReviewDateResult) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 상세 페이지에서 최근 30일 리뷰수를 센다.
+ * 최신순으로 정렬한 뒤, 30일보다 오래된 리뷰가 나올 때까지 [다음 페이지]를 눌러 누적한다.
+ * (상품당 최대 MAX_REVIEW_PAGES_AUTO 페이지 — 그 안에 못 덮으면 표본 기간으로 추정하고 신뢰도를 낮춘다)
+ */
 async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | null> {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "SORT_REVIEWS_NEWEST" });
@@ -124,12 +141,28 @@ async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | nu
   } catch {
     // 정렬 컨트롤이 없으면 그대로 진행한다.
   }
-  try {
-    const response = await chrome.tabs.sendMessage(tabId, { type: "ANALYZE_REVIEWS" });
-    return response?.ok ? (response.result as ReviewDateResult) : null;
-  } catch {
-    return null;
+  let result = await analyzeOnce(tabId);
+  let pages = 1;
+  while (result && !result.coversWindow && result.sampleSize > 0 && pages < MAX_REVIEW_PAGES_AUTO) {
+    let next: { clicked?: boolean } | undefined;
+    try {
+      next = (await chrome.tabs.sendMessage(tabId, { type: "NEXT_REVIEW_PAGE" })) as { clicked?: boolean };
+    } catch {
+      next = undefined;
+    }
+    if (!next?.clicked) break;
+    await sleep(REVIEW_PAGE_SETTLE_MS);
+    const again = await analyzeOnce(tabId);
+    if (!again || again.sampleSize <= result.sampleSize) {
+      // 새 리뷰가 안 들어왔다 = 마지막 페이지였거나 화면이 바뀌지 않았다.
+      result = again ?? result;
+      break;
+    }
+    result = again;
+    pages += 1;
   }
+  if (result) log.info("리뷰 30일 분석", { pages, sample: result.sampleSize, inWindow: result.reviewsInWindow, covers: result.coversWindow });
+  return result;
 }
 
 /** 차단/오류 페이지인지 간단히 판단한다. 우회하지 않고 멈추기 위한 감지다. */

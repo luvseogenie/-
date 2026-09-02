@@ -99,6 +99,10 @@ export type Stats = {
   purchase_labeled_products: number;
   /** 다른 조건은 통과했지만 아직 구매 문구를 확인하지 못한 상품 수 */
   purchase_pending_products: number;
+  /** 1차 조건은 통과했지만 최근 30일 리뷰수를 아직 못 잰 상품 수 (2단계 대기) */
+  monthly_pending_products: number;
+  /** 조건 통과 상품의 30일 예상매출 합계(원) */
+  passed_monthly_revenue: number;
   review_sales_multiplier: number;
 };
 
@@ -156,20 +160,15 @@ export const DEFAULT_CONDITIONS: Conditions = {
 };
 
 export const SORT_OPTIONS = [
-  { value: "purchase_desc", label: "한 달 구매 많은순" },
-  { value: "purchase_asc", label: "한 달 구매 적은순" },
-  { value: "monthly_sales_desc", label: "최근 30일 판매량 많은순" },
-  { value: "monthly_sales_asc", label: "최근 30일 판매량 적은순" },
-  { value: "monthly_review_desc", label: "최근 30일 리뷰 많은순" },
-  { value: "monthly_review_asc", label: "최근 30일 리뷰 적은순" },
-  { value: "sales_desc", label: "예상 판매량 많은순" },
-  { value: "sales_asc", label: "예상 판매량 적은순" },
+  { value: "monthly_revenue_desc", label: "30일 예상매출 많은순" },
+  { value: "monthly_sales_desc", label: "30일 예상판매 많은순" },
+  { value: "monthly_review_desc", label: "30일 리뷰 많은순" },
+  { value: "purchase_desc", label: "한 달 구매(쿠팡) 많은순" },
   { value: "price_desc", label: "가격 높은순" },
   { value: "price_asc", label: "가격 낮은순" },
-  { value: "review_desc", label: "리뷰 많은순" },
-  { value: "review_asc", label: "리뷰 적은순" },
+  { value: "review_desc", label: "누적 리뷰 많은순" },
+  { value: "review_asc", label: "누적 리뷰 적은순" },
   { value: "rating_desc", label: "평점 높은순" },
-  { value: "rating_asc", label: "평점 낮은순" },
   { value: "collected_desc", label: "최근 수집순" },
 ] as const;
 
@@ -178,10 +177,11 @@ export const SORT_OPTIONS = [
  * 쿠팡이 표시하는 "한 달간 N명 이상 구매했어요" 문구를 기준으로 한다.
  * (우리가 추정한 값이 아니라 쿠팡의 실제 판매 데이터)
  */
+/** 소싱 기준 = 최근 30일 예상 판매량(30일 리뷰수 × 배수) 하한 */
 export const SOURCING_PRESETS = [
-  { label: "월 500개 이상", purchaseMin: 500, note: "최소 기준" },
-  { label: "월 1,000개 이상", purchaseMin: 1000, note: "주력 기준" },
-  { label: "월 3,000개 이상", purchaseMin: 3000, note: "상위" },
+  { label: "월 500개 이상", monthlySalesMin: 500, note: "최소 기준" },
+  { label: "월 1,000개 이상", monthlySalesMin: 1000, note: "주력 기준" },
+  { label: "월 3,000개 이상", monthlySalesMin: 3000, note: "상위" },
 ] as const;
 
 /** 측정 신뢰도 라벨 */

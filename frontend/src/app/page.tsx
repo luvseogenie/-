@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { api, buildQuery } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import { extensionId, sendToExtension } from "@/lib/extension-bridge";
 import {
   DEFAULT_CONDITIONS,
@@ -41,16 +42,19 @@ export default function DashboardPage() {
   const [multiplier, setMultiplier] = React.useState(20);
   const [savingMultiplier, setSavingMultiplier] = React.useState(false);
 
-  const [onlyPassed, setOnlyPassed] = React.useState(false);
-  /** 2단계: 구매 문구를 아직 확인하지 못한 상품만 보기 */
-  const [onlyPending, setOnlyPending] = React.useState(false);
+  /**
+   * 결과 보기 범위. 조건을 설정하면 기본은 "조건 통과"만 보인다.
+   *   passed  = 조건 통과   all = 전체   failed = 미달
+   *   pending = 1차 조건은 통과했지만 최근 30일 리뷰수를 아직 못 잰 상품 (2단계 대기)
+   */
+  const [view, setView] = React.useState<"passed" | "all" | "failed" | "pending">("passed");
 
   /** 자동 스캔 설정·상태 */
   const [scanPages, setScanPages] = React.useState(1);
   const [scanDetailLimit, setScanDetailLimit] = React.useState(50);
   const [scanStatus, setScanStatus] = React.useState<ScanStatus | null>(null);
   const [scanStarting, setScanStarting] = React.useState(false);
-  const [sort, setSort] = React.useState<string>("sales_desc");
+  const [sort, setSort] = React.useState<string>("monthly_revenue_desc");
   const [keyword, setKeyword] = React.useState("");
   const [debouncedKeyword, setDebouncedKeyword] = React.useState("");
 
@@ -161,16 +165,25 @@ export default function DashboardPage() {
     const run = async () => {
       setLoading(true);
       setError(null);
-      // 미확인 후보만 볼 때는 구매수 조건을 빼야 한다(아직 값이 없으므로 전부 탈락한다).
-      const listConditions = onlyPending
-        ? { ...conditions, purchase_min: "", purchase_max: "" }
-        : conditions;
+      // 30일 미측정 상품을 볼 때는 30일·구매 문구 조건을 빼야 한다(아직 값이 없어 전부 탈락한다).
+      const listConditions =
+        view === "pending"
+          ? {
+              ...conditions,
+              purchase_min: "",
+              purchase_max: "",
+              monthly_review_min: "",
+              monthly_review_max: "",
+              monthly_sales_min: "",
+              monthly_sales_max: "",
+            }
+          : conditions;
       const listQuery = buildQuery(listConditions, selectedIds, {
         sort,
         q: debouncedKeyword || undefined,
         page_size: 200,
-        condition_passed: onlyPassed || onlyPending ? true : undefined,
-        has_purchase: onlyPending ? false : undefined,
+        condition_passed: view === "passed" || view === "pending" ? true : view === "failed" ? false : undefined,
+        measured: view === "pending" ? false : undefined,
       });
       const statsQuery = buildQuery(conditions, selectedIds, { q: debouncedKeyword || undefined });
       try {
@@ -191,7 +204,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [conditions, selectedIds, sort, debouncedKeyword, onlyPassed, onlyPending, reloadKey]);
+  }, [conditions, selectedIds, sort, debouncedKeyword, view, reloadKey]);
 
   const applyMultiplier = async (value: number) => {
     setSavingMultiplier(true);
@@ -231,6 +244,13 @@ export default function DashboardPage() {
       if (timer) clearTimeout(timer);
     };
   }, []);
+
+  // 조건을 처음 설정하면 "조건 통과" 탭으로, 조건이 모두 비면 "전체"로 옮긴다 (렌더 중 상태 보정).
+  const [prevHasConditions, setPrevHasConditions] = React.useState(hasConditions);
+  if (prevHasConditions !== hasConditions) {
+    setPrevHasConditions(hasConditions);
+    setView(hasConditions ? "passed" : "all");
+  }
 
   const toNumber = (value: string): number | null => (value === "" ? null : Number(value));
 
@@ -422,48 +442,35 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
 
-            <Button
-              variant={onlyPassed ? "default" : "outline"}
-              size="sm"
-              className="h-8"
-              disabled={!hasConditions || onlyPending}
-              title={hasConditions ? undefined : "왼쪽에서 상품 조건을 먼저 설정하세요"}
-              onClick={() => setOnlyPassed((v) => !v)}
-            >
-              조건 통과만
-            </Button>
-
-            <Button
-              variant={onlyPending ? "default" : "outline"}
-              size="sm"
-              className="h-8"
-              disabled={!hasConditions}
-              title="1차 조건은 통과했지만 쿠팡 구매 문구를 아직 확인하지 못한 상품"
-              onClick={() => setOnlyPending((v) => !v)}
-            >
-              상세 확인 필요
-              {stats && stats.purchase_pending_products > 0 && (
-                <span className="ml-1 rounded bg-[var(--warning)]/20 px-1 text-[10px] text-[var(--warning)]">
-                  {stats.purchase_pending_products}
-                </span>
-              )}
-            </Button>
-
-            {onlyPending && products.length > 0 && (
+            {(
+              [
+                ["passed", "조건 통과", stats?.condition_passed_products],
+                ["all", "전체", stats?.unique_products],
+                ["failed", "미달", stats ? stats.unique_products - stats.condition_passed_products : undefined],
+                ["pending", "30일 미측정", stats?.monthly_pending_products],
+              ] as const
+            ).map(([key, label, count]) => (
               <Button
-                variant="secondary"
+                key={key}
+                variant={view === key ? "default" : "outline"}
                 size="sm"
                 className="h-8"
-                title="상위 10개 상품 상세 페이지를 새 탭으로 엽니다. 확장의 '자동 수집'을 켜두면 클릭 없이 저장됩니다."
-                onClick={() => {
-                  products
-                    .slice(0, 10)
-                    .forEach((p) => window.open(p.product_url, "_blank", "noopener"));
-                }}
+                disabled={!hasConditions && key !== "all"}
+                title={
+                  key === "pending"
+                    ? "1차 조건(가격·리뷰·평점·배송)은 통과했지만 최근 30일 리뷰수를 아직 세지 않은 상품 — [소싱 시작]이 상세 페이지에서 채웁니다"
+                    : !hasConditions
+                      ? "왼쪽에서 상품 조건을 먼저 설정하세요"
+                      : undefined
+                }
+                onClick={() => setView(key)}
               >
-                상위 10개 열기
+                {label}
+                {hasConditions && count !== undefined && (
+                  <span className="ml-1 rounded bg-foreground/10 px-1 text-[10px] tabular">{formatNumber(count)}</span>
+                )}
               </Button>
-            )}
+            ))}
           </div>
 
           <ProductTable
