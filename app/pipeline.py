@@ -23,6 +23,7 @@ class JobController:
         self.message = ""
         self.run_id = None
         self.future = None
+        self.blocked_streak = 0
 
     # ----- 상태 -----
     def status(self):
@@ -165,14 +166,29 @@ class JobController:
     def _with_retry(self, fn, tries=3):
         for attempt in range(1, tries + 1):
             try:
-                return fn()
+                result = fn()
+                self.blocked_streak = 0
+                return result
             except BlockedError as e:
                 self.message = f"차단 감지: {e}. {config.BLOCK_COOLDOWN}초 쉬었다가 다시 시도합니다 ({attempt}/{tries})"
                 log.warn(self.message)
                 self._sleep_checked(config.BLOCK_COOLDOWN)
+                try:
+                    browser.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+                    browser.page().wait_for_timeout(2000)
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception as e:  # noqa: BLE001
                 log.warn(f"페이지 오류 ({attempt}/{tries}): {e}")
                 self._sleep_checked(3)
+        self.blocked_streak = getattr(self, "blocked_streak", 0) + 1
+        if self.blocked_streak >= 2:
+            self.paused = True
+            self.message = ("쿠팡이 계속 접근을 막고 있습니다. 브라우저 창에서 쿠팡 상품 페이지를 하나 직접 열어 정상적으로 보이는지 확인한 뒤 "
+                            "[재개]를 눌러주세요. 계속 막히면 30분쯤 뒤에 다시 시도하세요.")
+            log.warn(self.message)
+            self.blocked_streak = 0
+            self._check()
         return None
 
     # ----- 28일 판매량 분석 -----
@@ -307,7 +323,7 @@ class JobController:
                     parts.append(f"월 구매 {data['buyers_min']:,}명 이상" if data.get("buyers_min") else "구매자 문구 없음")
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(0.6, 1.5)
+                human_delay(1.5, 3.5)
             self._finish()
         except Stopped:
             self.message = "완전중단됨"

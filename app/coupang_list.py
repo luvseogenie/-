@@ -522,7 +522,7 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
                     out["source"] = "api"
         except Exception as e:  # noqa: BLE001
             log.warn(f"가격 API 실패 {product_id}: {e}")
-    # 2) 구매자 문구: HTML 먼저
+    # 2) 구매자 문구: 상품 페이지를 실제로 열어 읽는다 (HTML 을 몰래 받아오면 쿠팡이 막는다)
     url = config.PRODUCT_URL.format(pid=product_id)
     params = []
     if item_id:
@@ -531,40 +531,23 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         params.append(f"vendorItemId={vendor_item_id}")
     if params:
         url += "?" + "&".join(params)
-    html_ok = False
-    try:
-        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "text/html"}})
-        if r.get("status") == 200 and r.get("text"):
-            html_ok = True
-            out["buyers_min"] = _buyers_from_text(r["text"])
-            if "일시품절" in r["text"] or "품절된 상품" in r["text"]:
-                out["sold_out"] = True
-            if out["price"] is None:
-                m = re.search(r'"finalPrice"\s*:\s*"?([\d,]+)', r["text"]) or re.search(r'"salePrice"\s*:\s*"?([\d,]+)', r["text"])
-                if m:
-                    out["price"] = _num(m.group(1))
-                    out["source"] = "html"
-    except Exception as e:  # noqa: BLE001
-        log.warn(f"상세 HTML 실패 {product_id}: {e}")
-    # 3) 문구를 못 찾았으면 화면을 직접 열어 확인 (느림)
-    if out["buyers_min"] is None:
-        _goto(page, url, None)
-        page.wait_for_timeout(1200)
-        data = page.evaluate(DETAIL_PRICE_JS)
-        if data.get("blocked"):
-            _dump_debug(page, f"blocked_detail_{product_id}")
-            raise BlockedError("상품 페이지 접근이 막혔습니다")
-        out["buyers_min"] = data.get("buyers_min")
-        out["sellers"] = data.get("sellers")
-        out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
-        if out["price"] is None:
-            for c in data.get("candidates", []):
-                out["price"] = c["value"]
-                out["source"] = "page"
-                break
-        if out["price"] is None and out["buyers_min"] is None and _debug_budget["left"] > 0:
-            _debug_budget["left"] -= 1
-            _dump_debug(page, f"detail_{product_id}")
+    _goto(page, url, None)
+    page.wait_for_timeout(1200)
+    data = page.evaluate(DETAIL_PRICE_JS)
+    if data.get("blocked"):
+        _dump_debug(page, f"blocked_detail_{product_id}")
+        raise BlockedError("상품 페이지 접근이 막혔습니다")
+    out["buyers_min"] = data.get("buyers_min")
+    out["sellers"] = data.get("sellers")
+    out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
+    if out["price"] is None:
+        for c in data.get("candidates", []):
+            out["price"] = c["value"]
+            out["source"] = "page"
+            break
+    if out["price"] is None and out["buyers_min"] is None and _debug_budget["left"] > 0:
+        _debug_budget["left"] -= 1
+        _dump_debug(page, f"detail_{product_id}")
     out["buyers_text_found"] = out["buyers_min"] is not None
     return out
 
