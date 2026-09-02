@@ -53,6 +53,14 @@
     "[class*='badge']",
     ".delivery-badge"
   ];
+  var BREADCRUMB_SELECTORS = [
+    "ul.breadcrumb",
+    "#breadcrumb",
+    "[class*='breadcrumb']",
+    "[class*='Breadcrumb']",
+    "nav[aria-label*='\uACBD\uB85C']"
+  ];
+  var CATEGORY_LINK_SELECTOR = "a[href*='/np/categories/']";
   var CATEGORY_NAME_SELECTORS = [
     // 실제 목록 페이지는 카테고리명을 h1으로 렌더링한다.
     "h1[class*='fw-text-']",
@@ -112,6 +120,22 @@
     /(20\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일/
     // 2026년 8월 15일
   ];
+  var CATEGORY_MENU_SELECTORS = [
+    "#gnbAnalytics",
+    ".gnb-menu",
+    "[class*='gnb'] [class*='menu']",
+    "[class*='category-menu']",
+    "[class*='categoryMenu']",
+    "[class*='CategoryMenu']",
+    "[id*='category']",
+    "[class*='categor'] ul",
+    "nav",
+    "aside"
+  ];
+  var MIN_CATEGORY_MENU_LINKS = 10;
+  var CATEGORY_NAME_MAX_LENGTH = 40;
+  var CATEGORY_NAME_EXCLUDE = ["\uC804\uCCB4\uBCF4\uAE30", "\uC804\uCCB4 \uBCF4\uAE30", "\uB354\uBCF4\uAE30", "\uB354 \uBCF4\uAE30", "\uBC14\uB85C\uAC00\uAE30", "\uD648"];
+  var CATEGORY_MENU_CODE_PATTERN = /\/np\/categories\/([\w-]+)/;
 
   // src/parsers/coupang_review_parser.ts
   var DAY_MS = 24 * 60 * 60 * 1e3;
@@ -161,6 +185,143 @@
       if (cards.length > 0) return { cards, via: "data-review-id" };
     }
     return { cards: [], via: "none" };
+  }
+
+  // src/parsers/coupang_category_parser.ts
+  var BREADCRUMB_JOINED = BREADCRUMB_SELECTORS.join(",");
+  var EXCLUDE = new Set(CATEGORY_NAME_EXCLUDE);
+  function codeOf(link) {
+    const href = link.getAttribute("href") ?? "";
+    const m = CATEGORY_MENU_CODE_PATTERN.exec(href);
+    return m?.[1] ?? null;
+  }
+  function nameOf(link) {
+    const text = (link.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) return text;
+    const img = link.querySelector("img[alt]");
+    return (img?.getAttribute("alt") ?? "").trim();
+  }
+  function absoluteUrl(link, pageUrl) {
+    const href = link.getAttribute("href");
+    if (!href) return null;
+    try {
+      return new URL(href, pageUrl).toString();
+    } catch {
+      return null;
+    }
+  }
+  function itemOf(link) {
+    return link.closest("li") ?? link.parentElement ?? link;
+  }
+  function categoryLinks(root) {
+    return Array.from(root.querySelectorAll(CATEGORY_LINK_SELECTOR)).filter(
+      (a) => codeOf(a) !== null
+    );
+  }
+  function findParentLink(link, root) {
+    const own = itemOf(link);
+    let el = own.parentElement;
+    while (el && root.contains(el)) {
+      const first = el.querySelector(CATEGORY_LINK_SELECTOR);
+      if (first && first !== link && !own.contains(first) && codeOf(first) !== null) {
+        if (itemOf(first).contains(link)) return first;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+  function pickContainer(doc) {
+    let best = null;
+    for (const selector of CATEGORY_MENU_SELECTORS) {
+      let matches = [];
+      try {
+        matches = Array.from(doc.querySelectorAll(selector));
+      } catch {
+        continue;
+      }
+      for (const element of matches) {
+        const count = categoryLinks(element).length;
+        if (count >= MIN_CATEGORY_MENU_LINKS && (!best || count > best.linkCount)) {
+          best = { element, selector, linkCount: count };
+        }
+      }
+    }
+    if (best) return best;
+    const body = doc.body ?? doc.documentElement;
+    return { element: body, selector: null, linkCount: categoryLinks(body).length };
+  }
+  function parseCategoryTree(doc, pageUrl) {
+    const { element: root, selector, linkCount } = pickContainer(doc);
+    const byCode = /* @__PURE__ */ new Map();
+    for (const link of categoryLinks(root)) {
+      if (link.closest(BREADCRUMB_JOINED)) continue;
+      const code = codeOf(link);
+      if (!code) continue;
+      const name = nameOf(link);
+      if (!name || name.length > CATEGORY_NAME_MAX_LENGTH || EXCLUDE.has(name)) continue;
+      const parentLink = findParentLink(link, root);
+      const parentCode = parentLink ? codeOf(parentLink) : null;
+      const parent = parentCode && parentCode !== code ? parentCode : null;
+      const existing = byCode.get(code);
+      if (existing) {
+        if (!existing.parent_category_code && parent) existing.parent_category_code = parent;
+        continue;
+      }
+      byCode.set(code, {
+        category_code: code,
+        category_name: name,
+        parent_category_code: parent,
+        category_url: absoluteUrl(link, pageUrl)
+      });
+    }
+    for (const row of byCode.values()) {
+      if (row.parent_category_code && !byCode.has(row.parent_category_code)) row.parent_category_code = null;
+    }
+    const rows = Array.from(byCode.values());
+    const depthOf = (row) => {
+      let depth = 1;
+      let cur = row;
+      const seen = /* @__PURE__ */ new Set([row.category_code]);
+      while (cur.parent_category_code && depth < 10) {
+        const parent = byCode.get(cur.parent_category_code);
+        if (!parent || seen.has(parent.category_code)) break;
+        seen.add(parent.category_code);
+        cur = parent;
+        depth += 1;
+      }
+      return depth;
+    };
+    return {
+      rows,
+      container: selector,
+      linkCount,
+      roots: rows.filter((r) => !r.parent_category_code).length,
+      maxDepth: rows.reduce((max, r) => Math.max(max, depthOf(r)), 0)
+    };
+  }
+  function describeCategoryLinks(doc, pageUrl, limit = 40) {
+    const { element: root, selector, linkCount } = pickContainer(doc);
+    const tree = parseCategoryTree(doc, pageUrl);
+    const out = [
+      `[\uCE74\uD14C\uACE0\uB9AC \uB9C1\uD06C \uAD6C\uC870] \uCEE8\uD14C\uC774\uB108=${selector ?? "(\uBB38\uC11C \uC804\uCCB4)"} \uB9C1\uD06C ${linkCount}\uAC1C \u2192 \uCE74\uD14C\uACE0\uB9AC ${tree.rows.length}\uAC1C \xB7 \uBD80\uBAA8 \uC788\uC74C ${tree.rows.length - tree.roots}\uAC1C \xB7 \uAE4A\uC774 ${tree.maxDepth}`
+    ];
+    const chain = (el) => {
+      const parts = [];
+      let cur = el;
+      while (cur && cur !== root && parts.length < 6) {
+        const cls = (cur.getAttribute("class") ?? "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+        parts.unshift(cur.tagName.toLowerCase() + (cls ? `.${cls}` : ""));
+        cur = cur.parentElement;
+      }
+      return parts.join(" > ");
+    };
+    for (const link of categoryLinks(root).slice(0, limit)) {
+      const parent = findParentLink(link, root);
+      out.push(
+        `  ${codeOf(link)} "${nameOf(link).slice(0, 20)}" \uBD80\uBAA8=${parent ? codeOf(parent) : "-"}  ${chain(link)}`
+      );
+    }
+    return out;
   }
 
   // src/parsers/diagnostics.ts
@@ -302,6 +463,10 @@
     out.push("");
     out.push(...selectorReport(root, "\uCE74\uD14C\uACE0\uB9AC\uBA85", CATEGORY_NAME_SELECTORS));
     out.push("");
+    if (root instanceof Document) {
+      out.push(...describeCategoryLinks(root, url));
+      out.push("");
+    }
     out.push(...selectorReport(root, "\uB9AC\uBDF0 \uC601\uC5ED", REVIEW_SECTION_SELECTORS));
     out.push("");
     out.push(...selectorReport(root, "\uB9AC\uBDF0 \uCE74\uB4DC", REVIEW_ITEM_SELECTORS));

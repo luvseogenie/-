@@ -29,6 +29,7 @@ import {
   REVIEW_COUNT_SELECTORS,
 } from "@/parsers/selectors";
 import { findReviewCards, findReviewId } from "@/parsers/coupang_review_parser";
+import { describeCategoryLinks } from "./coupang_category_parser";
 
 const MAX_SAMPLE_NODES = 60;
 const MAX_DATE_SAMPLES = 12;
@@ -200,6 +201,12 @@ export function buildDiagnosticsReport(root: ParentNode, url: string): string {
   out.push("");
   out.push(...selectorReport(root, "카테고리명", CATEGORY_NAME_SELECTORS));
   out.push("");
+
+  // --- 카테고리 메뉴 구조 (첫 화면 전체 메뉴 / 목록 페이지 좌측 메뉴)
+  if (root instanceof Document) {
+    out.push(...describeCategoryLinks(root, url));
+    out.push("");
+  }
 
   // --- 리뷰 관련
   out.push(...selectorReport(root, "리뷰 영역", REVIEW_SECTION_SELECTORS));

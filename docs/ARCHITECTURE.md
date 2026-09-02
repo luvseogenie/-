@@ -164,7 +164,7 @@ extension/src/
 | POST | `/api/collection-jobs` | 「수집 시작」 job 생성 |
 | GET | `/api/collection-jobs/active` | 확장이 현재 job에 자동 연결 |
 | POST | `/api/collection-jobs/{id}/finish` | job 종료 |
-| POST | `/api/scan/start` | 「소싱 시작」— 선택 카테고리(하위 포함) × 페이지 → 목록 대상 큐 생성 |
+| POST | `/api/scan/start` | 「소싱 시작」— 선택 카테고리 + 하위 전부(중간 포함) × 페이지 → 목록 대상 큐 생성 |
 | GET | `/api/scan/next` | 확장이 다음 대상 하나를 받아감 (목록 소진 시 상세 대상 자동 준비, 없으면 completed) |
 | POST | `/api/scan/targets/{id}/done` | 대상 결과 보고 (성공 상품수 / 실패 사유) |
 | GET | `/api/scan/status` | 진행률 (단계·done/total·실패·현재 대상) |
@@ -249,7 +249,10 @@ popup [현재 페이지 수집]
            (content script가 없으면 chrome.scripting 으로 1회 주입)
          목록: parseProductList → POST /api/products/collect
          상세: + 리뷰 최신순 정렬 → ANALYZE_REVIEWS → POST /api/products/review-dates
-         POST /api/scan/targets/{id}/done {product_count | error}
+         목록: 좌측 메뉴 SCAN_CATEGORIES → 트리 등록 + 직계 하위를 done 에 실어 보냄
+         POST /api/scan/targets/{id}/done {product_count | error, discovered_children[]}
+           └ 백엔드: 발견한 하위를 현재 카테고리 아래 등록하고, 아직 대상이 아니면 목록 대상 추가
+             (1단계 동안만, 작업당 최대 300페이지)
          5회 연속 실패 → 스스로 정지 (차단·CAPTCHA 를 우회하지 않는다)
 대시보드는 2초마다 GET /api/scan/status 로 진행률을 그린다.
 ```

@@ -42,9 +42,19 @@ class ScanTargetOut(BaseModel):
     attempts: int
 
 
+class DiscoveredCategory(BaseModel):
+    """목록 페이지 좌측 메뉴에서 본 하위 카테고리 (화면에 있는 것만)."""
+
+    category_code: str
+    category_name: str
+    category_url: str | None = None
+
+
 class ScanTargetDone(BaseModel):
     product_count: int | None = None
     error: str | None = None
+    # 이 목록 페이지 카테고리의 직계 하위로 발견된 카테고리들
+    discovered_children: list[DiscoveredCategory] = Field(default_factory=list)
 
 
 class ScanPhaseProgress(BaseModel):

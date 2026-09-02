@@ -22,6 +22,8 @@ from app.core.logging import get_logger
 from app.models.category import Category
 from app.models.product import Product
 from app.models.scan import ScanJob, ScanStatus, ScanTarget, TargetKind, TargetStatus
+from app.schemas.category import CategoryImportRow
+from app.services import category_service
 from app.services.filtering import ProductFilter
 
 logger = get_logger(__name__)
@@ -33,6 +35,8 @@ DEFAULT_SORTER = "saleCountDesc"
 DEFAULT_LIST_SIZE = 120
 MAX_PAGES = 20
 MAX_DETAIL = 500
+# 하위 카테고리를 발견해 대상이 늘어나도 이 수를 넘지 않는다 (한 번의 스캔이 끝없이 커지지 않도록)
+MAX_LIST_TARGETS = 300
 
 
 def build_list_url(code: str, page: int, sorter: str, list_size: int) -> str:
@@ -44,10 +48,12 @@ def build_list_url(code: str, page: int, sorter: str, list_size: int) -> str:
     return f"{base}?{'&'.join(params)}"
 
 
-def _leaf_categories(db: Session, category_ids: list[int]) -> list[Category]:
-    """선택한 카테고리와 그 하위의 최하위 카테고리들을 모은다.
+def _scope_categories(db: Session, category_ids: list[int]) -> list[Category]:
+    """선택한 카테고리와 그 아래 전부(중간 단계 포함)를 모은다.
 
-    사용자가 상위 카테고리 하나만 체크해도 그 아래 전부를 훑는다.
+    최하위만 훑지 않고 중간 카테고리 페이지도 방문하는 이유: 쿠팡 첫 화면 메뉴에는
+    하위 카테고리가 일부만 실려 있어, 실제 카테고리 페이지의 좌측 메뉴를 봐야
+    나머지 하위를 발견할 수 있다. 발견된 하위는 스캔 도중 대상에 추가된다.
     """
     if not category_ids:
         return []
@@ -65,14 +71,34 @@ def _leaf_categories(db: Session, category_ids: list[int]) -> list[Category]:
         if node.id in seen:
             continue
         seen.add(node.id)
-        kids = children_of.get(node.id, [])
-        if kids:
-            stack.extend(kids)
-        else:
-            result.append(node)
-    # 선택한 것 자체가 최하위가 아니어도 자식이 없으면 그대로 쓴다.
+        result.append(node)
+        stack.extend(children_of.get(node.id, []))
     result.sort(key=lambda c: (c.depth, c.category_name))
     return result
+
+
+def _add_list_targets(
+    db: Session, job: ScanJob, categories: list[Category], *, position: int, budget: int
+) -> int:
+    """카테고리마다 pages_per_category 페이지씩 목록 대상을 만든다. budget 을 넘지 않는다."""
+    created = 0
+    for category in categories:
+        for page in range(1, job.pages_per_category + 1):
+            if created >= budget:
+                return created
+            db.add(
+                ScanTarget(
+                    job_id=job.id,
+                    kind=TargetKind.LIST,
+                    url=build_list_url(category.category_code, page, job.sorter, job.list_size),
+                    label=f"{category.category_name} {page}페이지",
+                    category_id=category.id,
+                    page=page,
+                    position=position + created,
+                )
+            )
+            created += 1
+    return created
 
 
 def start_scan(
@@ -107,26 +133,11 @@ def start_scan(
     db.add(job)
     db.flush()
 
-    leaves = _leaf_categories(db, category_ids)
-    position = 0
-    for category in leaves:
-        for page in range(1, pages + 1):
-            db.add(
-                ScanTarget(
-                    job_id=job.id,
-                    kind=TargetKind.LIST,
-                    url=build_list_url(category.category_code, page, job.sorter, job.list_size),
-                    label=f"{category.category_name} {page}페이지",
-                    category_id=category.id,
-                    page=page,
-                    position=position,
-                )
-            )
-            position += 1
-
+    scope = _scope_categories(db, category_ids)
+    position = _add_list_targets(db, job, scope, position=0, budget=MAX_LIST_TARGETS)
     db.flush()
     logger.info(
-        "스캔 시작: job=%s 카테고리 %d개 → 목록 %d페이지", job.id, len(leaves), position
+        "스캔 시작: job=%s 카테고리 %d개 → 목록 %d페이지", job.id, len(scope), position
     )
     return job, position
 
@@ -159,9 +170,9 @@ def prepare_detail_targets(db: Session, job: ScanJob) -> int:
 
     category_ids = json.loads(job.category_ids or "[]")
     if category_ids:
-        leaves = _leaf_categories(db, category_ids)
-        if leaves:
-            stmt = stmt.where(Product.category_id.in_([c.id for c in leaves]))
+        scope = _scope_categories(db, category_ids)
+        if scope:
+            stmt = stmt.where(Product.category_id.in_([c.id for c in scope]))
 
     expr = filters.condition_expression()
     if expr is not None:
@@ -253,8 +264,79 @@ def _take_pending(db: Session, job: ScanJob) -> ScanTarget | None:
     return target
 
 
+def register_discovered_children(db: Session, target: ScanTarget, children: list[dict]) -> int:
+    """목록 페이지 좌측 메뉴에서 발견한 하위 카테고리를 트리에 넣고, 이번 스캔 대상에도 더한다.
+
+    화면에 보인 것만 등록한다. 이미 대상인 카테고리는 다시 넣지 않는다.
+    2단계(상세)로 넘어간 뒤에는 대상을 늘리지 않는다.
+    """
+    if target.kind != TargetKind.LIST or target.category_id is None or not children:
+        return 0
+    parent = db.get(Category, target.category_id)
+    if parent is None:
+        return 0
+    rows = [
+        CategoryImportRow(
+            category_code=str(c.get("category_code") or "").strip(),
+            category_name=str(c.get("category_name") or "").strip(),
+            parent_category_code=parent.category_code,
+            category_url=c.get("category_url"),
+        )
+        for c in children
+    ]
+    rows = [r for r in rows if r.category_code and r.category_name and r.category_code != parent.category_code]
+    if not rows:
+        return 0
+    result = category_service.import_categories(db, rows)
+    if result.created:
+        logger.info("스캔 중 하위 카테고리 %d개 발견: %s 아래", result.created, parent.category_name)
+
+    job = db.get(ScanJob, target.job_id)
+    if job is None or job.status not in (ScanStatus.RUNNING, ScanStatus.PAUSED) or job.detail_prepared:
+        return 0
+    targeted = set(
+        db.scalars(
+            select(ScanTarget.category_id).where(
+                ScanTarget.job_id == job.id, ScanTarget.kind == TargetKind.LIST
+            )
+        ).all()
+    )
+    total = int(
+        db.scalar(
+            select(func.count(ScanTarget.id)).where(
+                ScanTarget.job_id == job.id, ScanTarget.kind == TargetKind.LIST
+            )
+        )
+        or 0
+    )
+    codes = [r.category_code for r in rows]
+    fresh = [
+        c
+        for c in db.scalars(select(Category).where(Category.category_code.in_(codes))).all()
+        if c.id not in targeted
+    ]
+    if not fresh:
+        return 0
+    fresh.sort(key=lambda c: c.category_name)
+    start = db.scalar(
+        select(func.coalesce(func.max(ScanTarget.position), -1)).where(ScanTarget.job_id == job.id)
+    )
+    created = _add_list_targets(
+        db, job, fresh, position=int(start or -1) + 1, budget=max(0, MAX_LIST_TARGETS - total)
+    )
+    db.flush()
+    if created:
+        logger.info("스캔 대상 %d페이지 추가: job=%s", created, job.id)
+    return created
+
+
 def finish_target(
-    db: Session, target_id: int, *, product_count: int | None = None, error: str | None = None
+    db: Session,
+    target_id: int,
+    *,
+    product_count: int | None = None,
+    error: str | None = None,
+    discovered_children: list[dict] | None = None,
 ) -> ScanTarget | None:
     target = db.get(ScanTarget, target_id)
     if target is None:
@@ -270,6 +352,8 @@ def finish_target(
             started = started.replace(tzinfo=timezone.utc)
         target.duration_seconds = round((now - started).total_seconds(), 2)
     db.flush()
+    if not error and discovered_children:
+        register_discovered_children(db, target, discovered_children)
     return target
 
 

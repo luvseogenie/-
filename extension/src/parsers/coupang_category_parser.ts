@@ -172,3 +172,33 @@ export function parseCategoryTree(doc: Document, pageUrl: string): CategoryTreeR
     maxDepth: rows.reduce((max, r) => Math.max(max, depthOf(r)), 0),
   };
 }
+
+/**
+ * 진단용: 카테고리 링크가 어떤 구조로 놓여 있는지 요약한다.
+ * 화면이 개편되어 계층을 못 읽을 때, 이 출력만 보면 selector 를 고칠 수 있다.
+ * (카테고리명은 개인정보가 아니므로 그대로 적는다)
+ */
+export function describeCategoryLinks(doc: Document, pageUrl: string, limit = 40): string[] {
+  const { element: root, selector, linkCount } = pickContainer(doc);
+  const tree = parseCategoryTree(doc, pageUrl);
+  const out = [
+    `[카테고리 링크 구조] 컨테이너=${selector ?? "(문서 전체)"} 링크 ${linkCount}개 → 카테고리 ${tree.rows.length}개 · 부모 있음 ${tree.rows.length - tree.roots}개 · 깊이 ${tree.maxDepth}`,
+  ];
+  const chain = (el: Element): string => {
+    const parts: string[] = [];
+    let cur: Element | null = el;
+    while (cur && cur !== root && parts.length < 6) {
+      const cls = (cur.getAttribute("class") ?? "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+      parts.unshift(cur.tagName.toLowerCase() + (cls ? `.${cls}` : ""));
+      cur = cur.parentElement;
+    }
+    return parts.join(" > ");
+  };
+  for (const link of categoryLinks(root).slice(0, limit)) {
+    const parent = findParentLink(link, root);
+    out.push(
+      `  ${codeOf(link)} "${nameOf(link).slice(0, 20)}" 부모=${parent ? codeOf(parent) : "-"}  ${chain(link)}`,
+    );
+  }
+  return out;
+}

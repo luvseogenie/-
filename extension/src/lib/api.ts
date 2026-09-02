@@ -152,7 +152,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   scanNext: () => request<ScanTarget | null>("/api/scan/next"),
-  scanDone: (targetId: number, body: { product_count?: number | null; error?: string | null }) =>
+  scanDone: (
+    targetId: number,
+    body: {
+      product_count?: number | null;
+      error?: string | null;
+      discovered_children?: { category_code: string; category_name: string; category_url: string | null }[];
+    },
+  ) =>
     request<ScanTarget>(`/api/scan/targets/${targetId}/done`, {
       method: "POST",
       body: JSON.stringify(body),

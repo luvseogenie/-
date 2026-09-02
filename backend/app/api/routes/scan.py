@@ -62,7 +62,11 @@ def next_target(db: Session = Depends(get_db)):
 @router.post("/targets/{target_id}/done", response_model=ScanTargetOut)
 def finish(target_id: int, payload: ScanTargetDone, db: Session = Depends(get_db)):
     target = scan_service.finish_target(
-        db, target_id, product_count=payload.product_count, error=payload.error
+        db,
+        target_id,
+        product_count=payload.product_count,
+        error=payload.error,
+        discovered_children=[c.model_dump() for c in payload.discovered_children],
     )
     if target is None:
         raise HTTPException(status_code=404, detail="대상을 찾을 수 없습니다.")

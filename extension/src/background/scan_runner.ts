@@ -87,20 +87,32 @@ async function scanWhenReady(tabId: number): Promise<ParseResult> {
  * 화면에 있는 것만 등록하고, 계층을 알 수 없는 링크(부모 없음)는 다른 행의 부모로
  * 쓰이는 경우에만 포함한다 — 트리를 어지럽히지 않기 위해서다.
  */
-async function registerDiscoveredCategories(tabId: number): Promise<void> {
+type DiscoveredChild = { category_code: string; category_name: string; category_url: string | null };
+
+async function registerDiscoveredCategories(
+  tabId: number,
+  currentCode: string | null,
+): Promise<DiscoveredChild[]> {
   try {
     const res = (await chrome.tabs.sendMessage(tabId, { type: "SCAN_CATEGORIES" })) as
       | { ok: boolean; result?: CategoryTreeResult }
       | undefined;
-    if (!res?.ok || !res.result) return;
+    if (!res?.ok || !res.result) return [];
     const withParent = res.result.rows.filter((r) => r.parent_category_code);
     const referenced = new Set(withParent.map((r) => r.parent_category_code));
     const rows = res.result.rows.filter((r) => r.parent_category_code || referenced.has(r.category_code));
-    if (rows.length === 0) return;
-    const out = await api.importCategories(rows);
-    if (out.created > 0) log.info("하위 카테고리 등록", out.created);
+    if (rows.length > 0) {
+      const out = await api.importCategories(rows);
+      if (out.created > 0) log.info("하위 카테고리 등록", out.created);
+    }
+    // 현재 페이지 카테고리의 직계 하위 → 백엔드가 이번 스캔 대상에 추가한다
+    if (!currentCode) return [];
+    return res.result.rows
+      .filter((r) => r.parent_category_code === currentCode)
+      .map((r) => ({ category_code: r.category_code, category_name: r.category_name, category_url: r.category_url }));
   } catch (e) {
     log.warn("하위 카테고리 등록 실패", e);
+    return [];
   }
 }
 
@@ -126,7 +138,7 @@ function looksBlocked(parsed: ParseResult): boolean {
   return url.includes("captcha") || url.includes("access-denied") || url.includes("blocked");
 }
 
-async function processTarget(target: ScanTarget): Promise<number> {
+async function processTarget(target: ScanTarget): Promise<{ count: number; discovered: DiscoveredChild[] }> {
   const tabId = await ensureTab(target.url);
   await waitForLoad(tabId, target.url, 25000);
   await sleep(SETTLE_AFTER_LOAD_MS);
@@ -151,8 +163,9 @@ async function processTarget(target: ScanTarget): Promise<number> {
     parse_errors: parsed.errors.slice(0, 20),
   });
 
-  // 목록 페이지면 좌측 메뉴의 하위 카테고리를 트리에 채워 둔다.
-  if (target.kind === "list") await registerDiscoveredCategories(tabId);
+  // 목록 페이지면 좌측 메뉴의 하위 카테고리를 트리에 채우고, 직계 하위는 스캔 대상에도 추가되게 한다.
+  let discovered: DiscoveredChild[] = [];
+  if (target.kind === "list") discovered = await registerDiscoveredCategories(tabId, parsed.categoryCode);
 
   // 상세 페이지면 최근 30일 리뷰수도 함께 확보한다.
   if (target.kind === "detail" && parsed.pageType === "product") {
@@ -175,7 +188,7 @@ async function processTarget(target: ScanTarget): Promise<number> {
       }
     }
   }
-  return parsed.products.length;
+  return { count: parsed.products.length, discovered };
 }
 
 async function loop(): Promise<void> {
@@ -212,8 +225,8 @@ async function loop(): Promise<void> {
     log.info("스캔 대상", target.label, target.url);
 
     try {
-      const count = await processTarget(target);
-      await api.scanDone(target.id, { product_count: count });
+      const { count, discovered } = await processTarget(target);
+      await api.scanDone(target.id, { product_count: count, discovered_children: discovered });
       state.processed += 1;
       state.consecutiveFailures = 0;
     } catch (e) {
