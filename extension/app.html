@@ -29,6 +29,7 @@
         <input type="date" id="r-start"> <span class="sub">~</span> <input type="date" id="r-end"> <button data-r="custom">적용</button>
       </div>
     </div>
+    <div id="update-banner"></div>
     <div id="notice"></div>
 
     <!-- ===== 대시보드 ===== -->
@@ -138,6 +139,11 @@
         </div>
         <div id="range-missing-list" class="sub" style="margin-top:6px"></div>
         <pre class="log" id="range-log" style="display:none;margin-top:8px"></pre>
+      </div>
+      <div class="card" id="update-card">
+        <h2>🆕 업데이트 <span class="sub" id="upd-sub"></span></h2>
+        <p class="sub" style="margin:0 0 8px">크롬 규정상 확장 프로그램이 자기 파일을 스스로 바꿀 수는 없어서, 저장소 폴더에 있는 <b>업데이트.bat</b>(맥은 업데이트.command)을 더블클릭하면 최신 파일을 받아 교체합니다. 교체가 끝나면 확장 프로그램이 1분 안에 스스로 새로고침됩니다. 데이터는 크롬 안에 있으므로 그대로 유지됩니다.</p>
+        <div class="row"><button class="btn sm" id="upd-check">새 버전 확인</button><button class="btn sm" id="upd-reload">지금 새로고침</button><a class="btn sm" id="upd-zip" target="_blank">ZIP 직접 받기</a><span id="upd-msg" class="msg"></span></div>
       </div>
       <div class="grid2">
         <div class="card">

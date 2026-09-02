@@ -2,6 +2,7 @@
 import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
+import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, serverSync: false, server: 'http://127.0.0.1:8765' };
 let expectUntil = 0, expectDate = null;
@@ -145,10 +146,15 @@ async function scheduleAlarm() {
   await chrome.alarms.create('daily', { when: next.getTime(), periodInMinutes: 24 * 60 });
 }
 
-chrome.runtime.onInstalled.addListener((d) => { scheduleAlarm(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); });
-chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); flushQueue(); });
+chrome.runtime.onInstalled.addListener((d) => { scheduleAlarm(); scheduleUpdateAlarms(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); });
+async function scheduleUpdateAlarms() {
+  await chrome.alarms.create('update-remote', { periodInMinutes: 360 });   // 새 버전 있는지
+  await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
+  checkRemote(true);
+}
+chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); });
 chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
@@ -184,6 +190,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
+    else if (msg.type === 'checkUpdate') { sendResponse({ latest: await checkRemote(true), reloaded: await reloadIfFilesChanged() }); }
     else if (msg.type === 'cancelJob') { job.cancel = true; sendResponse({ ok: true }); }
     else if (msg.type === 'collectDate') { try { sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));

@@ -14,6 +14,9 @@
 - `lib/ledger.js` — 장부 계산 (마진 이력 적용, 월 합계)
 - `lib/xlsx.js` — 라이브러리 없이 .xlsx/.csv 읽기 (zip + XML, DecompressionStream)
 - `lib/importer.js` — 판매 리포트/광고 파일 → 저장
+- `lib/legacy.js` — 예전 광고계산기 엑셀(시트 1~3) 가져오기
+- `lib/charts.js` — SVG 차트
+- `lib/update.js` — 새 버전 확인(GitHub raw manifest), 디스크 파일 변경 감지 → `chrome.runtime.reload()`
 
 ## 검사
 ```bash

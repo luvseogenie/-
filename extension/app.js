@@ -4,6 +4,7 @@ import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
 import { importLegacyWorkbook } from './lib/legacy.js';
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
+import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
 
 /* ===== 공통 ===== */
 const $ = (s) => document.querySelector(s);
@@ -350,8 +351,22 @@ async function loadSettings() {
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
 
+/* ===== 업데이트 ===== */
+async function renderUpdate(force = false) {
+  const u = force ? { latest: await checkRemote(true), current: chrome.runtime.getManifest().version } : await updateStatus();
+  u.hasUpdate = !!u.latest && u.latest !== u.current && (await import('./lib/update.js')).cmpVersion(u.latest, u.current) > 0;
+  $('#upd-sub').textContent = `지금 v${u.current}` + (u.latest ? ` · 최신 v${u.latest}` : ' · 최신 버전을 확인하지 못함');
+  $('#update-banner').innerHTML = u.hasUpdate ? `<div class="notice">🆕 새 버전 <b>v${u.latest}</b> 이 있습니다 (지금 v${u.current}). 저장소 폴더의 <b>업데이트.bat</b> 을 더블클릭하세요. 끝나면 확장 프로그램이 스스로 새로고침됩니다. <a href="#data">자세히</a></div>` : '';
+  return u;
+}
+$('#upd-check').onclick = async () => { msg('#upd-msg', '확인 중…'); const u = await renderUpdate(true); msg('#upd-msg', u.hasUpdate ? `새 버전 v${u.latest} 이 있습니다. 업데이트.bat 을 실행하세요.` : '최신 버전입니다.', u.hasUpdate ? 'err' : 'ok'); };
+$('#upd-reload').onclick = async () => { if (!(await reloadIfFilesChanged())) { if (confirm('파일이 아직 바뀌지 않았습니다. 그래도 새로고침할까요?')) chrome.runtime.reload(); } };
+$('#upd-zip').href = ZIP_URL;
+
 /* ===== 초기화 ===== */
 $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
+renderUpdate();
+reloadIfFilesChanged();
 $('#ads-date').value = localIso(yday);
 (async () => {
   await reload(); renderFoot();
@@ -360,7 +375,7 @@ $('#ads-date').value = localIso(yday);
   range.preset = p; [range.start, range.end] = presetRange(p); $('#r-start').value = range.start; $('#r-end').value = range.end;
   $$('#range button').forEach((b) => b.classList.toggle('active', b.dataset.r === p));
   const hash = location.hash.slice(1);
-  if (hash === 'import' || hash === 'range' || hash === 'paste') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; }
+  if (hash === 'import' || hash === 'range' || hash === 'paste' || hash === 'update') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; if (hash === 'update') setTimeout(() => $('#update-card').scrollIntoView(), 100); }
   else showPage(hash || 'dash');
   chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccdata) { reload().then(() => { renderFoot(); if (page === 'dash') renderDash(); }); } });
 })();

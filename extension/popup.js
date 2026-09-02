@@ -1,5 +1,6 @@
 import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
+import { updateStatus, reloadIfFilesChanged } from './lib/update.js';
 const SALES_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}';
 
 const $ = (s) => document.querySelector(s);
@@ -105,8 +106,17 @@ $('#goto-sales').onclick = async (e) => {
 };
 $('#open-range').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#range') });
 
+async function showUpdate() {
+  if (await reloadIfFilesChanged()) return;
+  const u = await updateStatus();
+  if (!u.hasUpdate) return;
+  $('#upd').style.display = 'block';
+  $('#upd').innerHTML = `🆕 새 버전 <b>v${u.latest}</b> 이 있습니다 (지금 v${u.current}).<br>저장소 폴더의 <b>업데이트.bat</b> 을 더블클릭하면 받아지고, 확장 프로그램은 스스로 새로고침됩니다. <a href="#" id="upd-how">자세히</a>`;
+  $('#upd-how').onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('app.html#update') }); };
+}
 (async () => {
   $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
+  showUpdate();
   const tab = await activeTab(); $('#date').value = dateFromUrl(tab?.url || '') || yesterdayIso();
   const d = await S.load(); const ds = S.dates(d);
   if (!ds.length) msg('아직 저장된 데이터가 없습니다. ①, ② 를 눌러 시작하세요.');
