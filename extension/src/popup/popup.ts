@@ -4,7 +4,13 @@
  *   - [현재 페이지 수집] 버튼
  *   - 수집 결과 표시 ("36개 중 35개 저장 / 중복 1개")
  */
-import { DEFAULT_API_BASE, getApiBase, setApiBase } from "@/lib/api";
+import {
+  DEFAULT_API_BASE,
+  getApiBase,
+  getAutoCollect,
+  setApiBase,
+  setAutoCollect,
+} from "@/lib/api";
 import type {
   CollectResponse,
   MonthlyReviewResponse,
@@ -30,6 +36,7 @@ const reviewProgress = $<HTMLElement>("review-progress");
 const reviewResult = $<HTMLElement>("review-result");
 const diagnoseButton = $<HTMLButtonElement>("diagnose");
 const diagnoseResult = $<HTMLElement>("diagnose-result");
+const autoCollectToggle = $<HTMLInputElement>("auto-collect");
 const apiBaseInput = $<HTMLInputElement>("api-base");
 const saveApiButton = $<HTMLButtonElement>("save-api");
 
@@ -223,5 +230,10 @@ saveApiButton.addEventListener("click", () => {
   });
 });
 
+autoCollectToggle.addEventListener("change", () => {
+  void setAutoCollect(autoCollectToggle.checked);
+});
+
 void getApiBase().then((base) => (apiBaseInput.value = base));
+void getAutoCollect().then((enabled) => (autoCollectToggle.checked = enabled));
 void scan();

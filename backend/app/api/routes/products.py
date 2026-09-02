@@ -97,6 +97,13 @@ def list_products(
     condition_passed: bool | None = Query(
         None, description="true면 조건을 통과한 상품만"
     ),
+    has_purchase: bool | None = Query(
+        None,
+        description=(
+            "쿠팡 '한 달간 N명 구매' 문구 확보 여부. "
+            "false면 아직 상세 페이지를 확인하지 않은 상품만 (2단계 작업 목록)"
+        ),
+    ),
     sort: str = Query(
         "sales_desc",
         description=(
@@ -119,6 +126,10 @@ def list_products(
     if filters.keyword:
         like = f"%{filters.keyword.strip()}%"
         scope.append(or_(Product.product_name.ilike(like), Product.product_id.ilike(like)))
+    if has_purchase is True:
+        scope.append(Product.monthly_purchase_count.isnot(None))
+    elif has_purchase is False:
+        scope.append(Product.monthly_purchase_count.is_(None))
     for clause in scope:
         base = base.where(clause)
 

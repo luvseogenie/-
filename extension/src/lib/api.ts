@@ -12,6 +12,7 @@ import type {
 
 export const DEFAULT_API_BASE = "http://localhost:8000";
 const API_BASE_KEY = "apiBaseUrl";
+const AUTO_COLLECT_KEY = "autoCollectProductPages";
 
 export async function getApiBase(): Promise<string> {
   try {
@@ -26,6 +27,27 @@ export async function getApiBase(): Promise<string> {
 
 export async function setApiBase(url: string): Promise<void> {
   await chrome.storage.local.set({ [API_BASE_KEY]: url.replace(/\/$/, "") });
+}
+
+/**
+ * 상품 상세 페이지를 열면 자동으로 수집할지.
+ *
+ * 쿠팡의 "한 달간 N명 이상 구매했어요" 문구는 상품 상세 페이지에만 있다.
+ * 후보 상품을 하나씩 열어 확인해야 하는데, 매번 버튼을 누르는 건 번거롭다.
+ * 이 옵션을 켜면 사용자가 연 상품 페이지를 자동으로 저장한다.
+ * (사용자가 직접 연 페이지만 읽는다. 자동으로 페이지를 열지 않는다.)
+ */
+export async function getAutoCollect(): Promise<boolean> {
+  try {
+    const stored = await chrome.storage.local.get(AUTO_COLLECT_KEY);
+    return stored[AUTO_COLLECT_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setAutoCollect(enabled: boolean): Promise<void> {
+  await chrome.storage.local.set({ [AUTO_COLLECT_KEY]: enabled });
 }
 
 export class ApiError extends Error {}

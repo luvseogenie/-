@@ -39,6 +39,8 @@ export default function DashboardPage() {
   const [savingMultiplier, setSavingMultiplier] = React.useState(false);
 
   const [onlyPassed, setOnlyPassed] = React.useState(false);
+  /** 2단계: 구매 문구를 아직 확인하지 못한 상품만 보기 */
+  const [onlyPending, setOnlyPending] = React.useState(false);
   const [sort, setSort] = React.useState<string>("sales_desc");
   const [keyword, setKeyword] = React.useState("");
   const [debouncedKeyword, setDebouncedKeyword] = React.useState("");
@@ -108,11 +110,16 @@ export default function DashboardPage() {
     const run = async () => {
       setLoading(true);
       setError(null);
-      const listQuery = buildQuery(conditions, selectedIds, {
+      // 미확인 후보만 볼 때는 구매수 조건을 빼야 한다(아직 값이 없으므로 전부 탈락한다).
+      const listConditions = onlyPending
+        ? { ...conditions, purchase_min: "", purchase_max: "" }
+        : conditions;
+      const listQuery = buildQuery(listConditions, selectedIds, {
         sort,
         q: debouncedKeyword || undefined,
         page_size: 200,
-        condition_passed: onlyPassed ? true : undefined,
+        condition_passed: onlyPassed || onlyPending ? true : undefined,
+        has_purchase: onlyPending ? false : undefined,
       });
       const statsQuery = buildQuery(conditions, selectedIds, { q: debouncedKeyword || undefined });
       try {
@@ -133,7 +140,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [conditions, selectedIds, sort, debouncedKeyword, onlyPassed, reloadKey]);
+  }, [conditions, selectedIds, sort, debouncedKeyword, onlyPassed, onlyPending, reloadKey]);
 
   const applyMultiplier = async (value: number) => {
     setSavingMultiplier(true);
@@ -290,12 +297,44 @@ export default function DashboardPage() {
               variant={onlyPassed ? "default" : "outline"}
               size="sm"
               className="h-8"
-              disabled={!hasConditions}
+              disabled={!hasConditions || onlyPending}
               title={hasConditions ? undefined : "왼쪽에서 상품 조건을 먼저 설정하세요"}
               onClick={() => setOnlyPassed((v) => !v)}
             >
               조건 통과만
             </Button>
+
+            <Button
+              variant={onlyPending ? "default" : "outline"}
+              size="sm"
+              className="h-8"
+              disabled={!hasConditions}
+              title="1차 조건은 통과했지만 쿠팡 구매 문구를 아직 확인하지 못한 상품"
+              onClick={() => setOnlyPending((v) => !v)}
+            >
+              상세 확인 필요
+              {stats && stats.purchase_pending_products > 0 && (
+                <span className="ml-1 rounded bg-[var(--warning)]/20 px-1 text-[10px] text-[var(--warning)]">
+                  {stats.purchase_pending_products}
+                </span>
+              )}
+            </Button>
+
+            {onlyPending && products.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8"
+                title="상위 10개 상품 상세 페이지를 새 탭으로 엽니다. 확장의 '자동 수집'을 켜두면 클릭 없이 저장됩니다."
+                onClick={() => {
+                  products
+                    .slice(0, 10)
+                    .forEach((p) => window.open(p.product_url, "_blank", "noopener"));
+                }}
+              >
+                상위 10개 열기
+              </Button>
+            )}
           </div>
 
           <ProductTable

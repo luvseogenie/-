@@ -75,6 +75,28 @@ button.small { width: auto; padding: 6px 10px; margin: 0; font-size: 11px; }
 #review-result { line-height: 1.6; }
 #review-result .big { display: block; font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
 #review-result .warn { color: var(--warn); }
+.toggle {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 2px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.toggle input { margin-top: 2px; accent-color: var(--primary); cursor: pointer; }
+.toggle em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .error { border-color: rgba(255, 107, 107, 0.5); color: var(--danger); line-height: 1.5; }
 #result-main { font-size: 14px; font-weight: 600; color: var(--success); }
 .hidden { display: none; }

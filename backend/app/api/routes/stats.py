@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from dataclasses import replace
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,9 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 @router.get("", response_model=StatsOut)
 def get_stats(
+    has_purchase: bool | None = Query(
+        None, description="쿠팡 구매 문구 확보 여부로 범위 제한"
+    ),
     filters: ProductFilter = Depends(product_filter_params),
     db: Session = Depends(get_db),
 ):
@@ -32,6 +37,10 @@ def get_stats(
     if filters.keyword:
         like = f"%{filters.keyword.strip()}%"
         scope.append(or_(Product.product_name.ilike(like), Product.product_id.ilike(like)))
+    if has_purchase is True:
+        scope.append(Product.monthly_purchase_count.isnot(None))
+    elif has_purchase is False:
+        scope.append(Product.monthly_purchase_count.is_(None))
     for clause in scope:
         unique_stmt = unique_stmt.where(clause)
     unique_count = db.scalar(unique_stmt) or 0
@@ -58,6 +67,18 @@ def get_stats(
         labeled_stmt = labeled_stmt.where(clause)
     labeled_count = db.scalar(labeled_stmt) or 0
 
+    # 2단계 작업량: 구매 문구를 제외한 나머지 조건은 통과했는데 문구가 아직 없는 상품
+    pending_stmt = select(func.count()).select_from(Product).where(
+        Product.monthly_purchase_count.is_(None)
+    )
+    for clause in scope:
+        pending_stmt = pending_stmt.where(clause)
+    pending_filters = replace(filters, purchase_min=None, purchase_max=None)
+    pending_expr = pending_filters.condition_expression()
+    if pending_expr is not None:
+        pending_stmt = pending_stmt.where(pending_expr)
+    pending_count = db.scalar(pending_stmt) or 0
+
     multiplier = estimation.get_multiplier(db)
     db.commit()
 
@@ -68,5 +89,6 @@ def get_stats(
         condition_passed_products=int(passed_count),
         monthly_measured_products=int(measured_count),
         purchase_labeled_products=int(labeled_count),
+        purchase_pending_products=int(pending_count),
         review_sales_multiplier=multiplier,
     )

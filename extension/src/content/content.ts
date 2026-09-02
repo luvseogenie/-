@@ -176,5 +176,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return undefined;
 });
 
+/**
+ * 상품 상세 페이지 자동 수집.
+ *
+ * 쿠팡 구매 문구("한 달간 N명 이상 구매했어요")는 상세 페이지에만 있어서,
+ * 후보 상품을 하나씩 열어 확인해야 한다. 옵션이 켜져 있으면
+ * 사용자가 연 페이지를 자동으로 저장해 클릭 부담을 없앤다.
+ *
+ * 자동으로 페이지를 열지는 않는다. 사용자가 연 페이지만 읽는다.
+ */
+let autoCollectedUrl: string | null = null;
+
+async function maybeAutoCollect() {
+  if (detectPageType(location.href) !== "product") return;
+  if (autoCollectedUrl === location.href) return;
+
+  let enabled = false;
+  try {
+    const stored = await chrome.storage.local.get("autoCollectProductPages");
+    enabled = stored.autoCollectProductPages === true;
+  } catch {
+    return;
+  }
+  if (!enabled) return;
+
+  autoCollectedUrl = location.href;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "COLLECT" });
+    if (response?.ok) {
+      log.info("자동 수집 완료", response.result);
+    } else {
+      log.warn("자동 수집 실패:", response?.error);
+      autoCollectedUrl = null; // 다음 기회에 재시도
+    }
+  } catch (e) {
+    log.warn("자동 수집 중 오류", e);
+    autoCollectedUrl = null;
+  }
+}
+
 startReviewObserver();
+// 상세 페이지 콘텐츠가 그려질 시간을 준 뒤 자동 수집한다.
+setTimeout(() => void maybeAutoCollect(), 1500);
 log.info("content script 준비 완료:", location.href);

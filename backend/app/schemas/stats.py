@@ -14,4 +14,6 @@ class StatsOut(BaseModel):
     monthly_measured_products: int = 0
     # 쿠팡 월간 구매 문구를 확보한 상품 수
     purchase_labeled_products: int = 0
+    # 조건은 통과했지만 아직 구매 문구를 확인하지 못한 상품 수 (= 상세 확인 대기)
+    purchase_pending_products: int = 0
     review_sales_multiplier: int

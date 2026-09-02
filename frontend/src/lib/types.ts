@@ -97,6 +97,8 @@ export type Stats = {
   monthly_measured_products: number;
   /** 쿠팡 월간 구매 문구를 확보한 상품 수 */
   purchase_labeled_products: number;
+  /** 다른 조건은 통과했지만 아직 구매 문구를 확인하지 못한 상품 수 */
+  purchase_pending_products: number;
   review_sales_multiplier: number;
 };
 
