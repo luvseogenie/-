@@ -52,8 +52,11 @@ async function saveKind(kind) {
       msg('엑셀 다운로드 → 상품별 판매 리포트 를 누르는 중…');
       await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || dateFromUrl(tab.url) || null });
       let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }); } catch { /* 무시 */ }
-      if (r?.ok) { msg('리포트를 다운로드했습니다. 잠시 후 자동으로 저장됩니다. 자동 저장 알림이 안 오면 "장부 보기 → 리포트 파일 올리기" 로 방금 받은 파일을 올려 주세요.', 'ok'); }
-      else { msg((r?.reason || '다운로드 버튼을 찾지 못했습니다') + '. 직접 엑셀 다운로드 → 상품별 판매 리포트 를 받은 뒤 "장부 보기 → 리포트 파일 올리기" 로 올려 주세요.', 'err'); }
+      if (r?.ok) { msg('리포트를 다운로드했습니다. 잠시 후 자동으로 저장됩니다. 자동 저장 알림이 안 오면 "📂 리포트 파일 올리기" 로 방금 받은 파일을 올려 주세요.', 'ok'); }
+      else {
+        msg((r?.reason || '다운로드 버튼을 찾지 못했습니다') + '. 지금 화면에서 직접 엑셀 다운로드 → 상품별 판매 리포트 를 눌러 주세요. 2분 안에 받으면 자동으로 저장됩니다. (안 되면 📂 리포트 파일 올리기)', 'err');
+        if (r?.diag?.length) $('#detail').textContent = '화면에서 보인 항목:\n' + r.diag.join('\n') + '\n\n' + $('#detail').textContent;
+      }
       return;
     }
   }

@@ -127,16 +127,35 @@
       return px - py || x.querySelectorAll('*').length - y.querySelectorAll('*').length;
     });
   }
+  const fire = (el, types) => types.forEach((t) => el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })));
+  const HOVER = ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'mousemove'];
+  const CLICK = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function findItem(texts, tries = 10) {
+    for (let i = 0; i < tries; i++) {
+      await wait(200);
+      for (const t of texts) { const el = findByText(t)[0] || findByText(t, false)[0]; if (el) return el; }
+    }
+    return null;
+  }
+  function visibleTexts(keyword) {
+    return [...document.querySelectorAll('button, a, li, span, div, label, p')]
+      .filter((e) => visible(e) && e.children.length <= 2 && clean(e.innerText).includes(keyword))
+      .map((e) => `${e.tagName.toLowerCase()}:${clean(e.innerText).slice(0, 40)}`).slice(0, 12);
+  }
   async function clickDownloadReport() {
     const btn = findByText('엑셀 다운로드')[0] || findByText('엑셀 다운로드', false)[0];
-    if (!btn) return { ok: false, reason: '엑셀 다운로드 버튼을 찾지 못했습니다' };
-    btn.click();
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 150));
-      const item = findByText('상품별 판매 리포트')[0] || findByText('상품별 판매 리포트', false)[0];
-      if (item) { item.click(); return { ok: true }; }
-    }
-    return { ok: false, reason: "'상품별 판매 리포트' 메뉴를 찾지 못했습니다" };
+    if (!btn) return { ok: false, reason: '엑셀 다운로드 버튼을 찾지 못했습니다', diag: visibleTexts('다운로드') };
+    const ITEM = ['상품별 판매 리포트', '상품별 판매', '상품별'];
+    // 1) 마우스 올림으로 열리는 메뉴 (Ant Design Dropdown 기본)
+    fire(btn, HOVER); let item = await findItem(ITEM, 8);
+    // 2) 클릭으로 열리는 메뉴
+    if (!item) { fire(btn, CLICK); item = await findItem(ITEM, 8); }
+    // 3) 버튼을 감싼 요소 클릭
+    if (!item && btn.parentElement) { fire(btn.parentElement, [...HOVER, ...CLICK]); item = await findItem(ITEM, 6); }
+    if (!item) return { ok: false, reason: "'상품별 판매 리포트' 메뉴를 찾지 못했습니다", diag: visibleTexts('리포트').concat(visibleTexts('다운로드')) };
+    fire(item, HOVER); fire(item, CLICK);
+    return { ok: true };
   }
   function pageInfo() {
     const text = clean(document.body.innerText);
