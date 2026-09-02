@@ -161,19 +161,23 @@ console.log('extension logic: all checks passed');
   console.log('legacy sheet4 import: all checks passed');
 }
 
-// 종합소득세 추정
+// 종합소득세 추정 (기본: 연봉 1.2억, 배우자 + 2022년생 자녀 1명 → 기본공제 450만, 자녀세액공제는 2030년부터)
 {
   const T = await import('../../extension/lib/tax.js');
   assert.equal(T.earnedIncomeDeduction(120000000), 15150000);
-  assert.equal(T.incomeTax(103350000, 2026), 103350000 * 0.35 - 15440000);
+  assert.equal(T.basicDeduction(T.DEFAULT_TAX_SETTINGS), 4500000);
+  assert.equal(T.childTaxCredit(2026, T.DEFAULT_TAX_SETTINGS), 0); assert.equal(T.childTaxCredit(2030, T.DEFAULT_TAX_SETTINGS), 250000);
+  assert.equal(T.childTaxCredit(2030, { childrenBirthYears: [2022, 2020] }), 550000); assert.equal(T.childTaxCredit(2024, { childrenBirthYears: [2010] }), 150000);
   const only = T.computeYearTax(2026, 0);
-  assert.equal(only.salaryOnly.base, 103350000); approx(only.salaryOnly.gross, 20732500); approx(only.salaryOnly.earnedCredit, 500000); approx(only.salaryOnly.all, 20232500 * 1.1);
-  assert.equal(only.bizTax, 0); assert.equal(only.netAfterTax, 0);
+  assert.equal(only.salaryOnly.base, 104850000 - 4500000); approx(only.salaryOnly.gross, 100350000 * 0.35 - 15440000); approx(only.salaryOnly.earnedCredit, 500000);
+  assert.equal(only.bizTax, 0);
   const r = T.computeYearTax(2026, 50000000);
-  assert.equal(r.withBiz.base, 153350000); approx(r.withBiz.gross, 38333000); approx(r.withBiz.relief, 38333000 * (50000000 / 154850000) * 0.5, 1);
-  approx(r.withBiz.all, (38333000 - 500000 - 6188731) * 1.1, 100); approx(r.bizTax, r.withBiz.all - only.salaryOnly.all); assert.ok(r.effectiveRate > 0.2 && r.effectiveRate < 0.3);
+  assert.equal(r.withBiz.base, 154850000 - 4500000); assert.equal(r.deductions, 4500000); assert.equal(r.withBiz.childCredit, 0);
+  approx(r.bizTax, r.withBiz.all - only.salaryOnly.all); assert.ok(r.effectiveRate > 0.2 && r.effectiveRate < 0.3);
   approx(r.marginalEffective, 0.38 * 0.5 * 1.1, 1e-9); assert.ok(T.computeYearTax(2026, 50000000, { reliefRate: 100 }).reliefApplied <= 0.65 + 1e-9);
   const r0 = T.computeYearTax(2026, 50000000, { reliefRate: 0 }); assert.ok(r0.bizTax > r.bizTax);
+  const single = T.computeYearTax(2026, 50000000, { spouse: false, childrenBirthYears: [] }); assert.ok(single.withBiz.all > r.withBiz.all); assert.equal(single.deductions, 1500000);
+  const legacyCfg = T.computeYearTax(2026, 50000000, { deductions: 6000000 }); assert.equal(legacyCfg.deductions, 6000000); // 예전 설정(합계) 호환
   const loss = T.computeYearTax(2026, -3000000); assert.equal(loss.bizTax, 0); assert.equal(loss.netAfterTax, -3000000);
   const mb = T.monthlyBreakdown(2026, { 1: 10000000, 2: 10000000, 3: 30000000 });
   approx(mb[0].tax + mb[1].tax + mb[2].tax, r.bizTax, 1); assert.equal(mb[3].empty, true);

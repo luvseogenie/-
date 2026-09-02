@@ -37,20 +37,35 @@ export function earnedIncomeTaxCredit(taxOnEarned, salary) {
 export const DEFAULT_TAX_SETTINGS = {
   salary: 120000000,      // 근로소득 총급여(연)
   reliefRate: 50,         // 청년창업중소기업 세액감면율 (%)
-  deductions: 1500000,    // 소득공제 합계 (기본공제 본인 150만 등)
-  otherCredits: 0,        // 기타 세액공제 (표준세액공제 등)
+  spouse: true,           // 배우자 기본공제 (배우자 연 소득 100만원 이하)
+  childrenBirthYears: [2022], // 자녀 출생연도 (기본공제 + 8세 이상이면 자녀세액공제)
+  extraDeductions: 0,     // 추가 소득공제 (국민연금·건강보험료·주택 등)
+  otherCredits: 0,        // 기타 세액공제 (표준세액공제, 연금계좌 등)
   extraExpenses: 0,       // 장부에 없는 사업 경비(연) — 사업소득금액에서 뺌
   localTax: true,         // 지방소득세 10%
 };
+// 기본공제: 본인·배우자·자녀 1인당 150만원
+export function basicDeduction(st) { return 1500000 * (1 + (st.spouse ? 1 : 0) + (st.childrenBirthYears || []).length); }
+// 자녀세액공제: 8세 이상 20세 이하 자녀. 2025년 귀속부터 1명 25만·2명 55만·3명째부터 +40만 (그 전: 15만·35만·+30만)
+export function childTaxCredit(year, st) {
+  const n = (st.childrenBirthYears || []).filter((by) => { const age = year - by; return age >= 8 && age <= 20; }).length;
+  if (!n) return 0;
+  const [one, two, more] = year >= 2025 ? [250000, 550000, 400000] : [150000, 350000, 300000];
+  return n === 1 ? one : two + (n - 2) * more;
+}
+export function totalDeductions(st) { return basicDeduction(st) + (st.extraDeductions || 0); }
 
 /** 한 해의 세금 계산. bizIncome = 쿠팡 순이익(연). */
 export function computeYearTax(year, bizIncome, s = DEFAULT_TAX_SETTINGS) {
   const st = { ...DEFAULT_TAX_SETTINGS, ...s };
+  if (s && s.deductions != null && s.extraDeductions == null) st.extraDeductions = Math.max(0, s.deductions - basicDeduction(st)); // 예전 설정 호환
+  const deductions = totalDeductions(st);
+  const childCredit = childTaxCredit(year, st);
   const earned = Math.max(0, st.salary - earnedIncomeDeduction(st.salary));   // 근로소득금액
   const biz = Math.max(0, bizIncome - (st.extraExpenses || 0));               // 사업소득금액 (손실이면 0으로 취급)
   const calc = (withBiz) => {
     const total = earned + (withBiz ? biz : 0);
-    const base = Math.max(0, total - st.deductions);
+    const base = Math.max(0, total - deductions);
     const gross = incomeTax(base, year);
     const taxOnEarned = total ? gross * (earned / total) : 0;
     const taxOnBiz = total ? gross * ((withBiz ? biz : 0) / total) : 0;
@@ -59,16 +74,16 @@ export function computeYearTax(year, bizIncome, s = DEFAULT_TAX_SETTINGS) {
     // 개인 최저한세: 감면 후 사업소득 세액 ≥ 감면 전 사업소득 산출세액 × 35%(3천만 이하) / 45%(초과)
     const minRate = taxOnBiz > 30000000 ? 0.45 : 0.35;
     if (withBiz && taxOnBiz - relief < taxOnBiz * minRate) relief = taxOnBiz * (1 - minRate);
-    const determined = Math.max(0, gross - earnedCredit - relief - (st.otherCredits || 0));
+    const determined = Math.max(0, gross - earnedCredit - relief - childCredit - (st.otherCredits || 0));
     const local = st.localTax ? determined * 0.1 : 0;
-    return { total, base, gross, taxOnEarned, taxOnBiz, earnedCredit, relief, determined, local, all: determined + local, marginal: marginalRate(base, year) };
+    return { total, base, gross, taxOnEarned, taxOnBiz, earnedCredit, relief, childCredit, determined, local, all: determined + local, marginal: marginalRate(base, year) };
   };
   const withBiz = calc(true), salaryOnly = calc(false);
   const bizTax = Math.max(0, withBiz.all - salaryOnly.all);
   // 실제 적용된 감면 비율 (최저한세로 깎였으면 그 값)
   const reliefApplied = withBiz.taxOnBiz > 0 ? withBiz.relief / withBiz.taxOnBiz : Math.min(st.reliefRate / 100, 0.65);
   return {
-    year, bizIncome, earned, biz, withBiz, salaryOnly, bizTax, reliefApplied,
+    year, bizIncome, earned, biz, withBiz, salaryOnly, bizTax, reliefApplied, deductions, basicDeduction: basicDeduction(st), childCredit,
     effectiveRate: biz > 0 ? bizTax / biz : 0,
     netAfterTax: bizIncome - bizTax,
     marginalEffective: withBiz.marginal * (1 - reliefApplied) * (st.localTax ? 1.1 : 1),
