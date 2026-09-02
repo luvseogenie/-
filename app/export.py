@@ -13,7 +13,7 @@ COLUMNS = [
     ("리뷰", "review_count", 8), ("평점", "rating", 6), ("28일 판매", "sales_28", 10), ("일평균", "daily_avg", 8),
     ("전환율(%)", "conversion", 9), ("28일 조회", "views_28", 10), ("28일 매출", "revenue_28", 14),
     ("리뷰당 판매", "sales_per_review", 10), ("배송", "delivery", 14), ("광고", "is_ad", 6), ("품절", "sold_out", 6),
-    ("못 파는 물건", "restricted", 12), ("비슷한 판매자", "seller_count", 10), ("옵션 수", "option_count", 8),
+    ("못 파는 물건", "restricted", 12), ("경쟁 판매자 수", "seller_count", 10), ("옵션 수", "option_count", 8),
     ("링크", "url", 60),
 ]
 

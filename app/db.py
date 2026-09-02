@@ -107,7 +107,8 @@ def init_db():
     # 윙 인기상품검색에서 얻는 값들 (예전 DB에도 컬럼을 더한다)
     extra = [("pv_low", "INTEGER"), ("pv_high", "INTEGER"), ("pv_rank", "INTEGER"),
              ("mergeable", "TEXT"), ("eligibility", "TEXT"), ("wing_category", "TEXT"),
-             ("wing_rating", "REAL"), ("wing_review", "INTEGER")]
+             ("wing_rating", "REAL"), ("wing_review", "INTEGER"), ("pv_exact", "INTEGER"),
+             ("option_total", "INTEGER"), ("buyers_min", "INTEGER")]
     have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
     for col, typ in extra:
         if col not in have:
@@ -297,11 +298,13 @@ def save_analysis(run_id, product_id, result: dict | None, error: str | None):
         c.execute(
             """UPDATE products SET analyzed=1, matched=1, sales_28=?, views_28=?, pv_low=?, pv_high=?, pv_rank=?,
                wing_price=?, wing_name=?, wing_rating=?, wing_review=?, wing_category=?, mergeable=?, eligibility=?,
-               seller_count=?, coupon_flag=?, analysis_error=NULL, analyzed_at=? WHERE run_id=? AND product_id=?""",
+               seller_count=COALESCE(?, seller_count), coupon_flag=?, pv_exact=?, option_total=?,
+               analysis_error=NULL, analyzed_at=? WHERE run_id=? AND product_id=?""",
             (result.get("sales_28"), result.get("views_28"), result.get("pv_low"), result.get("pv_high"),
              result.get("pv_rank"), result.get("wing_price"), result.get("wing_name"), result.get("wing_rating"),
              result.get("wing_review"), result.get("wing_category"), result.get("mergeable"), result.get("eligibility"),
-             result.get("seller_count"), int(bool(result.get("coupon_flag"))), now(), run_id, product_id),
+             result.get("seller_count"), int(bool(result.get("coupon_flag"))), int(bool(result.get("pv_exact"))),
+             result.get("option_total"), now(), run_id, product_id),
         )
     else:
         c.execute(
@@ -318,10 +321,12 @@ def reset_unmatched(run_id) -> int:
     return cur.rowcount
 
 
-def save_verified_price(run_id, product_id, price: int | None):
+def save_verified_price(run_id, product_id, price: int | None, buyers_min: int | None = None, sellers: int | None = None):
     c = conn()
-    c.execute("UPDATE products SET verified_price=?, verified_at=? WHERE run_id=? AND product_id=?",
-              (price, now(), run_id, product_id))
+    c.execute("""UPDATE products SET verified_price=COALESCE(?, verified_price), verified_at=?,
+                 buyers_min=COALESCE(?, buyers_min), seller_count=COALESCE(?, seller_count)
+                 WHERE run_id=? AND product_id=?""",
+              (price, now(), buyers_min, sellers, run_id, product_id))
     c.commit()
 
 

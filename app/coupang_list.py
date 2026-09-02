@@ -216,7 +216,13 @@ DETAIL_PRICE_JS = r"""
   let sellers = null;
   const sm = body.match(/다른\s*판매자\s*(\d+)/) || body.match(/판매자\s*(\d+)\s*곳/);
   if (sm) sellers = Number(sm[1]);
-  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, title: document.title };
+  // "한 달간 1,000명 이상 구매했어요" 같은 문구
+  let buyers = null;
+  const bm = body.match(/([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매/) || body.match(/([\d,]+)\s*개\s*이상\s*(?:판매|구매)/)
+    || (document.documentElement.outerHTML.match(/([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매/));
+  if (bm) buyers = num(bm[1]);
+  const buyersText = (body.match(/[^.]{0,20}[\d,]+\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
+  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText, title: document.title };
 }
 """
 

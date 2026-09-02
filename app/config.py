@@ -43,6 +43,7 @@ DEFAULT_CONDITIONS = {
     "views_min": 100000,
     "views_max": 0,
     "conv_min": 0,
+    "buyers_min": 0,
     "only_mergeable": False,
     "pages": 1,
     "exclude_restricted": True,   # 못 파는 물건(전기용품·화장품·어린이제품) 빼기

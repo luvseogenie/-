@@ -27,10 +27,10 @@ def _fmt_range(lo, hi):
 def _mergeable_label(status, eligibility) -> str | None:
     s = (status or "").upper()
     e = (eligibility or "").upper()
-    if s in ("MERGEABLE", "APPROVE", "OK", "AVAILABLE") or e in ("VALID", "MERGEABLE"):
-        return "매칭 가능"
     if s in ("DECLINE", "NOT_MERGEABLE", "REJECT") or "NOT_MERGEABLE" in e or "INVALID" in e:
         return "매칭 불가"
+    if s in ("MERGEABLE", "APPROVE", "OK", "AVAILABLE") or e in ("VALID", "MERGEABLE"):
+        return "매칭 가능"
     if status or eligibility:
         return "확인 필요"
     return None
@@ -65,7 +65,11 @@ def enrich(p: dict, cond: dict) -> dict:
     out["revenue_28"] = sales * price if sales is not None else None
     out["sales_per_review"] = round(sales / reviews, 1) if sales is not None and reviews else (float(sales) if sales else None)
     out["coupon_flag"] = bool(p.get("coupon_flag")) or (bool(p.get("wing_price")) and not p.get("verified_price"))
-    out["views_range"] = _fmt_range(p.get("pv_low"), p.get("pv_high"))
+    out["views_range"] = (f"{views:,}" if p.get("pv_exact") and views else _fmt_range(p.get("pv_low"), p.get("pv_high")))
+    buyers = p.get("buyers_min")
+    out["buyers_min"] = buyers
+    out["conversion_min"] = round(buyers / views * 100, 2) if buyers and views else None
+    out["buyers_daily"] = round(buyers / 30, 1) if buyers else None
     out["mergeable_label"] = _mergeable_label(p.get("mergeable"), p.get("eligibility"))
     out["mergeable_ok"] = out["mergeable_label"] == "매칭 가능"
     # 조회 대비 리뷰 비율(관심도) - 판매량 대용 지표
@@ -85,7 +89,9 @@ def enrich(p: dict, cond: dict) -> dict:
             v = "below"
         if cond.get("sales_min") and (sales or 0) < cond["sales_min"]:
             v = "below"
-        if cond.get("conv_min") and (out["conversion"] or 0) < cond["conv_min"]:
+        if cond.get("buyers_min") and (buyers or 0) < cond["buyers_min"]:
+            v = "below"
+        if cond.get("conv_min") and (out["conversion"] or out["conversion_min"] or 0) < cond["conv_min"]:
             v = "below"
         if cond.get("only_mergeable") and not out["mergeable_ok"]:
             v = "below"

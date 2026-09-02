@@ -211,6 +211,7 @@ class JobController:
         pend_ids = {p["product_id"] for p in pending}
         done = set()
         fails = 0
+        wing.reset_caches()
         for p in pending:
             self._check()
             pid = p["product_id"]
@@ -225,15 +226,14 @@ class JobController:
                 else:
                     db.save_analysis(run_id, pid, None, "윙 인기상품검색에서 못 찾음")
                 done.add(pid)
-                # 같은 검색 결과에 들어있는 다른 상품도 함께 채운다 (호출 절약)
+                # 같은 검색 결과에 들어있는 다른 상품은 순위·범위를 미리 채워 둔다 (정확한 조회수는 차례가 오면 가져온다)
                 filled = 0
                 for opid, f in others.items():
                     if opid in pend_ids and opid not in done:
                         db.save_analysis(run_id, opid, f, None)
-                        done.add(opid)
                         filled += 1
                 if filled:
-                    log.info(f"'{self.progress['label']}' 검색으로 {filled}개 함께 채움")
+                    log.info(f"'{self.progress['label']}' 검색으로 {filled}개 순위 미리 채움")
                 fails = 0
             except wing.WingLoginRequired:
                 self.paused = True
@@ -272,7 +272,7 @@ class JobController:
             if self.is_running():
                 raise RuntimeError("이미 작업이 진행 중입니다.")
             self.run_id = run_id
-            self._set("verifying", "실제가격 확인 중", len(product_ids))
+            self._set("verifying", "실제가격·구매자수 확인 중", len(product_ids))
             self.message = ""
             self.future = browser.submit(lambda bt: self._verify(bt, run_id, product_ids), "실제가격 확인")
 
@@ -287,10 +287,9 @@ class JobController:
                 self.progress["label"] = (p.get("name") or str(pid))[:40]
                 data = self._with_retry(lambda: fetch_detail_price(bt.page(), pid, p.get("item_id"), p.get("vendor_item_id")))
                 if data:
-                    db.save_verified_price(run_id, pid, data.get("price"))
-                    if data.get("sellers"):
-                        db.conn().execute("UPDATE products SET seller_count=? WHERE run_id=? AND product_id=?", (data["sellers"], run_id, pid))
-                        db.conn().commit()
+                    db.save_verified_price(run_id, pid, data.get("price"), data.get("buyers_min"), data.get("sellers"))
+                    if data.get("buyers_min"):
+                        log.info(f"{self.progress['label']}: 월 구매 {data['buyers_min']:,}명 이상")
                 self.progress["done"] += 1
                 human_delay()
             self._finish()

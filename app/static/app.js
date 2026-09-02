@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'sales_min', 'sales_max', 'conv_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'only_mergeable'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'sales_min', 'sales_max', 'conv_min', 'buyers_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'only_mergeable'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -277,23 +277,26 @@
       if (r.restricted) pills.push(`<span class="pill restricted">${esc(r.restricted)}</span>`);
       if (r.is_ad) pills.push('<span class="pill ad">광고</span>');
       if (r.sold_out) pills.push('<span class="pill">품절</span>');
-      const sim = r.seller_count ? `<span class="pill">비슷 ${r.seller_count}곳</span>` : '';
+      const sim = (r.seller_count !== null && r.seller_count !== undefined) ? `<span class="pill">경쟁 판매자 ${r.seller_count}곳</span>` : '';
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
       const maxView = Math.max(1, ...state.rows.map((x) => x.views_28 || 0));
       const mlabel = r.mergeable_label;
       const mcls = mlabel === '매칭 가능' ? 'pass' : (mlabel === '매칭 불가' ? 'unmatched' : 'below');
       const wcat = (r.wing_category || '').split('>').slice(-2).join(' › ').trim();
+      const buyersCell = r.buyers_min
+        ? `<b class="green">${fmt(r.buyers_min)}명+</b><div class="sub">${r.conversion_min !== null && r.conversion_min !== undefined ? '전환율 ≥ ' + r.conversion_min.toFixed(2) + '%' : ''}${r.buyers_daily ? ' · 일 ' + fmt(Math.round(r.buyers_daily)) + '명' : ''}</div>`
+        : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
       return `<tr data-id="${r.product_id}">
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.name || ('상품 ' + r.product_id))}</a></div>
-          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}<span class="pill">${esc(deliveryLabel(r.delivery))}</span>${r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : ''}</div></td>
-        <td class="num"><b class="green">${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.views_28 ? '중앙값 ' + fmt(r.views_28) + '회' : '')}</div>${r.views_28 ? `<div class="bar"><i style="width:${Math.min(100, (r.views_28) / maxView * 100)}%"></i></div>` : ''}</td>
-        <td class="num"><b>${r.pv_rank ? r.pv_rank + '위' : '-'}</b><div class="sub">${r.pv_rank ? '판매량 순위' : ''}</div></td>
-        <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.rating ? '평점 ' + r.rating : (r.wing_rating ? '평점 ' + r.wing_rating : '')}</div></td>
+          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}<span class="pill">${esc(deliveryLabel(r.delivery))}</span>${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}${wcat ? `<span class="muted">· 윙: ${esc(wcat)}</span>` : ''}</div></td>
+        <td class="num"><b class="green">${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '정확한 값' : (r.views_28 ? '범위 · 중앙값 ' + fmt(r.views_28) : ''))}</div>${r.views_28 ? `<div class="bar"><i style="width:${Math.min(100, (r.views_28) / maxView * 100)}%"></i></div>` : ''}</td>
+        <td class="num">${buyersCell}</td>
+        <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.rating ? '평점 ' + r.rating : (r.wing_rating ? '평점 ' + Number(r.wing_rating).toFixed(1) : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
+        <td class="num"><b>${r.pv_rank ? r.pv_rank + '위' : '-'}</b><div class="sub">${r.pv_rank ? '검색 판매량 순위' : ''}</div></td>
         <td class="num">${mlabel ? `<span class="pill ${mcls}">${esc(mlabel)}</span>` : '<span class="muted">-</span>'}</td>
-        <td class="left"><div class="sub" style="text-align:left">${esc(wcat || '-')}</div></td>
       </tr>`;
     }).join('');
     $$('.rowchk').forEach((el) => el.addEventListener('change', () => { const id = Number(el.dataset.id); if (el.checked) state.selected.add(id); else state.selected.delete(id); renderSel(); }));
@@ -402,7 +405,7 @@
   $('#btn-retry').addEventListener('click', guard(async () => { const r = await api('/api/run/retry_unmatched', {}); toast(`미매칭 ${r.count}개를 다시 분석합니다.`); await refreshAll(); }));
   $('#btn-verify').addEventListener('click', guard(async () => {
     const r = await api('/api/run/verify', { product_ids: Array.from(state.selected) });
-    toast(`${r.count}개 상품의 실제 가격을 확인합니다.`); await refreshAll();
+    toast(`${r.count}개 상품의 실제 가격과 월 구매자 수를 확인합니다.`); await refreshAll();
   }));
   $('#btn-refresh').addEventListener('click', guard(refreshAll));
   $('#btn-archive').addEventListener('click', guard(async () => {

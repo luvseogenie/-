@@ -258,37 +258,147 @@ def _trends_search(ctx, query: str, limit: int = 100) -> list:
     return data.get("searchItems") or []
 
 
-def lookup(bt, product: dict):
-    """상품 이름으로 윙 인기상품검색을 호출해 조회수·순위·매칭여부를 가져온다.
+PREMATCH_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/productmatch/prematch/product-items"
+PUBLIC_CATEGORY_URL = "https://www.coupang.com/next-api/review/batch?productId={pid}&viRoleCode=3"
 
-    반환: (self_fields | None, others: {product_id: fields})
-    한 번 검색하면 비슷한 상품 최대 100개가 오므로, 같은 실행에서 아직 분석 안 한
-    상품이 그 안에 있으면 함께 채워 호출 수를 줄인다.
-    """
-    ctx = bt.ensure_context()
+_trends_cache: dict = {}        # product_id -> trends 필드 (한 실행 동안 재사용)
+_category_cache: dict = {}      # product_id -> 내부 categoryId
+
+
+def reset_caches():
+    _trends_cache.clear()
+    _category_cache.clear()
+
+
+def _public_category_id(ctx, pid):
+    """쿠팡 공개 API 로 내부 categoryId 를 얻는다 (로그인 불필요)."""
+    if pid in _category_cache:
+        return _category_cache[pid]
+    try:
+        r = ctx.request.get(PUBLIC_CATEGORY_URL.format(pid=pid), timeout=20000,
+                            headers={"accept": "application/json", "referer": f"https://www.coupang.com/vp/products/{pid}"})
+        if r.ok:
+            d = r.json()
+            cid = _dig(d, "reviewable.contents.categoryId")
+            if cid:
+                _category_cache[pid] = cid
+                return cid
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _prematch(ctx, product: dict, category_id=None) -> dict | None:
+    """카탈로그 매칭 API: 정확한 28일 조회수, 아이템위너 가격, 경쟁 판매자 수."""
+    pid = product.get("product_id")
+    params = {"productId": pid, "allowSingleProduct": "true"}
+    if product.get("item_id"):
+        params["itemId"] = product["item_id"]
+    if category_id:
+        params["categoryId"] = category_id
+    resp = ctx.request.get(PREMATCH_URL, params=params, timeout=30000,
+                           headers={"accept": "application/json, text/plain, */*",
+                                    "referer": "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"})
+    if resp.status in (401,) or "login" in resp.url:
+        raise WingLoginRequired()
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if resp.status >= 400 or "json" not in ctype:
+        return None
+    data = resp.json()
+    if not isinstance(data, dict) or data.get("productId") is None:
+        return None
+    items = data.get("items") or []
+    mine = None
+    for it in items:
+        if product.get("item_id") and _to_int(it.get("itemId")) == _to_int(product.get("item_id")):
+            mine = it
+            break
+    if mine is None and items:
+        # 옵션이 안 맞으면 아이템위너 가격이 가장 낮은(대표) 옵션
+        mine = min(items, key=lambda x: (_to_int(x.get("buyboxWinnerPrice")) or 10**12))
+    flags = (mine or {}).get("controlFlags") or {}
+    do_not_merge = str(flags.get("DO_NOT_MERGE", "")).lower() == "true"
+    valid = str(flags.get("VALID", "true")).lower() != "false"
+    pv = _to_int(data.get("pvLast28Day"))
+    return {
+        "sales_28": None,
+        "views_28": pv, "pv_low": None, "pv_high": None,
+        "pv_exact": True,
+        "wing_price": _to_int((mine or {}).get("buyboxWinnerPrice")),
+        "seller_count": _to_int((mine or {}).get("itemBuyboxCompetitorCount")),
+        "wing_name": data.get("productName"),
+        "wing_rating": data.get("productRating"),
+        "wing_review": _to_int(data.get("ratingCount")),
+        "wing_category": data.get("categoryPath") or "",
+        "mergeable": "DECLINE" if do_not_merge else "MERGEABLE",
+        "eligibility": "VALID" if valid else "INVALID",
+        "option_total": len(items),
+    }
+
+
+def _trends_fill(ctx, product: dict):
+    """인기상품검색으로 순위·조회수 범위를 가져와 캐시에 넣는다 (한 번에 최대 100개)."""
     want = product.get("product_id")
     queries = [_clean_query(product.get("name"))]
-    # 브랜드+대표명이 너무 길면 앞 두 단어로도 한 번 더 시도
     short = " ".join((product.get("name") or "").split()[:3])
     if short and short not in queries:
         queries.append(short)
-    others = {}
-    self_fields = None
     for q in queries:
         if not q:
             continue
-        items = _trends_search(ctx, q)
-        for it in items:
+        for it in _trends_search(ctx, q):
             pid = _to_int(it.get("productId"))
             if pid is None:
                 continue
             f = _parse_item(it)
-            others[pid] = f
-            if pid == want:
-                self_fields = f
-        if self_fields is not None:
+            f["category_internal"] = _to_int(it.get("categoryId"))
+            _trends_cache.setdefault(pid, f)
+        if want in _trends_cache:
             break
-    others.pop(want, None)
+
+
+def lookup(bt, product: dict):
+    """상품 하나를 조회한다. 반환: (fields | None, others: {product_id: fields})
+
+    1) 인기상품검색(캐시)으로 순위·범위·내부 카테고리번호를 얻고
+    2) 카탈로그 매칭 API 로 정확한 28일 조회수·아이템위너 가격·경쟁 판매자 수를 얻어 합친다.
+    others 에는 같은 검색에서 함께 얻은(범위만 있는) 다른 상품들이 들어간다.
+    """
+    ctx = bt.ensure_context()
+    pid = product.get("product_id")
+    before = set(_trends_cache.keys())
+    if pid not in _trends_cache:
+        try:
+            _trends_fill(ctx, product)
+        except WingLoginRequired:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"인기상품검색 실패 {pid}: {e}")
+    base = dict(_trends_cache.get(pid) or {})
+    cat = base.get("category_internal") or _public_category_id(ctx, pid)
+    exact = None
+    try:
+        exact = _prematch(ctx, product, cat)
+        if exact is None and cat is None:
+            cat2 = _public_category_id(ctx, pid)
+            if cat2:
+                exact = _prematch(ctx, product, cat2)
+    except WingLoginRequired:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"카탈로그 매칭 조회 실패 {pid}: {e}")
+    if exact:
+        merged = dict(base)
+        merged.update({k: v for k, v in exact.items() if v is not None or k in ("pv_low", "pv_high")})
+        if base.get("pv_rank"):
+            merged["pv_rank"] = base["pv_rank"]
+        self_fields = merged
+    elif base:
+        self_fields = base
+    else:
+        self_fields = None
+    new_ids = set(_trends_cache.keys()) - before
+    others = {k: _trends_cache[k] for k in new_ids if k != pid}
     return self_fields, others
 
 

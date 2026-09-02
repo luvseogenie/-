@@ -203,7 +203,7 @@ async def run_verify(req: Request):
     if not ids:
         cond = db.get_conditions()
         rows = [enrich(p, cond) for p in db.products(run_id)]
-        ids = [r["product_id"] for r in rows if r["verdict"] == "pass" and not r.get("verified_price")]
+        ids = [r["product_id"] for r in rows if r["verdict"] == "pass" and not (r.get("verified_price") and r.get("buyers_min"))]
     if not ids:
         return _err("확인할 상품이 없습니다. 조건 통과 상품이 있거나 상품을 체크한 뒤 눌러주세요.")
     try:
@@ -567,8 +567,10 @@ def make_demo() -> int:
             if rnd.random() < 0.9:
                 lo = rnd.choice([1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 400000])
                 hi = lo * 2
-                db.save_analysis(run_id, pid, {"sales_28": None, "views_28": int((lo * hi) ** 0.5), "pv_low": lo, "pv_high": hi,
-                                               "pv_rank": i + 1, "wing_price": price, "wing_rating": 4.7, "wing_review": reviews,
+                exact = rnd.random() < 0.7
+                db.save_analysis(run_id, pid, {"sales_28": None, "views_28": int((lo * hi) ** 0.5) if not exact else int(lo * rnd.uniform(1.0, 1.9)),
+                                               "pv_low": None if exact else lo, "pv_high": None if exact else hi, "pv_exact": exact,
+                                               "pv_rank": i + 1, "wing_price": price, "wing_rating": 4.7, "wing_review": reviews, "option_total": rnd.choice([1, 3, 12]),
                                                "wing_category": path.replace(" > ", ">"),
                                                "mergeable": rnd.choice(["MERGEABLE", "MERGEABLE", "DECLINE"]),
                                                "eligibility": "VALID", "seller_count": rnd.choice([None, 1, 3, 9]),
@@ -576,6 +578,9 @@ def make_demo() -> int:
             elif rnd.random() < 0.5:
                 db.save_analysis(run_id, pid, None, "윙에서 찾지 못함")
         db.update_run_category(run_id, cid, status="done", pages_done=1, products_seen=15)
+    # 일부는 상세 확인(구매자 수)까지 된 상태로
+    for p in db.products(run_id)[::3]:
+        db.save_verified_price(run_id, p["product_id"], p["price"], rnd.choice([100, 500, 1000, 5000, 10000]), rnd.choice([1, 3, 9]))
     db.set_setting(f"seen_total_{run_id}", seen + 40)
     db.set_run_status(run_id, "analyzed", "데모")
     log.info("데모 데이터 생성")

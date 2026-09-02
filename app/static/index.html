@@ -50,7 +50,9 @@
       <div class="cond-row"><span>판매가격</span><input id="c-price_min" type="number"><em>~</em><input id="c-price_max" type="number"><u>원</u></div>
       <div class="cond-row"><span>리뷰 수</span><input id="c-review_min" type="number"><em>~</em><input id="c-review_max" type="number"><u>개</u></div>
       <div class="cond-row"><span>28일 조회수</span><input id="c-views_min" type="number"><em>~</em><input id="c-views_max" type="number"><u>회</u></div>
-      <p class="muted small">빈칸이나 0은 "제한 없음"입니다. 윙 인기상품검색의 28일 조회수(범위)를 기준으로 거릅니다. 조회수가 많을수록 잘 팔리는 상품입니다.</p>
+      <div class="cond-row"><span>월 구매자</span><input id="c-buyers_min" type="number"><em></em><span class="spacer"></span><u>명↑</u></div>
+      <div class="cond-row"><span>최소 전환율</span><input id="c-conv_min" type="number" step="0.1"><em></em><span class="spacer"></span><u>%</u></div>
+      <p class="muted small">빈칸이나 0은 "제한 없음"입니다. 조회수는 윙에서 가져온 정확한 28일 값입니다. 월 구매자와 전환율은 [실제가격·구매자수 확인]을 실행해야 채워집니다. 전환율 = 월 구매자 ÷ 28일 조회수.</p>
       <label class="check-row"><input type="checkbox" id="c-only_mergeable"> 카탈로그 매칭 가능한 상품만</label>
       <label class="check-row"><input type="checkbox" id="c-exclude_restricted"> 못 파는 물건(전기용품·화장품·어린이제품) 빼기</label>
       <label class="check-row"><input type="checkbox" id="c-hide_ads"> 광고 상품 숨기기</label>
@@ -113,7 +115,7 @@
         </div>
         <div class="btn-group">
           <button class="btn" id="btn-retry">미매칭 다시 분석</button>
-          <button class="btn" id="btn-verify">🔒 실제가격 확인</button>
+          <button class="btn" id="btn-verify">실제가격·구매자수 확인</button>
           <label class="check-inline"><input type="checkbox" id="c-auto_continue"> 손 놓으면 자동</label>
         </div>
         <div class="dropdown" id="tools-dd">
@@ -178,11 +180,11 @@
               <th class="chk"><input type="checkbox" id="chk-all"></th>
               <th class="left">상품 · 카테고리</th>
               <th>28일 조회수</th>
-              <th>판매 순위</th>
+              <th>월 구매자</th>
               <th>리뷰</th>
               <th>판매가격</th>
+              <th>판매 순위</th>
               <th>카탈로그 매칭</th>
-              <th>카테고리(윙)</th>
             </tr>
           </thead>
           <tbody id="grid-body"></tbody>
