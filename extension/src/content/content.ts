@@ -26,7 +26,7 @@ import {
   type ReviewEntry,
 } from "@/parsers/coupang_review_parser";
 import { parseCategoryTree, type CategoryTreeResult } from "@/parsers/coupang_category_parser";
-import { ensureListSortSalesDesc, readListSort } from "@/parsers/coupang_list_sort";
+import { ensureListSortSalesDesc, ensureReviewSortNewest, readListSort, readReviewSort } from "@/parsers/coupang_list_sort";
 import { detectBlockedPage } from "@/parsers/blocked_page";
 import { buildDiagnosticsReport } from "@/parsers/diagnostics";
 import {
@@ -290,7 +290,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "SORT_REVIEWS_NEWEST") {
-    sendResponse({ ok: true, clicked: trySortReviewsNewest() });
+    // 새 정렬 모듈(선택 상태까지 읽음)을 먼저 쓰고, 컨트롤을 못 찾으면 예전 텍스트 클릭으로 보완
+    const state = ensureReviewSortNewest(document);
+    const clicked = state.changed || (state.available.length === 0 && trySortReviewsNewest());
+    sendResponse({ ok: true, clicked, result: state });
+    return true;
+  }
+  if (message?.type === "READ_REVIEW_SORT") {
+    sendResponse({ ok: true, result: readReviewSort(document) });
     return true;
   }
   if (message?.type === "DIAGNOSE") {

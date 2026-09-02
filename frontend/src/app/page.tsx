@@ -278,6 +278,7 @@ export default function DashboardPage() {
         view === "pending"
           ? {
               ...conditions,
+              monthly_min: "",
               purchase_min: "",
               purchase_max: "",
               monthly_review_min: "",
@@ -383,6 +384,8 @@ export default function DashboardPage() {
           rating_min: toNumber(conditions.rating_min),
           rating_max: toNumber(conditions.rating_max),
           delivery_types: conditions.delivery_types,
+          monthly_min: toNumber(conditions.monthly_min),
+          monthly_sales_min: toNumber(conditions.monthly_sales_min),
         },
       });
       // popup 을 열 필요 없이 확장을 바로 구동한다.

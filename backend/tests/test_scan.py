@@ -197,3 +197,17 @@ def test_status_exposes_recent_errors_and_last_result(client, tree):
     assert status["last_product_count"] == 57
     assert status["last_done_note"] == "정렬: 쿠팡 랭킹순 → 판매량순으로 변경"
     assert status["recent_errors"] == [{"kind": "list", "label": "발매트 2페이지", "error": "상품을 찾지 못했습니다."}]
+
+
+def test_detail_targets_skip_products_below_review_floor(client, tree):
+    """월 500개 기준(배수 20)이면 누적 리뷰 25건 미만은 상세를 열지 않는다."""
+    leaf = tree["발매트"]
+    client.post("/api/scan/start", json={"category_ids": [leaf["id"]], "detail_limit": 10, "conditions": {"monthly_min": 500}})
+    t = client.get("/api/scan/next").json()
+    client.post("/api/products/collect", json={"category_code": "1011", "category_name": "발매트", "products": [
+        product("HI", "리뷰 많음", 15000, 300), product("EDGE", "딱 하한", 15000, 25), product("LO", "리뷰 적음", 15000, 24)]})
+    client.post(f"/api/scan/targets/{t['id']}/done", json={"product_count": 3})
+    labels = []
+    while (nxt := client.get("/api/scan/next").json()) and nxt["kind"] == "detail":
+        labels.append(nxt["label"]); client.post(f"/api/scan/targets/{nxt['id']}/done", json={"product_count": 1})
+    assert labels == ["리뷰 많음", "딱 하한"]

@@ -142,6 +142,18 @@ def start_scan(
     return job, position
 
 
+def review_floor(db: Session, job: ScanJob) -> int:
+    """상세 방문 후보의 누적 리뷰 하한 = 월 판매량 기준 ÷ 배수 (기준이 없으면 0)."""
+    raw = json.loads(job.conditions or "{}")
+    target = raw.get("monthly_min") or raw.get("monthly_sales_min")
+    if not target:
+        return 0
+    from app.services.estimation import get_multiplier
+
+    multiplier = max(1, int(get_multiplier(db)))
+    return -(-int(target) // multiplier)  # 올림
+
+
 def _conditions_filter(job: ScanJob) -> ProductFilter:
     """작업에 저장된 1차 조건을 필터로 되살린다."""
     raw = json.loads(job.conditions or "{}")
@@ -178,6 +190,12 @@ def prepare_detail_targets(db: Session, job: ScanJob) -> int:
     expr = filters.condition_expression()
     if expr is not None:
         stmt = stmt.where(expr)
+
+    # 헛방문 줄이기: 월 N개 기준이면 30일 리뷰가 N÷배수 건은 있어야 하고, 누적 리뷰가 그보다 적으면
+    # 절대 통과할 수 없으므로 상세를 열지 않는다. (쿠팡 문구는 못 보게 되지만 방문 수를 크게 줄인다)
+    floor = review_floor(db, job)
+    if floor > 0:
+        stmt = stmt.where(Product.review_count >= floor)
 
     # 리뷰가 많을수록 잘 팔릴 가능성이 높으므로 먼저 확인한다.
     stmt = stmt.order_by(Product.review_count.desc()).limit(job.detail_limit)

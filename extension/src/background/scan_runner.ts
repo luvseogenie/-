@@ -145,10 +145,20 @@ async function analyzeOnce(tabId: number): Promise<ReviewDateResult | null> {
  * 최신순으로 정렬한 뒤, 30일보다 오래된 리뷰가 나올 때까지 [다음 페이지]를 눌러 누적한다.
  * (상품당 최대 MAX_REVIEW_PAGES_AUTO 페이지 — 그 안에 못 덮으면 표본 기간으로 추정하고 신뢰도를 낮춘다)
  */
-async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | null> {
+async function analyzeReviewsOnTab(tabId: number): Promise<(ReviewDateResult & { sortNote: string }) | null> {
+  let sortNote = "리뷰 정렬: 확인 불가";
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "SORT_REVIEWS_NEWEST" });
-    await sleep(1500);
+    const sorted = (await chrome.tabs.sendMessage(tabId, { type: "SORT_REVIEWS_NEWEST" })) as
+      | { ok: boolean; clicked?: boolean; result?: ListSortState }
+      | undefined;
+    await sleep(1800);
+    const after = (await chrome.tabs.sendMessage(tabId, { type: "READ_REVIEW_SORT" })) as
+      | { ok: boolean; result?: ListSortState }
+      | undefined;
+    const afterState = after?.result;
+    if (afterState?.isSalesDesc) sortNote = `리뷰 정렬: 최신순 확인됨${sorted?.result?.changed ? " (변경함)" : ""}`;
+    else if (afterState && afterState.available.length === 0) sortNote = sorted?.clicked ? "리뷰 정렬: 최신순 클릭(확인 불가)" : "리뷰 정렬: 컨트롤 없음";
+    else sortNote = `리뷰 정렬: ${afterState?.active ?? "알 수 없음"} (최신순 아님 — 30일 리뷰수가 적게 나올 수 있음)`;
   } catch {
     // 정렬 컨트롤이 없으면 그대로 진행한다.
   }
@@ -172,8 +182,8 @@ async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | nu
     result = again;
     pages += 1;
   }
-  if (result) log.info("리뷰 30일 분석", { pages, sample: result.sampleSize, inWindow: result.reviewsInWindow, covers: result.coversWindow });
-  return result;
+  if (result) log.info("리뷰 30일 분석", { pages, sample: result.sampleSize, inWindow: result.reviewsInWindow, covers: result.coversWindow, sortNote });
+  return result ? { ...result, sortNote } : null;
 }
 
 /** 차단/오류 페이지인지 판단한다. 우회하지 않고 멈추기 위한 감지다. */
@@ -283,6 +293,14 @@ async function processTarget(target: ScanTarget): Promise<{ count: number; disco
   // 상세 페이지면 최근 30일 리뷰수도 함께 확보한다.
   if (target.kind === "detail" && parsed.pageType === "product") {
     const analysis = await analyzeReviewsOnTab(tabId);
+    if (analysis) {
+      note =
+        `${analysis.sortNote} · 30일 리뷰 ${analysis.reviewsInWindow}건 (표본 ${analysis.sampleSize}건` +
+        `${analysis.sampleSpanDays !== null ? `/${Math.round(analysis.sampleSpanDays)}일` : ""}` +
+        `${analysis.coversWindow ? "" : ", 30일 못 덮음→추정"})`;
+    } else {
+      note = "리뷰 분석 실패(리뷰 영역을 못 찾음)";
+    }
     if (analysis && analysis.productId && analysis.sampleSize > 0) {
       try {
         await api.submitReviewDates({

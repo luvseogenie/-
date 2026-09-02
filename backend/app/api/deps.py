@@ -36,6 +36,9 @@ def product_filter_params(
     monthly_sales_max: int | None = Query(None, ge=0, description="최근 30일 예상 판매량 최대"),
     monthly_review_min: int | None = Query(None, ge=0, description="최근 30일 리뷰수 최소"),
     monthly_review_max: int | None = Query(None, ge=0, description="최근 30일 리뷰수 최대"),
+    monthly_min: int | None = Query(
+        None, ge=0, description="월 판매량 하한: 쿠팡 '한 달간 N명 구매' 문구 또는 30일 예상 판매량 중 하나가 넘으면 통과"
+    ),
     purchase_min: int | None = Query(
         None, ge=0, description="쿠팡 월간 구매자 수 최소 (한 달간 N명 이상 구매)"
     ),
@@ -64,6 +67,7 @@ def product_filter_params(
         monthly_sales_max=monthly_sales_max,
         monthly_review_min=monthly_review_min,
         monthly_review_max=monthly_review_max,
+        monthly_min=monthly_min,
         purchase_min=purchase_min,
         purchase_max=purchase_max,
         min_confidence=min_confidence if min_confidence in {"low", "medium", "high"} else None,

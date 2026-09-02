@@ -51,6 +51,7 @@ export function buildQuery(
 ): string {
   const params = new URLSearchParams();
   const numeric: (keyof Conditions)[] = [
+    "monthly_min",
     "price_min",
     "price_max",
     "review_min",
@@ -111,6 +112,8 @@ export const api = {
       rating_min?: number | null;
       rating_max?: number | null;
       delivery_types: string[];
+      monthly_min?: number | null;
+      monthly_sales_min?: number | null;
     };
   }) =>
     request<{ job_id: number; list_targets: number; message: string }>("/api/scan/start", {

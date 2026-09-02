@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.logging import recent_logs
+import re
+
 from app.models.category import Category
 from app.models.collection_job import CollectionJob
 from app.models.product import Product
@@ -44,7 +46,28 @@ def diagnostics(db: Session = Depends(get_db)) -> dict:
             .order_by(ScanTarget.id.desc())
             .limit(10)
         ).all()
+        measured = []
+        for t in done:
+            if t.kind != "detail":
+                continue
+            m = re.search(r"/vp/products/(\d+)", t.url or "")
+            product = db.scalar(select(Product).where(Product.product_id == m.group(1))) if m else None
+            if product is None:
+                continue
+            measured.append({
+                "product_id": product.product_id,
+                "name": (product.product_name or "")[:40],
+                "review_count": product.review_count,
+                "monthly_review_count": product.monthly_review_count,
+                "sample_size": product.monthly_review_sample_size,
+                "window_days": product.monthly_review_window_days,
+                "extrapolated": product.monthly_review_is_extrapolated,
+                "confidence": product.monthly_review_confidence,
+                "purchase_text": product.monthly_purchase_text,
+                "note": t.note,
+            })
         recent_jobs.append({
+            "measured": measured,
             "id": job.id,
             "status": job.status,
             "phase": job.phase,

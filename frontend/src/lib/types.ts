@@ -129,6 +129,8 @@ export type CollectionJob = {
 
 /** 상품 조건 (요구사항 8) */
 export type Conditions = {
+  /** 소싱 기준: 쿠팡 "한 달간 N명 구매" 또는 30일 예상 판매량 중 하나가 넘으면 통과 */
+  monthly_min: string;
   price_min: string;
   price_max: string;
   review_min: string;
@@ -147,9 +149,11 @@ export type Conditions = {
   delivery_types: DeliveryType[];
 };
 
+/** 처음 켰을 때 기본값: 월 500개 이상, 가장 잘 팔리는 가격대 9,000~40,000원 */
 export const DEFAULT_CONDITIONS: Conditions = {
-  price_min: "",
-  price_max: "",
+  monthly_min: "500",
+  price_min: "9000",
+  price_max: "40000",
   review_min: "",
   review_max: "",
   sales_min: "",
@@ -183,11 +187,11 @@ export const SORT_OPTIONS = [
  * 쿠팡이 표시하는 "한 달간 N명 이상 구매했어요" 문구를 기준으로 한다.
  * (우리가 추정한 값이 아니라 쿠팡의 실제 판매 데이터)
  */
-/** 소싱 기준 = 최근 30일 예상 판매량(30일 리뷰수 × 배수) 하한 */
+/** 소싱 기준 = 월 판매량 하한. 쿠팡 "한 달간 N명 구매" 문구 또는 30일 리뷰수 × 배수, 둘 중 하나만 넘으면 통과 */
 export const SOURCING_PRESETS = [
-  { label: "월 500개 이상", monthlySalesMin: 500, note: "최소 기준" },
-  { label: "월 1,000개 이상", monthlySalesMin: 1000, note: "주력 기준" },
-  { label: "월 3,000개 이상", monthlySalesMin: 3000, note: "상위" },
+  { label: "월 500개 이상", monthlyMin: 500, note: "기본" },
+  { label: "월 1,000개 이상", monthlyMin: 1000, note: "주력" },
+  { label: "월 3,000개 이상", monthlyMin: 3000, note: "상위" },
 ] as const;
 
 /** 측정 신뢰도 라벨 */
@@ -233,6 +237,7 @@ export const DETAIL_LIMIT_OPTIONS = [10, 20, 30, 50, 100] as const;
 
 /** 조건 탈락 원인 라벨 */
 export const BREAKDOWN_LABELS: Record<string, string> = {
+  monthly: "월 판매량 기준(문구·30일 추정 모두 미달 또는 미측정)",
   price: "판매가격",
   review: "누적 리뷰수",
   sales: "누적 예상판매량",

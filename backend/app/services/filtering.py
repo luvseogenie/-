@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import ColumnElement, and_
+from sqlalchemy import ColumnElement, and_, or_
 
 from app.models.product import MonthlyConfidence, Product
 
@@ -40,6 +40,8 @@ class ProductFilter:
     monthly_review_max: int | None = None
     # 쿠팡이 표시한 월간 구매자 수 ("한 달간 3,000명 이상 구매했어요")
     # 소싱 기준(월 500개/1,000개 이상)을 판단하는 1순위 근거다.
+    # 소싱 기준: 쿠팡 "한 달간 N명 구매" 문구 또는 30일 예상 판매량, 둘 중 하나만 넘으면 통과
+    monthly_min: int | None = None
     purchase_min: int | None = None
     purchase_max: int | None = None
     # 신뢰도가 이 수준 미만인 측정값은 조건 통과로 보지 않는다.
@@ -87,6 +89,15 @@ class ProductFilter:
                 Product.monthly_review_count.isnot(None)
                 & (Product.monthly_review_count <= self.monthly_review_max)
             )
+        if self.monthly_min is not None:
+            clauses.append(
+                or_(
+                    Product.monthly_purchase_count.isnot(None)
+                    & (Product.monthly_purchase_count >= self.monthly_min),
+                    Product.monthly_estimated_sales.isnot(None)
+                    & (Product.monthly_estimated_sales >= self.monthly_min),
+                )
+            )
         if self.purchase_min is not None:
             clauses.append(
                 Product.monthly_purchase_count.isnot(None)
@@ -124,6 +135,11 @@ class ProductFilter:
             return False
         if not self._in_range(product.estimated_sales, self.sales_min, self.sales_max, required=True):
             return False
+        if self.monthly_min is not None:
+            by_label = product.monthly_purchase_count is not None and product.monthly_purchase_count >= self.monthly_min
+            by_est = product.monthly_estimated_sales is not None and product.monthly_estimated_sales >= self.monthly_min
+            if not (by_label or by_est):
+                return False
         if not self._in_range(
             product.monthly_purchase_count, self.purchase_min, self.purchase_max, required=True
         ):

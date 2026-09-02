@@ -190,3 +190,22 @@ def test_condition_breakdown_explains_zero_results(client):
         "delivery": 2,        # B(seller), C(없음)
         "unmeasured": 3,
     }
+
+
+def test_monthly_min_passes_by_label_or_estimate(client):
+    """소싱 기준(monthly_min)은 쿠팡 문구 또는 30일 예상판매 중 하나만 넘어도 통과."""
+    def prod(pid, **extra):
+        base = {"product_id": pid, "product_name": pid, "product_url": f"https://www.coupang.com/vp/products/{pid}", "price": 10000, "review_count": 100}
+        base.update(extra); return base
+    client.post("/api/products/collect", json={"source_url": "https://www.coupang.com/np/categories/1", "page_type": "category", "products": [
+        prod("LABEL", monthly_purchase_count=500, monthly_purchase_is_minimum=True, monthly_purchase_unit="명", monthly_purchase_text="한 달간 500명 이상 구매했어요"),
+        prod("EST"), prod("NONE"), prod("LOW", monthly_purchase_count=100, monthly_purchase_is_minimum=True, monthly_purchase_unit="명", monthly_purchase_text="한 달간 100명 이상 구매했어요"),
+    ], "skipped": 0})
+    client.post("/api/products/review-dates", json={"product_id": "EST", "product_url": "https://www.coupang.com/vp/products/EST",
+        "reviews_in_window": 30, "sample_size": 35, "sample_span_days": 40, "covers_window": True,
+        "newest_review_date": "2026-09-01", "oldest_review_date": "2026-07-23", "total_review_count": 100})  # 30×20 = 600
+    passed = client.get("/api/products?condition_passed=true&monthly_min=500").json()
+    assert sorted(p["product_id"] for p in passed["items"]) == ["EST", "LABEL"]
+    stats = client.get("/api/stats?monthly_min=500").json()
+    assert stats["condition_passed_products"] == 2
+    assert stats["condition_breakdown"]["monthly"] == 2  # NONE, LOW

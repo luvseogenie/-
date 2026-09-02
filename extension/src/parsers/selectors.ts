@@ -508,3 +508,7 @@ export const BLOCKED_PAGE_PATTERNS = [
   /비정상적인 접근/,
   /자동화된 접근/,
 ] as const;
+
+/** 리뷰 정렬 이름들과 우리가 원하는 것(최신순) */
+export const REVIEW_SORT_LABELS = ["베스트순", "최신순", "최근순", "평점 높은순", "평점 낮은순", "도움순", "추천순"] as const;
+export const REVIEW_SORT_WANTED = ["최신순", "최근순"] as const;

@@ -91,20 +91,16 @@ export function ConditionPanel({
         <div className="flex flex-wrap gap-1">
           {SOURCING_PRESETS.map((preset) => (
             <Button
-              key={preset.monthlySalesMin}
+              key={preset.monthlyMin}
               size="sm"
-              variant={
-                conditions.monthly_sales_min === String(preset.monthlySalesMin) ? "default" : "outline"
-              }
+              variant={conditions.monthly_min === String(preset.monthlyMin) ? "default" : "outline"}
               className="h-6 px-2 text-[11px]"
-              title={`${preset.note} · 최근 30일 예상 판매량 ${preset.monthlySalesMin.toLocaleString()}개 이상`}
+              title={`${preset.note} · 쿠팡 "한 달간 ${preset.monthlyMin.toLocaleString()}명 이상 구매" 문구 또는 30일 예상 판매량 ${preset.monthlyMin.toLocaleString()}개 이상`}
               onClick={() =>
                 onChange({
                   ...conditions,
-                  monthly_sales_min:
-                    conditions.monthly_sales_min === String(preset.monthlySalesMin)
-                      ? ""
-                      : String(preset.monthlySalesMin),
+                  monthly_min:
+                    conditions.monthly_min === String(preset.monthlyMin) ? "" : String(preset.monthlyMin),
                 })
               }
             >
@@ -113,8 +109,9 @@ export function ConditionPanel({
           ))}
         </div>
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          <b>최근 30일 리뷰수 × 배수</b>로 추정한 30일 예상 판매량 기준입니다 (배수 20이면 월 1,000개 = 30일
-          리뷰 50건). 쿠팡의 &quot;한 달간 N명 구매&quot; 문구는 2차 확인용으로 함께 저장됩니다.
+          쿠팡의 <b>&quot;한 달간 N명 이상 구매&quot;</b> 문구 <b>또는</b> <b>30일 리뷰수 × 배수</b> 추정치, 둘 중
+          하나만 기준을 넘으면 통과입니다. 둘 다 상품 상세 페이지에서 얻으므로 상세 확인이 끝난 상품만 판정됩니다.
+          누적 리뷰가 기준÷배수(월 500개·배수 20이면 25건)보다 적은 상품은 통과할 수 없어 상세를 열지 않습니다.
         </p>
       </div>
 

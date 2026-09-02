@@ -142,6 +142,14 @@ def get_stats(
         for clause in scope:
             stmt = stmt.where(clause)
         condition_breakdown[name] = int(db.scalar(stmt) or 0)
+    if filters.monthly_min is not None:
+        stmt = select(func.count()).select_from(Product).where(
+            or_(Product.monthly_purchase_count.is_(None), Product.monthly_purchase_count < filters.monthly_min),
+            or_(Product.monthly_estimated_sales.is_(None), Product.monthly_estimated_sales < filters.monthly_min),
+        )
+        for clause in scope:
+            stmt = stmt.where(clause)
+        condition_breakdown["monthly"] = int(db.scalar(stmt) or 0)
     if filters.delivery_types:
         stmt = select(func.count()).select_from(Product).where(
             or_(Product.delivery_type.is_(None), Product.delivery_type.notin_(filters.delivery_types))

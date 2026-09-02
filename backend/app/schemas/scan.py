@@ -15,6 +15,9 @@ class ScanConditions(BaseModel):
     rating_min: float | None = None
     rating_max: float | None = None
     delivery_types: list[str] = Field(default_factory=list)
+    # 소싱 기준(월 판매량 하한). 상세 방문 후보를 고를 때 "누적 리뷰 < 기준÷배수" 는 건너뛴다.
+    monthly_min: int | None = None
+    monthly_sales_min: int | None = None
 
 
 class ScanStartRequest(BaseModel):
