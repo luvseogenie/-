@@ -20,7 +20,12 @@ from app.core.logging import get_logger
 from app.models.category import Category
 from app.models.collection_job import CollectionJob, JobStatus
 from app.models.product import DeliveryType, Product
-from app.schemas.product import CollectedProduct, CollectRequest, CollectResult
+from app.schemas.product import (
+    CategoryPathItem,
+    CollectedProduct,
+    CollectRequest,
+    CollectResult,
+)
 from app.services import monthly_reviews
 from app.services.estimation import calculate_estimated_sales, get_multiplier
 
@@ -43,17 +48,65 @@ def _normalize_delivery(value: str | None) -> str | None:
     return korean.get(value.strip(), DeliveryType.UNKNOWN)
 
 
-def _resolve_category(db: Session, code: str | None, name: str | None) -> Category | None:
-    """수집 요청에 실린 카테고리 코드로 기존 카테고리를 찾는다.
+def _resolve_category(
+    db: Session,
+    code: str | None,
+    name: str | None,
+    path: list[CategoryPathItem] | None = None,
+) -> tuple[Category | None, int]:
+    """수집 요청의 카테고리를 찾고, 없으면 breadcrumb 경로대로 만들어 둔다.
 
-    없는 코드를 새로 만들어내지 않는다(카테고리는 import로만 관리).
+    쿠팡 페이지에서 읽은 계층(홈인테리어 > 카페트/매트 > 발매트)을 그대로
+    저장하므로, 사용자가 카테고리를 따로 import 하지 않아도
+    수집하는 것만으로 트리가 채워진다.
+
+    이름은 페이지에서 실제로 읽은 값만 쓴다. 만들어내지 않는다.
+
+    Returns:
+        (카테고리, 새로 만든 개수)
     """
-    if not code:
-        return None
-    category = db.scalar(select(Category).where(Category.category_code == code))
-    if category is None:
-        logger.warning("수집 요청의 카테고리 코드를 DB에서 찾지 못함: code=%s name=%s", code, name)
-    return category
+    created = 0
+    items = [item for item in (path or []) if item.code and item.name]
+
+    # 경로가 없으면 현재 카테고리 한 칸만이라도 만든다.
+    if not items and code and name:
+        items = [CategoryPathItem(code=code, name=name)]
+
+    parent: Category | None = None
+    current: Category | None = None
+    for depth, item in enumerate(items, start=1):
+        category = db.scalar(select(Category).where(Category.category_code == item.code))
+        if category is None:
+            category = Category(
+                category_code=item.code,
+                category_name=item.name,
+                parent_id=parent.id if parent else None,
+                depth=depth,
+                is_leaf=True,
+            )
+            db.add(category)
+            db.flush()
+            created += 1
+            logger.info("카테고리 자동 등록: [%d] %s <%s>", depth, item.name, item.code)
+        else:
+            # 이름과 계층 정보를 최신 값으로 보정한다.
+            category.category_name = item.name
+            if parent is not None and category.parent_id != parent.id and category.id != parent.id:
+                category.parent_id = parent.id
+            category.depth = depth
+        if parent is not None:
+            parent.is_leaf = False
+        parent = category
+        current = category
+
+    if current is None and code:
+        current = db.scalar(select(Category).where(Category.category_code == code))
+        if current is None:
+            logger.warning("카테고리를 찾지도 만들지도 못함: code=%s name=%s", code, name)
+
+    if created:
+        db.flush()
+    return current, created
 
 
 def _valid(item: CollectedProduct) -> str | None:
@@ -70,7 +123,9 @@ def _valid(item: CollectedProduct) -> str | None:
 def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
     now = datetime.now(timezone.utc)
     multiplier = get_multiplier(db)
-    category = _resolve_category(db, payload.category_code, payload.category_name)
+    category, categories_created = _resolve_category(
+        db, payload.category_code, payload.category_name, payload.category_path
+    )
 
     result = CollectResult(
         job_id=payload.job_id,
@@ -80,6 +135,7 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
         duplicates=0,
         skipped=payload.skipped,
         saved=0,
+        categories_created=categories_created,
     )
 
     # 확장에서 파싱 실패한 카드의 사유를 서버 로그에도 남긴다.

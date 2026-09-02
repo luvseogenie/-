@@ -173,6 +173,24 @@ export const CATEGORY_CODE_URL_PATTERNS = [
   /[?&]component=(\d+)/,
 ] as const;
 
+/**
+ * 카테고리 경로(breadcrumb).
+ * 여기서 읽은 계층을 그대로 DB에 만들어 두면 별도 import 없이 트리가 채워진다.
+ */
+export const BREADCRUMB_SELECTORS = [
+  "ul.breadcrumb",
+  "#breadcrumb",
+  "[class*='breadcrumb']",
+  "[class*='Breadcrumb']",
+  "nav[aria-label*='경로']",
+] as const;
+
+/** breadcrumb 안의 카테고리 링크 */
+export const CATEGORY_LINK_SELECTOR = "a[href*='/np/categories/']" as const;
+
+/** breadcrumb 경로 최대 길이 (좌측 전체 메뉴를 잘못 읽는 것을 막는다) */
+export const MAX_BREADCRUMB_DEPTH = 8;
+
 /** 현재 페이지의 카테고리명이 표시되는 위치 */
 export const CATEGORY_NAME_SELECTORS = [
   "h2.title",

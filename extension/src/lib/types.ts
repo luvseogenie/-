@@ -37,6 +37,8 @@ export type ParseResult = {
   pageType: PageType;
   categoryCode: string | null;
   categoryName: string | null;
+  /** 카테고리 경로 (홈인테리어 > 카페트/매트 > 발매트) */
+  categoryPath: { code: string | null; name: string }[];
   sourceUrl: string;
   /** 어떤 selector로 카드를 찾았는지 (디버깅용) */
   matchedCardSelector: string | null;

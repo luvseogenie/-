@@ -79,6 +79,8 @@ export type CollectPayload = {
   page_type: PageType;
   category_code: string | null;
   category_name: string | null;
+  /** 카테고리 경로 — 백엔드가 이 계층을 자동으로 만든다 */
+  category_path: { code: string | null; name: string }[];
   job_id: number | null;
   products: CollectedProduct[];
   skipped: number;

@@ -125,13 +125,14 @@ def test_null_fields_stay_null(client):
     assert item["estimated_sales"] == 0  # 리뷰 없으면 0
 
 
-def test_unknown_category_code_does_not_create_category(client):
+def test_category_without_name_is_not_created(client):
+    """이름을 읽지 못한 카테고리는 만들지 않는다(이름을 지어내지 않으므로)."""
     client.post(
         "/api/products/collect",
-        json={"category_code": "NOT-IMPORTED", "products": [product("6001")]},
+        json={"category_code": "NO-NAME", "products": [product("6001")]},
     )
     cats = client.get("/api/categories").json()
-    assert all(c["category_code"] != "NOT-IMPORTED" for c in cats)
+    assert all(c["category_code"] != "NO-NAME" for c in cats)
     assert client.get("/api/products").json()["items"][0]["category_id"] is None
 
 

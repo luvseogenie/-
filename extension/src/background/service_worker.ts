@@ -96,6 +96,7 @@ async function handleCollect(): Promise<{
     page_type: parsed.pageType,
     category_code: parsed.categoryCode,
     category_name: parsed.categoryName,
+    category_path: parsed.categoryPath ?? [],
     job_id: jobId,
     products: parsed.products,
     skipped: parsed.skipped,

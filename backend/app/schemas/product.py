@@ -30,11 +30,21 @@ class CollectedProduct(BaseModel):
     monthly_purchase_text: str | None = None
 
 
+class CategoryPathItem(BaseModel):
+    """카테고리 경로 한 칸 (홈인테리어 > 카페트/매트 > 발매트)."""
+
+    code: str | None = None
+    name: str
+
+
 class CollectRequest(BaseModel):
     source_url: str | None = None
     page_type: str | None = None  # category / search / list / product
     category_code: str | None = None
     category_name: str | None = None
+    # 쿠팡 페이지의 breadcrumb에서 읽은 카테고리 경로.
+    # 백엔드가 이 계층을 자동으로 만들어 두므로 별도 import가 필요 없다.
+    category_path: list[CategoryPathItem] = Field(default_factory=list)
     job_id: int | None = None
     products: list[CollectedProduct] = Field(default_factory=list)
     # 확장에서 파싱 실패한 카드 수와 사유(로그 목적)
@@ -44,6 +54,8 @@ class CollectRequest(BaseModel):
 
 class CollectResult(BaseModel):
     job_id: int | None = None
+    # 이번 수집으로 새로 만들어진 카테고리 수
+    categories_created: int = 0
     received: int
     inserted: int
     updated: int

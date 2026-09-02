@@ -10,8 +10,11 @@
  */
 
 import {
+  BREADCRUMB_SELECTORS,
   CATEGORY_CODE_URL_PATTERNS,
+  CATEGORY_LINK_SELECTOR,
   CATEGORY_NAME_SELECTORS,
+  MAX_BREADCRUMB_DEPTH,
   DELIVERY_BADGE_SELECTORS,
   DELIVERY_KEYWORDS,
   DETAIL_PAGE,
@@ -389,6 +392,60 @@ export function extractCategoryName(root: ParentNode): string | null {
 }
 
 /**
+ * 카테고리 경로(breadcrumb)를 읽는다.
+ *
+ * 예: 홈인테리어 > 카페트/매트 > 발매트
+ * 이 계층을 그대로 DB에 만들면 사용자가 따로 카테고리를 import 하지 않아도
+ * 수집하는 것만으로 트리가 채워진다.
+ *
+ * breadcrumb을 못 찾으면 현재 페이지의 카테고리 하나만 돌려준다.
+ */
+export function extractCategoryPath(
+  root: ParentNode,
+  sourceUrl: string,
+): { code: string | null; name: string }[] {
+  const container = queryFirst(root, BREADCRUMB_SELECTORS);
+  if (container) {
+    const path: { code: string | null; name: string }[] = [];
+    let links: Element[] = [];
+    try {
+      links = Array.from(container.querySelectorAll(CATEGORY_LINK_SELECTOR));
+    } catch {
+      links = [];
+    }
+    for (const link of links) {
+      const name = (link.textContent ?? "").trim();
+      if (!name) continue;
+      const href = link.getAttribute("href") ?? "";
+      let code: string | null = null;
+      for (const pattern of CATEGORY_CODE_URL_PATTERNS) {
+        const match = href.match(pattern);
+        if (match && match[1]) {
+          code = match[1];
+          break;
+        }
+      }
+      if (code) path.push({ code, name });
+    }
+    // 좌측 전체 메뉴를 통째로 읽어버린 경우를 걸러낸다.
+    if (path.length > 0 && path.length <= MAX_BREADCRUMB_DEPTH) {
+      const current = extractCategoryCode(sourceUrl);
+      // 현재 카테고리가 경로 끝에 없으면 붙인다.
+      if (current && !path.some((item) => item.code === current)) {
+        const name = extractCategoryName(root);
+        if (name) path.push({ code: current, name });
+      }
+      return path;
+    }
+  }
+
+  // breadcrumb이 없으면 현재 카테고리 하나만.
+  const code = extractCategoryCode(sourceUrl);
+  const name = extractCategoryName(root);
+  return code && name ? [{ code, name }] : [];
+}
+
+/**
  * 상품 카드를 찾는다.
  *
  * 1) 알려진 카드 selector를 순서대로 시도
@@ -489,6 +546,7 @@ export function parseProductList(root: ParentNode, sourceUrl: string): ParseResu
     pageType,
     categoryCode: extractCategoryCode(sourceUrl),
     categoryName: extractCategoryName(root),
+    categoryPath: extractCategoryPath(root, sourceUrl),
     sourceUrl,
     matchedCardSelector: null,
   };
