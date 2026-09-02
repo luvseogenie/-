@@ -9,7 +9,9 @@
   const REVIEW_SEL = ["span.rating-total-count", ".rating-total-count", "[class*='ratingCount']", "[class*='RatingCount']", "[class*='rating-count']"];
   const RATING_SEL = ["em.rating", "span.star em", ".rating", "[class*='ratingStar']", "[class*='RatingStar']", "[class*='_star']"];
   const BADGE_SEL = ["span.badge.rocket", ".badge.rocket", "[class*='ImageBadge']", "[class*='DeliveryBadge']", "[class*='badge']"];
-  const DELIV = [["로켓그로스", "판매자로켓", "growth"], ["로켓배송", "로켓프레시", "새벽배송", "rocket"], ["판매자배송", "일반배송"]];
+  const DELIV = [["로켓그로스","판매자로켓","rocketmerchant","rocket_merchant","merchant","growth"],
+    ["로켓배송","로켓프레시","새벽배송","로켓직구","rocketfresh","rocketglobal","logo_rocket","logorocket","rocket"],
+    ["판매자배송","일반배송","seller"]];
   const DELIV_NAME = ["로켓그로스", "로켓배송", "판매자배송"];
 
   const q1 = (r, sels) => { for (const s of sels) { try { const e = r.querySelector(s); if (e) return e; } catch {} } return null; };
@@ -42,12 +44,14 @@
   const parse = (c) => {
     const link = c.matches("a[href]") ? c : c.querySelector("a[href*='/vp/products/'], a[href]");
     const href = link && link.getAttribute("href");
+    // 상품 URL이 가장 확실하다. data-* 에는 상품과 무관한 값(data-id="0")이 섞여 있다.
     let id = null;
-    for (const a of ["data-product-id", "data-id", "data-item-id", "data-pid"]) {
-      const v = c.getAttribute(a) || (c.querySelector(`[${a}]`) || {}).getAttribute?.(a);
-      if (v && /^\d+$/.test(v.trim())) { id = v.trim(); break; }
+    if (href) { const m = href.match(/\/vp\/products\/(\d+)/); if (m) id = m[1]; }
+    if (!id) for (const a of ["data-product-id", "data-id", "data-item-id", "data-pid"]) {
+      const el = c.hasAttribute(a) ? c : c.querySelector(`[${a}]`);
+      const v = el && el.getAttribute(a);
+      if (v && /^\d{6,}$/.test(v.trim()) && !/^0+$/.test(v.trim())) { id = v.trim(); break; }
     }
-    if (!id && href) { const m = href.match(/\/vp\/products\/(\d+)/); if (m) id = m[1]; }
 
     const name = t1(c, NAME_SEL) || (q1(c, ["img[alt]"]) || {}).getAttribute?.("alt") || null;
 
@@ -77,14 +81,18 @@
     }
 
     const badge = q1(c, BADGE_SEL);
-    let soup = badge ? (badge.textContent || "") + [...badge.querySelectorAll("*")].concat([badge])
-      .map((e) => (e.getAttribute("alt") || "") + (e.getAttribute("title") || "")).join(" ") : "";
-    if (!DELIV.some((ks) => ks.some((k) => soup.includes(k)))) {
-      soup = (c.textContent || "") + [...c.querySelectorAll("[alt],[title]")]
+    // 쿠팡 배지는 alt가 비어 있고 이미지 파일명에만 단서가 있는 경우가 많다.
+    const imgNames = [...c.querySelectorAll("img[src]")]
+      .map((e) => ((e.getAttribute("src") || "").split("?")[0].split("/").pop() || "")).join(" ");
+    let soup = badge ? (badge.textContent || "") + " " + [...badge.querySelectorAll("*"), badge]
+      .map((e) => [e.getAttribute("alt"), e.getAttribute("title"), e.getAttribute("src")].filter(Boolean).join(" ")).join(" ") : "";
+    if (!DELIV.some((ks) => ks.some((k) => soup.toLowerCase().includes(k)))) {
+      soup = (c.textContent || "") + " " + imgNames + " " + [...c.querySelectorAll("[alt],[title]")]
         .map((e) => [e.getAttribute("alt"), e.getAttribute("title")].filter((v) => v && v.length <= 20).join(" ")).join(" ");
     }
+    const low = soup.toLowerCase();
     let deliv = null;
-    DELIV.forEach((ks, i) => { if (deliv === null && ks.some((k) => soup.includes(k))) deliv = DELIV_NAME[i]; });
+    DELIV.forEach((ks, i) => { if (deliv === null && ks.some((k) => low.includes(k))) deliv = DELIV_NAME[i]; });
 
     return { id, name, price, priceVia, review, rvVia, rating, rtVia, deliv, href };
   };

@@ -1,0 +1,103 @@
+<!--
+  테스트용 픽스처 — 실제 쿠팡 카테고리 페이지(400928, 거실화/슬리퍼) 구조 기반.
+  사용자 브라우저에서 실행한 진단 결과로 확인된 사실만 반영했다.
+
+  재현하는 두 가지 문제
+    1. 카드마다 상품과 무관한 data-id="0" 이 있다
+       → data-* 를 URL보다 먼저 보면 모든 상품 ID가 "0"이 되어
+         중복 제거 시 60개가 1건으로 합쳐진다
+    2. 배송 배지가 alt="" 인 <img> 로만 그려진다
+       → 이미지 파일명(logoRocketMerchant, logo_rocket_large)으로 판별해야 한다
+-->
+<ul class="ProductList_productList__2Yn1F">
+  <li class="ProductUnit_productUnit__Qd6sv search-product" data-id="0">
+    <a class="ProductUnit_productUnitLink__b2Vwa" href="/vp/products/8375912047?itemId=1234&amp;vendorItemId=5678&amp;searchRank=1">
+      <figure class="ProductUnit_productImage__Rp0dK">
+        <img alt="라이프란스 린넨 거실화 2종 세트, 네이비 + 그레이, 1개" src="//thumbnail6.coupangcdn.com/thumbnails/remote/230x230ex/image/8375912047.jpg">
+      </figure>
+      <div class="ProductUnit_productInfo__Xy3Kl">
+        <div class="ProductUnit_productName__gre7e">라이프란스 린넨 거실화 2종 세트, 네이비 + 그레이, 1개</div>
+        <div class="PriceArea_priceArea__NPRV9">
+          <strong class="Price_priceValue__A4KOr">8,930</strong><span class="Price_priceUnit__lLOSb">원</span>
+        </div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_star__RGSlV">4.5</span>
+          <span class="ProductRating_ratingCount__R0Vhz">(15,013)</span>
+        </div>
+        <div class="ImageBadge_default_image__H0dKk"><img src="https://image7.coupangcdn.com/image/badges/logo_rocket_large@2x.png" alt=""></div>
+      </div>
+    </a>
+  </li>
+  <li class="ProductUnit_productUnit__Qd6sv search-product" data-id="0">
+    <a class="ProductUnit_productUnitLink__b2Vwa" href="/vp/products/7726331885?itemId=1234&amp;vendorItemId=5678&amp;searchRank=1">
+      <figure class="ProductUnit_productImage__Rp0dK">
+        <img alt="뎁시스 구름처럼 몰랑한 쿠션 슬리퍼, 1개, 화이트" src="//thumbnail6.coupangcdn.com/thumbnails/remote/230x230ex/image/7726331885.jpg">
+      </figure>
+      <div class="ProductUnit_productInfo__Xy3Kl">
+        <div class="ProductUnit_productName__gre7e">뎁시스 구름처럼 몰랑한 쿠션 슬리퍼, 1개, 화이트</div>
+        <div class="PriceArea_priceArea__NPRV9">
+          <strong class="Price_priceValue__A4KOr">3,000</strong><span class="Price_priceUnit__lLOSb">원</span>
+        </div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_star__RGSlV">4.5</span>
+          <span class="ProductRating_ratingCount__R0Vhz">(103)</span>
+        </div>
+        <div class="ImageBadge_default_image__H0dKk"><img src="https://image7.coupangcdn.com/image/badges/logoRocketMerchant@2x.png" alt=""></div>
+      </div>
+    </a>
+  </li>
+  <li class="ProductUnit_productUnit__Qd6sv search-product" data-id="0">
+    <a class="ProductUnit_productUnitLink__b2Vwa" href="/vp/products/7726331886?itemId=1234&amp;vendorItemId=5678&amp;searchRank=1">
+      <figure class="ProductUnit_productImage__Rp0dK">
+        <img alt="뎁시스 폭신 푹신한 발편한 쿠션 슬리퍼, 1개, 라이트 그레이" src="//thumbnail6.coupangcdn.com/thumbnails/remote/230x230ex/image/7726331886.jpg">
+      </figure>
+      <div class="ProductUnit_productInfo__Xy3Kl">
+        <div class="ProductUnit_productName__gre7e">뎁시스 폭신 푹신한 발편한 쿠션 슬리퍼, 1개, 라이트 그레이</div>
+        <div class="PriceArea_priceArea__NPRV9">
+          <strong class="Price_priceValue__A4KOr">3,000</strong><span class="Price_priceUnit__lLOSb">원</span>
+        </div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_star__RGSlV">4.5</span>
+          <span class="ProductRating_ratingCount__R0Vhz">(121)</span>
+        </div>
+        <div class="ImageBadge_default_image__H0dKk"><img src="https://image7.coupangcdn.com/image/badges/logoRocketMerchant@2x.png" alt=""></div>
+      </div>
+    </a>
+  </li>
+  <li class="ProductUnit_productUnit__Qd6sv search-product" data-id="0">
+    <a class="ProductUnit_productUnitLink__b2Vwa" href="/vp/products/6612094471?itemId=1234&amp;vendorItemId=5678&amp;searchRank=1">
+      <figure class="ProductUnit_productImage__Rp0dK">
+        <img alt="라이프서치 미끄럼 방지 쿠션 슬리퍼, 블랙, 1개" src="//thumbnail6.coupangcdn.com/thumbnails/remote/230x230ex/image/6612094471.jpg">
+      </figure>
+      <div class="ProductUnit_productInfo__Xy3Kl">
+        <div class="ProductUnit_productName__gre7e">라이프서치 미끄럼 방지 쿠션 슬리퍼, 블랙, 1개</div>
+        <div class="PriceArea_priceArea__NPRV9">
+          <strong class="Price_priceValue__A4KOr">5,000</strong><span class="Price_priceUnit__lLOSb">원</span>
+        </div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_star__RGSlV">5</span>
+          <span class="ProductRating_ratingCount__R0Vhz">(14)</span>
+        </div>
+        
+      </div>
+    </a>
+  </li>
+  <li class="ProductUnit_productUnit__Qd6sv search-product" data-id="0">
+    <a class="ProductUnit_productUnitLink__b2Vwa" href="/vp/products/8102947261?itemId=1234&amp;vendorItemId=5678&amp;searchRank=1">
+      <figure class="ProductUnit_productImage__Rp0dK">
+        <img alt="라이프란스 3중쿠션 층간소음 면 슬리퍼, 블루, 1개" src="//thumbnail6.coupangcdn.com/thumbnails/remote/230x230ex/image/8102947261.jpg">
+      </figure>
+      <div class="ProductUnit_productInfo__Xy3Kl">
+        <div class="ProductUnit_productName__gre7e">라이프란스 3중쿠션 층간소음 면 슬리퍼, 블루, 1개</div>
+        <div class="PriceArea_priceArea__NPRV9">
+          <strong class="Price_priceValue__A4KOr">6,400</strong><span class="Price_priceUnit__lLOSb">원</span>
+        </div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_star__RGSlV">5</span>
+          <span class="ProductRating_ratingCount__R0Vhz">(7,714)</span>
+        </div>
+        <div class="ImageBadge_default_image__H0dKk"><img src="https://image7.coupangcdn.com/image/badges/logo_rocket_large@2x.png" alt=""></div>
+      </div>
+    </a>
+  </li>
+</ul>

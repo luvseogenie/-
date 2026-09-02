@@ -83,8 +83,12 @@ function attributeSoup(el: Element | null): string {
 /**
  * 배지를 못 찾았을 때 카드 전체에서 배송 키워드를 찾는다.
  *
- * 상품 썸네일의 alt는 상품명이라 오탐을 낼 수 있으므로,
- * 짧은 라벨성 alt/title만 본다(배지 라벨은 "로켓배송"처럼 짧다).
+ * 실제 쿠팡 목록에서는 배송 배지가 alt 없는 <img>로만 그려진다.
+ *   <img src="https://image7.coupangcdn.com/.../logoRocketMerchant@2x.png" alt="">
+ * 그래서 이미지 파일명(src)까지 함께 본다.
+ *
+ * 상품 썸네일의 alt는 상품명이라 오탐을 낼 수 있으므로 짧은 라벨성 값만 쓴다
+ * (배지 라벨은 "로켓배송"처럼 짧다).
  */
 function cardLabelSoup(card: Element): string {
   const parts: string[] = [card.textContent ?? ""];
@@ -94,27 +98,85 @@ function cardLabelSoup(card: Element): string {
       if (value && value.length <= 20) parts.push(value);
     }
   }
+  // 배지 이미지의 파일명만 취한다(상품 썸네일 경로가 오탐을 내지 않도록 마지막 조각만).
+  for (const img of Array.from(card.querySelectorAll("img[src]")).slice(0, 20)) {
+    const src = img.getAttribute("src") ?? "";
+    const fileName = src.split("?")[0]?.split("/").pop() ?? "";
+    if (fileName) parts.push(fileName);
+  }
   return parts.join(" ");
 }
 
 // ---------------------------------------------------------------------------
 // 개별 필드 추출
 // ---------------------------------------------------------------------------
+/**
+ * 상품 ID로 볼 수 있는 값인지 검사한다.
+ *
+ * 실제 쿠팡 목록 페이지에는 상품과 무관한 data-id="0" 같은 속성이 섞여 있다.
+ * 이걸 그대로 쓰면 모든 상품의 ID가 "0"이 되어 중복 제거 시 1건만 남는다.
+ * 쿠팡 상품 ID는 8자리 이상의 숫자이므로 그 형태만 인정한다.
+ */
+const MIN_ATTRIBUTE_ID_DIGITS = 6;
+
+/**
+ * URL 경로에서 뽑은 ID.
+ * /vp/products/{id} 는 구조적으로 명확하므로 길이를 따지지 않는다.
+ * 0뿐인 값만 거른다.
+ */
+function isValidUrlId(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) && !/^0+$/.test(trimmed);
+}
+
+/**
+ * data-* 속성에서 뽑은 ID.
+ * 광고·추적용 값이 섞여 있으므로(실제로 data-id="0" 이 모든 카드에 있었다)
+ * 쿠팡 상품 ID 형태(6자리 이상 숫자)만 인정한다.
+ */
+function isPlausibleAttributeId(value: string | null | undefined): boolean {
+  if (!isValidUrlId(value)) return false;
+  return (value as string).trim().length >= MIN_ATTRIBUTE_ID_DIGITS;
+}
+
+/**
+ * 상품 ID를 뽑는다.
+ *
+ * 순서가 중요하다. 상품 URL의 /vp/products/{id} 가 가장 확실한 근거이므로
+ * data-* 속성보다 먼저 본다. data-* 는 광고·추적용 값이 섞여 있어
+ * 그대로 믿으면 안 된다(실제로 data-id="0" 이 모든 카드에 있었다).
+ */
 export function extractProductId(card: Element, url: string | null): string | null {
-  for (const attr of PRODUCT_ID_ATTRIBUTES) {
-    const value = card.getAttribute(attr);
-    if (value && /^\d+$/.test(value.trim())) return value.trim();
-  }
-  // 자식 요소에 붙어 있는 경우
-  for (const attr of PRODUCT_ID_ATTRIBUTES) {
-    const child = card.querySelector(`[${attr}]`);
-    const value = child?.getAttribute(attr);
-    if (value && /^\d+$/.test(value.trim())) return value.trim();
-  }
+  // 1) 상품 URL — 가장 확실하다.
   if (url) {
     for (const pattern of PRODUCT_ID_URL_PATTERNS) {
       const match = url.match(pattern);
-      if (match && match[1]) return match[1];
+      if (match && match[1] && isValidUrlId(match[1])) return match[1];
+    }
+  }
+
+  // 2) 카드 자신의 data-* 속성 (형태 검사를 통과한 것만)
+  for (const attr of PRODUCT_ID_ATTRIBUTES) {
+    const value = card.getAttribute(attr);
+    if (isPlausibleAttributeId(value)) return (value as string).trim();
+  }
+
+  // 3) 자식 요소의 data-* 속성
+  for (const attr of PRODUCT_ID_ATTRIBUTES) {
+    for (const child of Array.from(card.querySelectorAll(`[${attr}]`)).slice(0, 10)) {
+      const value = child.getAttribute(attr);
+      if (isPlausibleAttributeId(value)) return (value as string).trim();
+    }
+  }
+
+  // 4) 마지막 수단: 카드 안의 상품 링크에서 다시 시도
+  const link = card.querySelector(PRODUCT_LINK_SELECTOR);
+  const href = link?.getAttribute("href");
+  if (href) {
+    for (const pattern of PRODUCT_ID_URL_PATTERNS) {
+      const match = href.match(pattern);
+      if (match && match[1] && isValidUrlId(match[1])) return match[1];
     }
   }
   return null;

@@ -129,8 +129,25 @@ export const DETAIL_PAGE = {
  * (로켓그로스가 "로켓배송"보다 먼저 와야 한다 — 부분 문자열이 겹치기 때문)
  */
 export const DELIVERY_KEYWORDS: { keywords: string[]; type: string }[] = [
-  { keywords: ["로켓그로스", "판매자로켓", "rocket_growth", "growth"], type: "rocket_growth" },
-  { keywords: ["로켓배송", "새벽배송", "로켓프레시", "rocket"], type: "rocket" },
+  // 로켓그로스(판매자로켓)를 먼저 본다. "rocket"이 겹치기 때문이다.
+  // 쿠팡 목록의 배지는 alt가 비어 있고 이미지 파일명에만 단서가 있는 경우가 많다.
+  //   예: .../logoRocketMerchant@2x.png, .../rocket_merchant.png
+  {
+    keywords: [
+      "로켓그로스", "판매자로켓",
+      "rocketmerchant", "rocket_merchant", "rocket-merchant", "merchant",
+      "rocket_growth", "growth",
+    ],
+    type: "rocket_growth",
+  },
+  {
+    keywords: [
+      "로켓배송", "새벽배송", "로켓프레시", "로켓직구", "로켓와우",
+      "rocketfresh", "rocket_fresh", "rocketglobal", "rocket_global",
+      "logo_rocket", "logorocket", "rocket",
+    ],
+    type: "rocket",
+  },
   { keywords: ["판매자배송", "일반배송", "seller"], type: "seller" },
 ];
 
