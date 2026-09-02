@@ -1,0 +1,22 @@
+{
+  "name": "coupang-sourcing-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "쿠팡 페이지에 노출된 상품 정보를 수집하는 Chrome 확장 (Manifest V3)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^26.4.1",
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

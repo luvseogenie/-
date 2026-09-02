@@ -1,0 +1,71 @@
+<!--
+  테스트용 픽스처.
+  쿠팡 상품 목록 페이지의 공개된 마크업 패턴(li.search-product / .name / .price-value /
+  .rating-total-count / .badge.rocket 등)을 본떠 만든 것이다.
+  실제 쿠팡 HTML을 복제한 것이 아니며, 파서의 fallback 동작을 검증하기 위한 최소 구조다.
+-->
+<div id="product-list">
+  <ul class="search-product-list">
+    <!-- 1) 정상 카드: 모든 값이 있다 -->
+    <li class="search-product" data-product-id="7010001">
+      <a class="search-product-link" href="/vp/products/7010001?itemId=111&amp;vendorItemId=222">
+        <dt class="image">
+          <img class="search-product-wrap-img" src="//img1a.coupangcdn.com/thumb/7010001.jpg" alt="OO 채칼세트 5종 스테인리스" />
+        </dt>
+        <dd class="descriptions">
+          <div class="name">OO 채칼세트 5종 스테인리스</div>
+          <div class="price-area">
+            <strong class="price-value">13,900</strong><span class="price-unit">원</span>
+          </div>
+          <div class="other-info">
+            <span class="star"><em class="rating">4.7</em></span>
+            <span class="rating-total-count">(82)</span>
+          </div>
+          <div class="badge rocket">
+            <img src="//img1a.coupangcdn.com/badges/rocket_growth.png" alt="로켓그로스" />
+          </div>
+        </dd>
+      </a>
+    </li>
+
+    <!-- 2) 리뷰가 없는 카드 → review_count = 0 -->
+    <li class="search-product" data-product-id="7010002">
+      <a class="search-product-link" href="/vp/products/7010002">
+        <img class="search-product-wrap-img" src="//img1a.coupangcdn.com/thumb/7010002.jpg" alt="신상품 감자칼" />
+        <div class="name">신상품 감자칼</div>
+        <strong class="price-value">4,900</strong>
+        <span class="badge rocket"><img src="//img1a.coupangcdn.com/badges/rocket.png" alt="로켓배송" /></span>
+      </a>
+    </li>
+
+    <!-- 3) 만 단위 리뷰 + width 스타일 평점 + 판매자배송 -->
+    <li class="search-product" data-product-id="7010003">
+      <a class="search-product-link" href="https://www.coupang.com/vp/products/7010003">
+        <div class="name">프리미엄 슬라이서 3종</div>
+        <strong class="price-value">29,000</strong>
+        <span class="star"><em class="rating" style="width:94%"></em></span>
+        <span class="rating-total-count">(1.2만)</span>
+        <span class="delivery-badge">판매자배송</span>
+      </a>
+    </li>
+
+    <!-- 4) 상품 ID를 URL에서만 얻을 수 있는 카드 (data 속성 없음) -->
+    <li class="search-product">
+      <a class="search-product-link" href="/vp/products/7010004?q=x">
+        <div class="name">노브랜드 슬라이서</div>
+        <strong class="price-value">7,500</strong>
+        <span class="rating-total-count">(3)</span>
+      </a>
+    </li>
+
+    <!-- 5) 광고/배너 등 상품이 아닌 카드 → product_id 없음 → skip -->
+    <li class="search-product">
+      <div class="ad-banner">광고 배너</div>
+    </li>
+
+    <!-- 6) 상품명이 없는 카드 → skip -->
+    <li class="search-product" data-product-id="7010006">
+      <a class="search-product-link" href="/vp/products/7010006"></a>
+    </li>
+  </ul>
+</div>

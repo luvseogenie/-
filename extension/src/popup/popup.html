@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>쿠팡 소싱 수집기</title>
+  </head>
+  <body>
+    <header>
+      <h1>쿠팡 소싱 수집기</h1>
+      <span class="version">MVP</span>
+    </header>
+
+    <section id="detect" class="panel">
+      <div class="detect-line">
+        <strong id="detect-count">확인 중...</strong>
+        <span id="detect-sub" class="sub"></span>
+      </div>
+      <div id="detect-meta" class="meta"></div>
+    </section>
+
+    <button id="collect" type="button" disabled>현재 페이지 수집</button>
+    <button id="rescan" type="button" class="ghost">다시 감지</button>
+
+    <section id="result" class="panel hidden">
+      <div id="result-main"></div>
+      <div id="result-sub" class="meta"></div>
+    </section>
+
+    <section id="error" class="panel error hidden"></section>
+
+    <footer>
+      <label for="api-base">백엔드 주소</label>
+      <div class="row">
+        <input id="api-base" type="text" spellcheck="false" placeholder="http://localhost:8000" />
+        <button id="save-api" type="button" class="ghost small">저장</button>
+      </div>
+      <p class="note">
+        화면에 실제로 보이는 상품만 수집합니다. 예상 판매량은 리뷰수 × 배수이며 실제 판매량이 아닙니다.
+      </p>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
