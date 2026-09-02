@@ -316,6 +316,15 @@
       await api('/api/archive/delete', { ids }); showArchive();
     }));
   }
+  async function runDiag() {
+    const first = state.top.find((t) => state.checked.has(t.id));
+    const cid = first ? first.id : 184555;
+    toast('진단 중… 브라우저 창이 열립니다 (최대 1분)');
+    const r = await api('/api/diag/category', { cid });
+    const img = r.screenshot ? `<img src="/debug-files/${r.screenshot}" style="max-width:100%;border:1px solid #333;border-radius:8px;margin-bottom:8px">` : '';
+    openModal('카테고리 진단 결과 (전체 복사해서 보내주세요)', `<button class="btn" id="copy-diag">전체 복사</button> <span class="muted small">아래 그림도 캡처해 주세요</span>${img}<pre>${esc(r.text)}</pre>`);
+    $('#copy-diag').addEventListener('click', () => { navigator.clipboard.writeText(r.text).then(() => toast('복사했습니다.')); });
+  }
   async function showCaptureSummary() {
     const txt = await api('/api/capture/summary');
     openModal('윙 캡처 요약 (이 내용을 복사해서 보내주세요)', `<button class="btn" id="copy-cap">전체 복사</button><pre id="cap-text">${esc(txt)}</pre>`);
@@ -402,6 +411,7 @@
     if (el.dataset.action === 'logs') return showLogs();
     if (el.dataset.action === 'archive') return showArchive();
     if (el.dataset.action === 'capture_summary') return showCaptureSummary();
+    if (el.dataset.action === 'diag') return runDiag();
     const tool = el.dataset.tool;
     if (tool === 'clear_run' && !confirm('현재 결과를 모두 비울까요? (보관함은 유지됩니다)')) return;
     toast('실행 중…');

@@ -156,6 +156,47 @@ DETAIL_PRICE_JS = r"""
 """
 
 
+# 문제 해결용: 페이지에 있는 카테고리 링크와 그 위치(태그·class 경로)를 요약
+DIAG_JS = r"""
+() => {
+  const txt = (el) => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  const chain = (el) => { const parts = []; let cur = el; let n = 0;
+    while (cur && cur !== document.body && n < 6) { let c = cur.tagName.toLowerCase();
+      if (cur.id) c += '#' + cur.id; const cls = (typeof cur.className === 'string') ? cur.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+      if (cls) c += '.' + cls; parts.unshift(c.slice(0, 60)); cur = cur.parentElement; n++; }
+    return parts.join(' > '); };
+  const cats = Array.from(document.querySelectorAll('a[href*="/np/categories/"]')).map(a => {
+    const m = (a.getAttribute('href') || '').match(/\/np\/categories\/(\d+)/);
+    return m ? { id: m[1], name: txt(a).slice(0, 30), chain: chain(a) } : null; }).filter(Boolean);
+  const prods = document.querySelectorAll('a[href*="/vp/products/"]').length;
+  const lists = Array.from(document.querySelectorAll('ul, ol')).filter(u => u.querySelectorAll('a[href*="/np/categories/"]').length >= 2)
+    .map(u => ({ chain: chain(u), links: u.querySelectorAll('a[href*="/np/categories/"]').length, direct_li: u.children.length })).slice(0, 25);
+  return { title: document.title, url: location.href, product_links: prods, category_links: cats.length, cats: cats.slice(0, 120), lists,
+    body_head: txt(document.body).slice(0, 300) };
+}
+"""
+
+
+def diagnose_category(page, cid: int) -> dict:
+    url = config.CATEGORY_URL.format(cid=cid, size=config.CATEGORY_LIST_SIZE, page=1)
+    status = None
+    try:
+        status = _goto(page, url, 'a[href*="/np/categories/"]')
+    except BlockedError as e:
+        return {"blocked": str(e), "url": url}
+    data = page.evaluate(DIAG_JS)
+    data["http_status"] = status
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = config.DEBUG_DIR / f"{stamp}_diag_{cid}"
+    try:
+        page.screenshot(path=str(base) + ".png", full_page=False)
+        (config.DEBUG_DIR / f"{stamp}_diag_{cid}.html").write_text(page.content(), encoding="utf-8")
+        data["screenshot"] = f"{stamp}_diag_{cid}.png"
+    except Exception as e:  # noqa: BLE001
+        data["screenshot_error"] = str(e)
+    return data
+
+
 def _dump_debug(page, tag: str):
     try:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

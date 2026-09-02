@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, db, log, wing
 from .browser import browser
 from .categories import discover_children, top_categories, tree
-from .coupang_list import fetch_listing, parse_scope_url
+from .coupang_list import diagnose_category, fetch_listing, parse_scope_url
 from .export import build_xlsx
 from .metrics import enrich, summarize
 from .pipeline import job
@@ -22,6 +22,7 @@ from .pipeline import job
 app = FastAPI(title="쿠팡 소싱 프로그램")
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+app.mount("/debug-files", StaticFiles(directory=str(config.DEBUG_DIR)), name="debug")
 
 
 @app.on_event("startup")
@@ -386,6 +387,33 @@ def tools(name: str):
         return _err("알 수 없는 도구")
     except Exception as e:  # noqa: BLE001
         return _err(e)
+
+
+@app.post("/api/diag/category")
+async def diag_category(req: Request):
+    body = await req.json()
+    cid = int(body.get("cid") or 184555)
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 진단할 수 없습니다.")
+    try:
+        data = browser.call(lambda bt: diagnose_category(bt.page(), cid), "카테고리 진단", timeout=120)
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+    lines = [f"카테고리 진단 (id={cid})", f"제목: {data.get('title')}", f"주소: {data.get('url')}", f"HTTP: {data.get('http_status')}",
+             f"상품 링크 수: {data.get('product_links')}", f"카테고리 링크 수: {data.get('category_links')}",
+             f"차단: {data.get('blocked', '없음')}", f"본문 앞부분: {data.get('body_head')}", "", "== 카테고리 링크가 2개 이상 들어있는 목록(ul) =="]
+    for l in data.get("lists", []):
+        lines.append(f"[{l['links']}개 링크 / li {l['direct_li']}개] {l['chain']}")
+    lines.append("")
+    lines.append("== 카테고리 링크 (id | 이름 | 위치) ==")
+    for c in data.get("cats", []):
+        lines.append(f"{c['id']} | {c['name']} | {c['chain']}")
+    # 브라우저 정보
+    lines.append("")
+    lines.append(f"브라우저: {browser.channel}")
+    text = "\n".join(lines)
+    log.info(f"카테고리 진단 완료: 링크 {data.get('category_links')}개, 상품 {data.get('product_links')}개")
+    return {"ok": True, "text": text, "screenshot": data.get("screenshot")}
 
 
 @app.get("/api/capture/summary", response_class=PlainTextResponse)
