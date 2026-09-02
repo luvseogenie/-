@@ -379,6 +379,11 @@ def tools(name: str):
                      "정렬 옵션: " + " | ".join(r['info'].get('sorts') or []) , "페이지 링크: " + " | ".join(r['info'].get('pagination') or []), "", "== 읽은 상품 예시 =="]
             for it in r["sample"]:
                 lines.append(json.dumps(it, ensure_ascii=False))
+            lines.append("")
+            lines.append("== 상품 카드 원본 (배송 뱃지 확인용) ==")
+            for c in r["info"].get("cards") or []:
+                lines.append(c)
+                lines.append("-----")
             return {"ok": True, "message": msg, "result": r, "text": "\n".join(lines)}
         if name == "wing_login":
             browser.call(wing.open_login, "윙 로그인", timeout=90)

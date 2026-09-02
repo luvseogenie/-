@@ -80,11 +80,14 @@ EXTRACT_JS = r"""
 
     // 배송 형태
     const alts = Array.from(li.querySelectorAll('img[alt]')).map(i => i.getAttribute('alt') || '').join(' ') + ' ' + txt(li);
+    const srcs = Array.from(li.querySelectorAll('img')).map(i => (i.getAttribute('src') || i.getAttribute('data-src') || '')).join(' ')
+      + ' ' + Array.from(li.querySelectorAll('[style*="background"]')).map(e => e.getAttribute('style') || '').join(' ');
     let delivery = 'WING';
-    if (/판매자\s*로켓|로켓그로스/.test(alts)) delivery = 'ROCKET_GROWTH';
-    else if (/로켓직구/.test(alts)) delivery = 'ROCKET_GLOBAL';
-    else if (/로켓프레시/.test(alts)) delivery = 'ROCKET_FRESH';
-    else if (/로켓배송|로켓와우/.test(alts)) delivery = 'ROCKET';
+    if (/판매자\s*로켓|로켓그로스/.test(alts) || /rocket[_-]?growth|growth/i.test(srcs)) delivery = 'ROCKET_GROWTH';
+    else if (/로켓직구/.test(alts) || /global/i.test(srcs)) delivery = 'ROCKET_GLOBAL';
+    else if (/로켓프레시/.test(alts) || /fresh/i.test(srcs)) delivery = 'ROCKET_FRESH';
+    else if (/로켓배송|로켓와우/.test(alts) || /rocket/i.test(srcs)) delivery = 'ROCKET';
+    else if (/도착\s*보장/.test(alts)) delivery = 'ROCKET';
 
     const isAd = !inUnit || /ad-badge|adbadge|__ad|\bad\b/.test(cls(li)) || !!li.querySelector('[class*="ad-badge"], [class*="adBadge"], [class*="AdMark"], [class*="ad-mark"], [class*="AdBadge"]') || /\bAD\b|광고/.test(txt(li).slice(0, 40));
     const soldOut = /일시품절|품절/.test(txt(li));
@@ -370,8 +373,9 @@ PAGE_INFO_JS = r"""
   const pag = Array.from(document.querySelectorAll('[class*="Pagination"] a, [class*="pagination"] a')).filter(a => /\/np\//.test(a.getAttribute('href') || '')).slice(0, 4).map(a => txt(a) + ' -> ' + (a.getAttribute('href') || ''));
   const sorts = Array.from(document.querySelectorAll('a, button, label, li')).filter(el => /랭킹순|판매량순|낮은가격순|최신순/.test(txt(el)) && txt(el).length < 12).slice(0, 8)
     .map(el => txt(el) + (el.getAttribute('href') ? ' -> ' + el.getAttribute('href') : '') + (el.className ? ' [' + String(el.className).slice(0, 40) + ']' : ''));
-  const units = document.querySelectorAll('li[class*="ProductUnit"], li.baby-product, li.search-product').length;
-  return { pagination: pag, sorts, product_units: units, url: location.href };
+  const unitEls = Array.from(document.querySelectorAll('li[class*="ProductUnit"], li.baby-product, li.search-product'));
+  const cards = unitEls.slice(3, 6).map(u => u.outerHTML.replace(/\s+/g, ' ').slice(0, 2500));
+  return { pagination: pag, sorts, product_units: unitEls.length, url: location.href, cards };
 }
 """
 
