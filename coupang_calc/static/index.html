@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쿠팡 광고계산기</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1f2933; --muted:#6b7280; --accent:#2563eb;
+          --neg:#dc2626; --pos:#059669; --warn:#b45309; --head:#f0f2f5; --camp:#e8f0fe; --sum:#fff7e0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",sans-serif; font-size:13px; color:var(--text); background:var(--bg); }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:10px 20px; display:flex; align-items:center; gap:18px; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; margin:0 12px 0 0; }
+  nav button { background:none; border:none; padding:8px 10px; font-size:13px; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; }
+  nav button.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  main { padding:16px 20px; }
+  section { display:none; } section.active { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:14px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; }
+  label { color:var(--muted); font-size:12px; }
+  input, select, textarea { font:inherit; padding:5px 7px; border:1px solid #cfd4da; border-radius:5px; background:#fff; }
+  input[type=number] { text-align:right; }
+  input.short { width:110px; } input.num { width:95px; } input.date { width:130px; }
+  button.btn { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid #cfd4da; background:#fff; cursor:pointer; }
+  button.btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.btn.danger { color:var(--neg); }
+  button.btn:disabled { opacity:.5; cursor:default; }
+  .msg { color:var(--muted); } .msg.err { color:var(--neg); } .msg.ok { color:var(--pos); }
+  .warn { background:#fff7e0; border:1px solid #f5d98a; color:var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:10px; }
+  .tablewrap { overflow:auto; max-height:75vh; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  table { border-collapse:separate; border-spacing:0; font-size:12px; white-space:nowrap; }
+  th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line); padding:4px 7px; text-align:right; }
+  th { background:var(--head); position:sticky; top:0; z-index:2; text-align:center; font-weight:600; }
+  td.label, th.label { text-align:left; position:sticky; left:0; background:#fff; z-index:1; }
+  td.camp, th.camp { text-align:left; position:sticky; left:0; background:var(--camp); z-index:3; font-weight:700; min-width:160px; max-width:200px; white-space:normal; vertical-align:top; }
+  td.label { left:160px; min-width:150px; }
+  th.camp { left:0; z-index:4; } th.label { left:160px; z-index:4; }
+  td.sum, th.sum { background:var(--sum); font-weight:600; }
+  td.profit { font-weight:700; } td.neg { color:var(--neg); } td.pos { color:var(--pos); }
+  td.total { background:#e6f4ea; font-weight:700; }
+  td.flag { background:#fde8e8; }
+  td.action { text-align:left; white-space:normal; max-width:260px; color:var(--muted); }
+  tr.profit-row td { border-bottom:2px solid #c7cdd4; }
+  .form-table td, .form-table th { text-align:left; }
+  .form-table input { width:100%; min-width:80px; }
+  .form-table input.wide { min-width:200px; }
+  .mini { font-size:11px; color:var(--muted); }
+  .hist { margin:4px 0 0 0; padding:0; list-style:none; }
+  .hist li { display:flex; gap:8px; align-items:center; padding:2px 0; }
+  .hist code { background:#f0f2f5; padding:1px 5px; border-radius:4px; }
+  pre.log { background:#111827; color:#e5e7eb; padding:10px; border-radius:6px; max-height:260px; overflow:auto; font-size:12px; }
+  details summary { cursor:pointer; color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>쿠팡 광고계산기</h1>
+  <nav>
+    <button data-tab="ledger" class="active">광고 장부</button>
+    <button data-tab="ads">일별 광고 입력</button>
+    <button data-tab="options">옵션 · 마진 관리</button>
+    <button data-tab="import">데이터 가져오기</button>
+  </nav>
+  <span class="grow"></span>
+  <span id="summary" class="mini"></span>
+</header>
+<main>
+
+<!-- ============ 장부 ============ -->
+<section id="tab-ledger" class="active">
+  <div class="card row">
+    <label>기간</label>
+    <input type="date" id="ledger-start" class="date"> ~ <input type="date" id="ledger-end" class="date">
+    <button class="btn" onclick="setRange('month')">이번 달</button>
+    <button class="btn" onclick="setRange('prev')">지난 달</button>
+    <button class="btn" onclick="setRange('30')">최근 30일</button>
+    <button class="btn" onclick="setRange('all')">전체</button>
+    <button class="btn primary" onclick="loadLedger()">조회</button>
+    <label><input type="checkbox" id="ledger-hide-empty" checked onchange="renderLedger()"> 데이터 없는 날 숨기기</label>
+    <label><input type="checkbox" id="ledger-show-action" onchange="renderLedger()"> ACTION 메모 표시</label>
+    <span class="grow"></span>
+    <a id="ledger-csv" class="btn" href="#" download>CSV 내보내기</a>
+  </div>
+  <div id="ledger-warn"></div>
+  <div class="tablewrap"><table id="ledger-table"></table></div>
+  <p class="mini">순이익 = 광고 마진(Σ 판매량 × 그 날짜에 적용되는 옵션 마진) − 집행 광고비×1.1(부가세). 월 합계 열의 광고수익률·CPC·클릭률·전환율은 월 누계 기준으로 다시 계산한 값입니다. 붉은 배경은 마진이 등록되지 않은 옵션의 판매가 포함된 날입니다.</p>
+</section>
+
+<!-- ============ 광고 입력 ============ -->
+<section id="tab-ads">
+  <div class="card">
+    <div class="row">
+      <label>날짜</label><input type="date" id="ads-date" class="date" onchange="loadAds()">
+      <button class="btn" onclick="shiftAdsDate(-1)">◀ 전날</button>
+      <button class="btn" onclick="shiftAdsDate(1)">다음날 ▶</button>
+      <span class="mini">광고센터 → 광고 관리 → 매출 성장 → 어제 화면의 숫자를 그대로 적습니다. 퍼센트 항목(목표효율·전환율·클릭률)은 화면에 보이는 % 단위 숫자 그대로 적습니다 (예: 400, 7.8, 0.15).</span>
+      <span class="grow"></span>
+      <button class="btn" onclick="addAdsRow()">캠페인 행 추가</button>
+      <button class="btn primary" onclick="saveAds()">저장</button>
+      <span id="ads-msg" class="msg"></span>
+    </div>
+    <div class="tablewrap" style="max-height:none;margin-top:10px">
+      <table class="form-table" id="ads-table">
+        <thead><tr>
+          <th>캠페인 이름</th><th>목표효율</th><th>광고예산</th><th>집행 광고비</th><th>광고전환 매출</th>
+          <th>전환율</th><th>클릭률</th><th>노출수</th><th>클릭수</th><th>광고전환 판매수</th><th>ACTION 메모</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 옵션/마진 ============ -->
+<section id="tab-options">
+  <div class="card">
+    <div class="row">
+      <b>옵션 · 캠페인 · 마진</b>
+      <span class="mini">마진을 바꾸려면 '마진 변경' 에 새 마진과 <b>적용 시작일</b>을 넣으세요. 시작일 이전 날짜의 장부는 예전 마진으로 그대로 계산됩니다.</span>
+      <span class="grow"></span>
+      <button class="btn" onclick="showNewOption()">옵션 추가</button>
+    </div>
+    <div id="new-option" class="row" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:6px">
+      <input id="no-id" class="short" placeholder="옵션ID">
+      <input id="no-name" style="width:280px" placeholder="상품명 (옵션명 포함)">
+      <input id="no-camp" style="width:180px" placeholder="광고 캠페인 이름">
+      <input id="no-margin" class="num" type="number" placeholder="옵션마진">
+      <button class="btn primary" onclick="saveNewOption()">추가</button>
+      <span id="opt-msg" class="msg"></span>
+    </div>
+    <div class="tablewrap" style="max-height:none;margin-top:10px">
+      <table class="form-table" id="options-table">
+        <thead><tr><th>옵션ID</th><th>상품명</th><th>광고 캠페인</th><th>현재 마진</th><th>마진 이력</th><th>마진 변경</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 가져오기 ============ -->
+<section id="tab-import">
+  <div class="card">
+    <b>파일로 가져오기 (반자동)</b>
+    <p class="mini">판매자센터 → 비즈니스 인사이트 → 판매분석 → 어제 → 엑셀 다운로드 → <b>상품별 판매 리포트</b> 파일을 그대로 올리면 됩니다. 광고는 CSV/XLSX(캠페인 이름, 목표효율, 광고예산, 집행 광고비, 광고전환 매출, 전환율, 클릭률, 노출수, 클릭수, 광고전환 판매수) 로 올리거나 '일별 광고 입력' 탭에서 직접 입력합니다. 같은 날짜를 다시 올리면 덮어씁니다.</p>
+    <form id="import-form" class="row" onsubmit="return doImport(event)">
+      <label>데이터 날짜</label><input type="date" name="date" id="import-date" class="date">
+      <label>판매 리포트</label><input type="file" name="sales" accept=".xlsx,.xls,.csv">
+      <label>광고 파일</label><input type="file" name="ads" accept=".xlsx,.csv">
+      <button class="btn primary" type="submit">가져오기</button>
+      <span id="import-msg" class="msg"></span>
+    </form>
+  </div>
+  <div class="card">
+    <b>자동 수집 (브라우저 자동화)</b>
+    <p class="mini">저장된 로그인 세션으로 판매자센터·광고센터에 접속해 전일 데이터를 가져옵니다. 처음 한 번은 터미널에서 <code>python -m coupang_calc login</code> 으로 로그인해 두세요. 매일 13:00 자동 실행은 scripts/register_task.ps1 참고.</p>
+    <div class="row">
+      <label>날짜</label><input type="date" id="collect-date" class="date">
+      <button class="btn primary" id="collect-btn" onclick="startCollect()">지금 수집</button>
+      <span id="collect-msg" class="msg"></span>
+    </div>
+    <pre class="log" id="collect-log" style="display:none"></pre>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const fmtInt = (v) => Math.round(v).toLocaleString('ko-KR');
+const fmtWon = (v) => (v < 0 ? '-' : '') + fmtInt(Math.abs(v));
+const fmt = { won: fmtWon, int: fmtInt, ratio: v => Math.round(v*100) + '%', pct1: v => (v*100).toFixed(1) + '%', pct2: v => (v*100).toFixed(2) + '%' };
+const iso = (d) => d.toISOString().slice(0,10);
+const today = new Date(); const yday = new Date(today); yday.setDate(today.getDate()-1);
+async function api(url, opt={}) {
+  if (opt.json) { opt.body = JSON.stringify(opt.json); opt.headers = {'Content-Type':'application/json'}; delete opt.json; }
+  const r = await fetch(url, opt); const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || r.statusText); return j;
+}
+function msg(id, text, cls='') { const e = $(id); e.textContent = text; e.className = 'msg ' + cls; }
+
+/* ---- 탭 ---- */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x===b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('active', s.id === 'tab-'+b.dataset.tab));
+  if (b.dataset.tab==='ads') loadAds(); if (b.dataset.tab==='options') loadOptions();
+});
+
+/* ---- 요약 ---- */
+async function loadSummary() {
+  const s = await api('/api/summary');
+  $('#summary').textContent = s.days ? `데이터 ${s.first_date} ~ ${s.last_date} (${s.days}일) · 캠페인 ${s.campaigns.length}개` : '아직 데이터가 없습니다';
+  window._summary = s;
+}
+
+/* ---- 장부 ---- */
+let ledger = null;
+function setRange(kind) {
+  let a, b;
+  if (kind==='month') { a = new Date(today.getFullYear(), today.getMonth(), 1); b = today; }
+  else if (kind==='prev') { a = new Date(today.getFullYear(), today.getMonth()-1, 1); b = new Date(today.getFullYear(), today.getMonth(), 0); }
+  else if (kind==='30') { a = new Date(today); a.setDate(today.getDate()-30); b = today; }
+  else { $('#ledger-start').value=''; $('#ledger-end').value=''; loadLedger(); return; }
+  $('#ledger-start').value = iso(a); $('#ledger-end').value = iso(b); loadLedger();
+}
+async function loadLedger() {
+  const q = new URLSearchParams(); if ($('#ledger-start').value) q.set('start', $('#ledger-start').value); if ($('#ledger-end').value) q.set('end', $('#ledger-end').value);
+  ledger = await api('/api/ledger?' + q); $('#ledger-csv').href = '/api/ledger.csv?' + q; renderLedger();
+}
+function renderLedger() {
+  if (!ledger) return;
+  const hideEmpty = $('#ledger-hide-empty').checked, showAction = $('#ledger-show-action').checked;
+  const has = new Set(); ledger.campaigns.forEach(c => Object.keys(c.days).forEach(d => has.add(d)));
+  const dates = ledger.dates.filter(d => !hideEmpty || has.has(d));
+  // 열 구성: 날짜들 + 월이 바뀔 때 '월 합계'
+  const cols = []; let m = null;
+  dates.forEach(d => { const mk = d.slice(0,7); if (m && mk !== m) cols.push({sum:m}); cols.push({date:d}); m = mk; });
+  if (m) cols.push({sum:m});
+  const warn = $('#ledger-warn'); warn.innerHTML = ledger.unmapped_options.length ? `<div class="warn">캠페인이 연결되지 않은 옵션ID가 판매 데이터에 있습니다 (장부에서 제외됨): ${ledger.unmapped_options.join(', ')} → '옵션 · 마진 관리' 에서 추가하세요.</div>` : '';
+  let h = '<thead><tr><th class="camp">캠페인</th><th class="label">항목</th>';
+  cols.forEach(c => h += c.date ? `<th>${c.date.slice(5).replace('-','/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`);
+  if (showAction) h += '<th>ACTION</th>';
+  h += '</tr></thead><tbody>';
+  h += '<tr><td class="camp">전체</td><td class="label"><b>전체 순이익 (광고비제외)</b></td>';
+  cols.forEach(c => { const v = c.date ? ledger.total_profit[c.date] : ledger.month_profit[c.sum]; h += `<td class="total ${v<0?'neg':''}">${v==null?'':fmtWon(v)}</td>`; });
+  if (showAction) h += '<td></td>';
+  h += '</tr>';
+  ledger.campaigns.forEach(c => {
+    ledger.metrics.forEach((mt, i) => {
+      const isProfit = mt.key === 'profit';
+      h += `<tr class="${isProfit?'profit-row':''}">`;
+      h += i===0 ? `<td class="camp" rowspan="${ledger.metrics.length}">${c.campaign}</td>` : '';
+      h += `<td class="label">${mt.label}</td>`;
+      cols.forEach(col => {
+        const cell = col.date ? c.days[col.date] : c.months[col.sum];
+        let cls = col.sum ? 'sum ' : '';
+        if (!cell || (col.sum && mt.key === 'target_roas')) { h += `<td class="${cls}"></td>`; return; }
+        const v = cell[mt.key];
+        if (isProfit) cls += 'profit ' + (v<0?'neg':'pos');
+        if (col.date && cell.unmapped_qty > 0 && (mt.key==='margin_total' || isProfit)) cls += ' flag';
+        const showEmpty = col.date && !cell.has_ads && ['target_roas','roas','budget','spend_vat','cpc','impressions','ctr','conversion','ad_orders'].includes(mt.key);
+        h += `<td class="${cls}" title="${col.date && cell.unmapped_qty>0 ? '마진 미등록 옵션 판매 '+cell.unmapped_qty+'개 포함' : ''}">${showEmpty ? '' : fmt[mt.fmt](v)}</td>`;
+      });
+      if (showAction) h += i===0 ? `<td class="action" rowspan="${ledger.metrics.length}">${Object.entries(c.days).filter(([d,v])=>v.action).map(([d,v])=>`${d.slice(5)}: ${v.action}`).join('<br>')}</td>` : '';
+      h += '</tr>';
+    });
+  });
+  $('#ledger-table').innerHTML = h + '</tbody>';
+}
+
+/* ---- 광고 입력 ---- */
+const ADS_FIELDS = ['target_roas','budget','spend','ad_revenue','conversion','ctr','impressions','clicks','ad_orders'];
+function shiftAdsDate(n) { const d = new Date($('#ads-date').value); d.setDate(d.getDate()+n); $('#ads-date').value = iso(d); loadAds(); }
+async function loadAds() {
+  if (!$('#ads-date').value) $('#ads-date').value = iso(yday);
+  const r = await api('/api/ads?date=' + $('#ads-date').value);
+  const tb = $('#ads-table tbody'); tb.innerHTML = '';
+  const names = [...r.campaigns]; Object.keys(r.rows).forEach(c => { if (!names.includes(c)) names.push(c); });
+  names.forEach(c => addAdsRow(c, r.rows[c]));
+  msg('#ads-msg', '');
+}
+function addAdsRow(campaign='', row=null) {
+  const tr = document.createElement('tr');
+  const disp = { target_roas: v => v ? Math.round(v*100) + '%' : '', conversion: v => v ? (v*100).toFixed(2) + '%' : '', ctr: v => v ? (v*100).toFixed(2) + '%' : '' };
+  const num = v => v == null || v === '' ? '' : Math.round(v * 100) / 100;
+  tr.innerHTML = `<td><input class="wide" data-k="campaign" value="${campaign}" placeholder="캠페인 이름"></td>` +
+    ADS_FIELDS.map(k => `<td><input data-k="${k}" value="${row ? (disp[k] ? disp[k](row[k]) : num(row[k])) : ''}"></td>`).join('') +
+    `<td><input class="wide" data-k="action" value="${row ? (row.action||'').replace(/"/g,'&quot;') : ''}"></td>` +
+    `<td><button class="btn danger" title="이 날짜의 이 캠페인 데이터 삭제">삭제</button></td>`;
+  tr.querySelector('button').onclick = async () => {
+    const name = tr.querySelector('[data-k=campaign]').value;
+    if (row && name && confirm(`${$('#ads-date').value} ${name} 광고 데이터를 삭제할까요?`)) await api('/api/ads', {method:'DELETE', json:{date:$('#ads-date').value, campaign:name}});
+    tr.remove();
+  };
+  $('#ads-table tbody').appendChild(tr);
+}
+async function saveAds() {
+  const rows = [...$('#ads-table tbody').rows].map(tr => { const o = {}; tr.querySelectorAll('input').forEach(i => o[i.dataset.k] = i.value); return o; }).filter(o => o.campaign.trim());
+  try { const r = await api('/api/ads', {method:'POST', json:{date:$('#ads-date').value, rows}}); msg('#ads-msg', `${r.saved}개 캠페인 저장됨`, 'ok'); loadSummary(); }
+  catch (e) { msg('#ads-msg', e.message, 'err'); }
+}
+
+/* ---- 옵션/마진 ---- */
+async function loadOptions() {
+  const list = await api('/api/options'); const tb = $('#options-table tbody'); tb.innerHTML = '';
+  list.forEach(o => {
+    const tr = document.createElement('tr');
+    const hist = o.margins.map(m => `<li><code>${m.effective_from || '처음부터'}</code> ${fmtInt(m.margin)}원 ${m.note ? '<span class="mini">'+m.note+'</span>' : ''} <a href="#" class="mini" data-del="${m.effective_from||''}">삭제</a></li>`).join('');
+    tr.innerHTML = `<td>${o.option_id}</td>
+      <td><input class="wide" data-k="product_name" value="${o.product_name.replace(/"/g,'&quot;')}"></td>
+      <td><input data-k="campaign" value="${o.campaign.replace(/"/g,'&quot;')}"></td>
+      <td style="text-align:right">${fmtInt(o.current_margin)}</td>
+      <td><ul class="hist">${hist || '<li class="mini">마진 없음 (0원으로 계산)</li>'}</ul></td>
+      <td><div class="row"><input type="number" class="num" data-k="margin" placeholder="새 마진"><input type="date" class="date" data-k="effective_from" value="${iso(today)}"><input class="short" data-k="note" placeholder="사유(선택)"></div></td>
+      <td><button class="btn primary">저장</button> <button class="btn danger">삭제</button></td>`;
+    const [save, del] = tr.querySelectorAll('button');
+    save.onclick = async () => {
+      const g = k => tr.querySelector(`[data-k=${k}]`).value;
+      try { await api('/api/options', {method:'POST', json:{option_id:o.option_id, product_name:g('product_name'), campaign:g('campaign'), margin:g('margin'), effective_from:g('effective_from'), note:g('note')}}); msg('#opt-msg','저장됨','ok'); loadOptions(); loadSummary(); }
+      catch (e) { msg('#opt-msg', e.message, 'err'); }
+    };
+    del.onclick = async () => { if (confirm(`옵션 ${o.option_id} 를 삭제할까요? (마진 이력도 삭제)`)) { await api('/api/options/'+o.option_id, {method:'DELETE'}); loadOptions(); } };
+    tr.querySelectorAll('a[data-del]').forEach(a => a.onclick = async (ev) => { ev.preventDefault(); if (confirm('이 마진 이력을 삭제할까요?')) { await api('/api/margins', {method:'DELETE', json:{option_id:o.option_id, effective_from:a.dataset.del || null}}); loadOptions(); } });
+    tb.appendChild(tr);
+  });
+}
+function showNewOption() { $('#new-option').style.display = 'flex'; $('#no-id').focus(); }
+async function saveNewOption() {
+  try { await api('/api/options', {method:'POST', json:{option_id:$('#no-id').value, product_name:$('#no-name').value, campaign:$('#no-camp').value, margin:$('#no-margin').value, effective_from:null}});
+    ['#no-id','#no-name','#no-camp','#no-margin'].forEach(s => $(s).value=''); msg('#opt-msg','추가됨','ok'); loadOptions(); loadSummary(); }
+  catch (e) { msg('#opt-msg', e.message, 'err'); }
+}
+
+/* ---- 가져오기 / 수집 ---- */
+async function doImport(ev) {
+  ev.preventDefault(); msg('#import-msg', '가져오는 중...');
+  try { const r = await api('/api/import', {method:'POST', body:new FormData($('#import-form'))});
+    let t = `${r.date}: ` + (r.sales!=null ? `매출 ${r.sales}개 옵션 ` : '') + (r.ads!=null ? `광고 ${r.ads}개 캠페인 ` : '') + '저장됨';
+    if (r.unmapped_options.length) t += ` · 캠페인 미연결 옵션: ${r.unmapped_options.join(', ')}`;
+    msg('#import-msg', t, 'ok'); loadSummary(); loadLedger(); }
+  catch (e) { msg('#import-msg', e.message, 'err'); }
+  return false;
+}
+async function startCollect() {
+  try { await api('/api/collect', {method:'POST', json:{date:$('#collect-date').value}}); $('#collect-btn').disabled = true; $('#collect-log').style.display='block'; pollCollect(); }
+  catch (e) { msg('#collect-msg', e.message, 'err'); }
+}
+async function pollCollect() {
+  const s = await api('/api/collect/status'); $('#collect-log').textContent = s.log.join('\n');
+  if (s.running) setTimeout(pollCollect, 2000); else { $('#collect-btn').disabled = false; msg('#collect-msg', '완료 ' + (s.last||''), 'ok'); loadSummary(); loadLedger(); }
+}
+
+/* ---- 초기화 ---- */
+$('#ads-date').value = iso(yday); $('#import-date').value = iso(yday); $('#collect-date').value = iso(yday);
+loadSummary().then(loadLedger);
+</script>
+</body>
+</html>

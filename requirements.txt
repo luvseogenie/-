@@ -1,0 +1,4 @@
+openpyxl>=3.1
+flask>=3.0
+# 브라우저 자동 수집(2단계)에만 필요. 설치 후 `python -m playwright install chromium` 실행.
+playwright>=1.45

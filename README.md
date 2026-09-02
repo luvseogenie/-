@@ -1,1 +1,99 @@
-# -
+# 쿠팡 광고계산기 (coupang_calc)
+
+쿠팡 판매자센터의 **전일 판매 데이터**와 광고센터의 **전일 광고 데이터**를 모아
+캠페인별·일자별 **광고 장부**(광고수익률, CPC, 광고 마진, 순이익 …)를 계산하는 가벼운 프로그램입니다.
+엑셀 대신 SQLite 한 파일(`data/ledger.db`)에 누적하고, 로컬 웹 화면에서 조회·입력합니다.
+
+## 무엇을 계산하나
+
+캠페인 × 날짜마다 (원래 엑셀 4번 시트와 같은 항목):
+
+| 항목 | 계산 |
+|---|---|
+| 목표효율, 광고예산, 노출수, 클릭률, 전환율, 광고전환 판매수 | 광고센터 값 그대로 |
+| 광고수익률 | 광고전환 매출 ÷ 집행 광고비 |
+| 집행 광고비*10% | 집행 광고비 × 1.1 (부가세) |
+| CPC 단가 | 집행 광고비 ÷ 클릭수 |
+| 실제 판매 수 | 캠페인에 연결된 옵션들의 판매량 합 |
+| 광고 마진 | Σ (옵션 판매량 × **그 날짜에 적용되는 옵션 마진**) |
+| 순이익 (광고비제외) | 광고 마진 − 집행 광고비*10% |
+| 월 합계 | 광고비·판매수·마진·순이익 합계, 광고수익률은 월 누계로 재계산 |
+
+### 마진 이력 (가격 인하 · 쿠폰 대응)
+옵션 마진은 **적용 시작일**과 함께 저장됩니다. 마진이 바뀌면 새 마진과 시작일만 추가하세요.
+시작일 이전 날짜는 예전 마진으로, 시작일부터는 새 마진으로 계산되므로 과거 장부가 흔들리지 않습니다.
+(웹 화면 → 옵션 · 마진 관리 → 마진 변경)
+
+## 설치
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt
+python -m playwright install chromium   # 자동 수집을 쓸 때만
+```
+
+`config/mapping.csv` 에 옵션ID · 상품명 · 광고 캠페인 · 옵션마진을 채워 두면 첫 실행 때 DB 로 들어갑니다.
+(그 뒤로는 웹 화면에서 관리하고, `python -m coupang_calc mapping-export` 로 CSV 백업을 받을 수 있습니다.)
+
+## 사용
+
+### 웹 화면
+```bash
+python -m coupang_calc serve        # http://127.0.0.1:8765 가 자동으로 열립니다
+```
+- **광고 장부**: 기간 선택, 캠페인별 × 일자별 표, 월 합계, 전체 순이익, CSV 내보내기
+- **일별 광고 입력**: 광고센터 → 광고 관리 → 매출 성장 → 어제 화면의 숫자를 캠페인별로 입력
+- **옵션 · 마진 관리**: 옵션 ↔ 캠페인 연결, 마진 이력(적용 시작일) 관리
+- **데이터 가져오기**: 판매분석 → 어제 → 엑셀 다운로드 → *상품별 판매 리포트* 파일 업로드, 광고 CSV 업로드, 자동 수집 실행
+
+### 1단계: 파일로 가져오기 (반자동, 로그인 문제 없음)
+```bash
+python -m coupang_calc import --sales "상품별 판매 리포트.xlsx" --date 2025-06-08
+python -m coupang_calc ads-template --date 2025-06-08     # data/inbox/ads_2025-06-08.csv 생성 → 숫자 채우기
+python -m coupang_calc import --ads data/inbox/ads_2025-06-08.csv
+python -m coupang_calc report --date 2025-06-08           # 터미널에서 확인
+```
+`--date` 를 생략하면 파일명에 있는 날짜(예: `sales_2025-06-08.xlsx`)를 쓰고, 없으면 **어제**로 봅니다.
+같은 날짜를 다시 넣으면 덮어씁니다(취소 반영 등으로 숫자가 바뀌어도 중복되지 않음).
+
+### 2단계: 매일 13:00 자동 수집 (브라우저 자동화)
+```bash
+python -m coupang_calc login      # 최초 1회: 창이 뜨면 판매자센터·광고센터에 로그인 → 세션이 data/browser_profile 에 저장
+python -m coupang_calc run        # 전일 데이터 수집 (창 보임). 잘 되면 이후엔 --headless
+```
+Windows 작업 스케줄러 등록(매일 13:00, 실패 시 1시간 뒤 재시도):
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1
+```
+macOS/Linux 는 `scripts/run_daily.sh` 를 cron 에 등록합니다 (`0 13 * * *`).
+
+수집기는 화면의 메뉴 글자(비즈니스 인사이트 → 판매분석 → 어제 → 엑셀 다운로드 → 상품별 판매 리포트,
+광고 관리 → 매출 성장 → 어제)를 따라갑니다. 쿠팡 화면이 바뀌면 **`config/collector.json` 의 글자만 고치면** 됩니다.
+실패하면 `data/raw/error_*.png` 스크린샷이 남고, `python -m coupang_calc run --debug` 로 단계별로 멈춰 볼 수 있습니다.
+
+> 주의: 수집기는 실제 쿠팡 화면에서 최종 검증이 필요합니다. 첫 실행은 반드시 창이 보이는 상태로 하세요.
+> 로그인 세션이 만료되면 `run` 이 실패하므로 `login` 을 다시 실행합니다.
+> 자동 수집이 안 되는 날은 1단계(파일 업로드)로 넣으면 됩니다.
+
+## 구조
+```
+coupang_calc/
+  sales_report.py   상품별 판매 리포트(A~M열) 파서 — 헤더명으로 찾고, 없으면 열 순서로
+  ads_report.py     광고센터 캠페인 표 / CSV / 대화식 입력 정규화 (퍼센트·쉼표 처리)
+  store.py          SQLite: options, margin_history, sales_daily, ads_daily (날짜 기준 덮어쓰기)
+  ledger.py         장부 계산 (캠페인×일자, 월 합계, 마진 이력 적용)
+  web.py + static/  Flask 웹 화면
+  collector.py      Playwright 자동 수집
+  mapping.py        config/mapping.csv ↔ DB
+config/mapping.csv  초기 옵션·캠페인·마진 (적용시작일 열로 이력도 표현 가능)
+config/collector.json  수집기 메뉴 글자·URL 설정
+scripts/            매일 13:00 실행 스크립트 (Windows .bat/.ps1, cron .sh)
+tests/              pytest (원본 엑셀 2025-06-08 값과 대조)
+```
+
+## 테스트
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
