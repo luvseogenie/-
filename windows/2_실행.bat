@@ -4,10 +4,17 @@ title 쿠팡 소싱 분석 - 실행
 setlocal
 set "ROOT=%~dp0.."
 
-if not exist "%ROOT%\backend\.venv" (
+if not exist "%ROOT%\backend\.venv\Scripts\python.exe" (
     echo.
-    echo   [X] 아직 설치가 안 되어 있습니다.
-    echo       먼저 같은 폴더의 "1_설치.bat" 을 더블클릭하세요.
+    echo   [X] 아직 설치가 끝나지 않았습니다.
+    echo.
+    echo       1^) 같은 폴더의 "0_진단.bat" 을 더블클릭하세요.
+    echo          무엇이 빠졌는지 알려줍니다.
+    echo.
+    echo       2^) 그 다음 "1_설치.bat" 을 더블클릭하세요.
+    echo.
+    echo       설치가 실패하면 windows 폴더에 생기는
+    echo       "설치기록.txt" 파일을 보내주세요.
     echo.
     pause
     exit /b 1
