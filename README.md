@@ -238,8 +238,11 @@ cd frontend  && npx tsc --noEmit && npm run lint && npm run build
 **방법 B: DevTools 콘솔 (확장 설치 없이)**
 
 1. 쿠팡 페이지에서 `F12` → **Console** 탭
-2. `extension/dist/selector-dump.js` 파일 내용을 **전부 복사**해서 콘솔에 붙여넣고 Enter
-3. 결과가 클립보드에 자동 복사됩니다
+2. Chrome이 붙여넣기를 막으면 `allow pasting` 을 입력하고 Enter
+3. 아래 파일 내용을 **전부 복사**해서 콘솔에 붙여넣고 Enter
+   - 목록 페이지: [`tools/list-page-dump.js`](tools/list-page-dump.js) (빌드 불필요)
+   - 상세 페이지: `extension/dist/selector-dump.js` (`npm run build` 필요, 개인정보 마스킹 포함)
+4. 결과가 클립보드에 자동 복사됩니다
 
 **방법 C: 수동**
 
