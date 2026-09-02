@@ -449,6 +449,15 @@
     out.push(`\uC218\uC9D1 \uC2DC\uAC01: ${(/* @__PURE__ */ new Date()).toISOString()}`);
     out.push("\u203B \uB9AC\uBDF0 \uBCF8\uBB38\xB7\uC791\uC131\uC790\uBA85 \uB4F1 \uD14D\uC2A4\uD2B8\uB294 \u27E8text:\uAE38\uC774\u27E9 \uB85C \uB9C8\uC2A4\uD0B9\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.");
     out.push("");
+    if (root instanceof Document) {
+      const og = root.querySelector("meta[property='og:title']")?.getAttribute("content") ?? "";
+      const h1 = root.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      out.push("[\uD398\uC774\uC9C0 \uC81C\uBAA9]");
+      out.push(`  <title>  : ${root.title.slice(0, 80)}`);
+      out.push(`  og:title : ${og.slice(0, 80)}`);
+      out.push(`  \uCCAB h1    : ${h1.slice(0, 80)}  ${describeElement(root.querySelector("h1") ?? root.body)}`);
+      out.push("");
+    }
     out.push(...selectorReport(root, "\uC0C1\uD488 \uCE74\uB4DC", PRODUCT_CARD_SELECTORS));
     out.push("");
     out.push(...selectorReport(root, "\uC0C1\uD488\uBA85", NAME_SELECTORS));

@@ -186,6 +186,17 @@ export function buildDiagnosticsReport(root: ParentNode, url: string): string {
   out.push("※ 리뷰 본문·작성자명 등 텍스트는 ⟨text:길이⟩ 로 마스킹되어 있습니다.");
   out.push("");
 
+  // --- 페이지 제목 정보 (상세 페이지 상품명 fallback 근거)
+  if (root instanceof Document) {
+    const og = root.querySelector("meta[property='og:title']")?.getAttribute("content") ?? "";
+    const h1 = root.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    out.push("[페이지 제목]");
+    out.push(`  <title>  : ${root.title.slice(0, 80)}`);
+    out.push(`  og:title : ${og.slice(0, 80)}`);
+    out.push(`  첫 h1    : ${h1.slice(0, 80)}  ${describeElement(root.querySelector("h1") ?? root.body)}`);
+    out.push("");
+  }
+
   // --- 상품 목록 관련
   out.push(...selectorReport(root, "상품 카드", PRODUCT_CARD_SELECTORS));
   out.push("");

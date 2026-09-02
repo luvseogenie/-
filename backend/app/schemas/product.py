@@ -15,7 +15,8 @@ class CollectedProduct(BaseModel):
     product_name: str
     product_url: str
     price: int | None = None
-    review_count: int = 0
+    # 상세 페이지에서 못 읽으면 None (기존 값을 지우지 않는다)
+    review_count: int | None = None
     rating: float | None = None
     delivery_type: str | None = None
     thumbnail_url: str | None = None

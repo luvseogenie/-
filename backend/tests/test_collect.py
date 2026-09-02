@@ -191,3 +191,22 @@ def test_new_job_closes_previous_running_job(client):
     assert jobs[first["id"]]["status"] == "completed"
     assert jobs[second["id"]]["status"] == "running"
     assert client.get("/api/collection-jobs/active").json()["id"] == second["id"]
+
+
+def test_detail_recollect_without_review_count_keeps_list_values(client):
+    """상세 페이지 재수집에서 리뷰수를 못 읽어도(None) 목록에서 얻은 리뷰수·예상판매량을 지우지 않는다."""
+    base = {"source_url": "https://www.coupang.com/np/categories/1", "page_type": "category", "products": [
+        {"product_id": "77", "product_name": "냄비", "product_url": "https://www.coupang.com/vp/products/77",
+         "price": 10000, "review_count": 500, "rating": 4.5, "delivery_type": "rocket"}], "skipped": 0}
+    assert client.post("/api/products/collect", json=base).status_code == 200
+    detail = {"source_url": "https://www.coupang.com/vp/products/77", "page_type": "product", "products": [
+        {"product_id": "77", "product_name": "냄비 (상세)", "product_url": "https://www.coupang.com/vp/products/77",
+         "price": None, "review_count": None, "rating": None, "delivery_type": None,
+         "monthly_purchase_count": 1000, "monthly_purchase_is_minimum": True, "monthly_purchase_unit": "명",
+         "monthly_purchase_text": "한 달간 1,000명 이상 구매했어요"}], "skipped": 0}
+    assert client.post("/api/products/collect", json=detail).status_code == 200
+    item = client.get("/api/products").json()["items"][0]
+    assert item["review_count"] == 500
+    assert item["estimated_sales"] == 500 * 20
+    assert item["price"] == 10000
+    assert item["monthly_purchase_count"] == 1000

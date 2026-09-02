@@ -159,7 +159,7 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
             continue
         seen_in_payload.add(pid)
 
-        estimated = calculate_estimated_sales(item.review_count, multiplier)
+        estimated = calculate_estimated_sales(item.review_count or 0, multiplier)
         existing = db.scalar(select(Product).where(Product.product_id == pid))
 
         if existing is None:
@@ -197,8 +197,10 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
             existing.product_url = item.product_url.strip()
             if item.price is not None:
                 existing.price = item.price
-            existing.review_count = item.review_count or 0
-            existing.estimated_sales = estimated
+            # 상세 페이지에서 리뷰수를 못 읽었을 때(None) 목록에서 얻은 값을 0으로 덮어쓰지 않는다.
+            if item.review_count is not None:
+                existing.review_count = item.review_count
+                existing.estimated_sales = estimated
             if item.rating is not None:
                 existing.rating = item.rating
             delivery = _normalize_delivery(item.delivery_type)
@@ -221,9 +223,11 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
             if item.rank is not None:
                 existing.rank = item.rank
             existing.last_collected_at = now
-            monthly_reviews.record_snapshot(
-                db, existing, existing.review_count, source=payload.page_type
-            )
+            # 이번에 리뷰수를 실제로 읽은 경우에만 스냅샷을 남긴다 (옛 값을 새 측정처럼 기록하지 않는다).
+            if item.review_count is not None:
+                monthly_reviews.record_snapshot(
+                    db, existing, existing.review_count, source=payload.page_type
+                )
             db.flush()
             # 누적 리뷰수 변화로 최근 30일 리뷰수를 다시 구한다.
             monthly_reviews.refresh_from_snapshots(db, existing, multiplier)

@@ -111,14 +111,41 @@ export const LINK_SELECTORS = ["a.search-product-link", "a[href*='/vp/products/'
 /** 상품 상세 페이지(단일 상품) 전용 */
 export const DETAIL_PAGE = {
   root: ["div.prod-atf", "#contents", "body"] as const,
-  name: ["h1.prod-buy-header__title", "h2.prod-buy-header__title", "[class*='prod-buy-header__title']"] as const,
+  name: [
+    "h1.prod-buy-header__title",
+    "h2.prod-buy-header__title",
+    "[class*='prod-buy-header__title']",
+    "[class*='productTitle']",
+    "[class*='product-title']",
+    "[class*='prod-title']",
+    "h1[class*='title']",
+    "h2[class*='title']",
+  ] as const,
+  /** 상품명 selector 가 모두 실패했을 때 쓰는 문서 메타 정보 (구조가 바뀌어도 거의 항상 있다) */
+  nameMeta: [
+    "meta[property='og:title']",
+    "meta[name='twitter:title']",
+    "meta[name='title']",
+  ] as const,
   price: [
     "span.total-price > strong",
     ".prod-sale-price .total-price strong",
     "[class*='price-amount']",
+    "[class*='total-price'] strong",
+    "[class*='salePrice']",
+    "[class*='sale-price']",
+    "[class*='finalPrice']",
+    "[class*='final-price']",
   ] as const,
-  reviewCount: ["span#prod-review-nav-link-count", ".count", "[class*='reviewCount']"] as const,
-  rating: ["span.rating-star-num", "[class*='rating-star-num']"] as const,
+  reviewCount: [
+    "span#prod-review-nav-link-count",
+    "[class*='reviewCount']",
+    "[class*='review-count']",
+    "[class*='ratingCount']",
+    "[class*='rating-count']",
+    ".count",
+  ] as const,
+  rating: ["span.rating-star-num", "[class*='rating-star-num']", "[class*='ratingStar']", "[class*='rating-star']"] as const,
   thumbnail: ["img.prod-image__detail", "div.prod-image img"] as const,
   deliveryBadge: ["span.badge-rocket img", "[class*='badge-rocket']", ".prod-txt-normal"] as const,
 } as const;
@@ -412,3 +439,12 @@ export const CATEGORY_MENU_TRIGGER_TEXTS = ["카테고리", "전체 카테고리
 
 /** 카테고리 메뉴 링크 주소에서 코드를 읽는 패턴 (경로형만 — 쿼리의 component= 는 다른 뜻) */
 export const CATEGORY_MENU_CODE_PATTERN = /\/np\/categories\/([\w-]+)/;
+
+/** 문서 제목에서 사이트 이름 꼬리표를 떼어 상품명만 남긴다 */
+export const DETAIL_TITLE_SUFFIX_PATTERNS = [
+  /\s*[-|:]\s*쿠팡!?\s*$/,
+  /\s*[-|:]\s*coupang!?\s*$/i,
+] as const;
+
+/** 상품명으로 인정하지 않는 제목 (사이트 이름만 남은 경우) */
+export const DETAIL_TITLE_REJECT = /^(쿠팡!?|coupang!?)$/i;

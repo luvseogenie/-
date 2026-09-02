@@ -17,6 +17,8 @@ import {
   MAX_BREADCRUMB_DEPTH,
   DELIVERY_BADGE_SELECTORS,
   DELIVERY_KEYWORDS,
+  DETAIL_TITLE_REJECT,
+  DETAIL_TITLE_SUFFIX_PATTERNS,
   DETAIL_PAGE,
   LINK_SELECTORS,
   NAME_FALLBACK_IMG_SELECTORS,
@@ -488,9 +490,36 @@ export function findCards(root: ParentNode): { cards: Element[]; selector: strin
 }
 
 /** 상품 상세 페이지(단일 상품) 파싱 */
+/** 사이트 이름 꼬리표를 뗀 제목. 상품명으로 못 쓰면 null */
+function cleanTitle(raw: string | null | undefined): string | null {
+  let text = (raw ?? "").replace(/\s+/g, " ").trim();
+  for (const pattern of DETAIL_TITLE_SUFFIX_PATTERNS) text = text.replace(pattern, "").trim();
+  if (!text || DETAIL_TITLE_REJECT.test(text)) return null;
+  return text;
+}
+
+/**
+ * 상세 페이지 상품명.
+ * 1) 알려진 selector → 2) og:title 등 문서 메타 → 3) <title> → 4) 첫 h1
+ * 쿠팡이 화면 구조를 바꿔도 메타 정보와 제목은 거의 항상 남아 있다.
+ */
+export function detailProductName(root: ParentNode, container: ParentNode): string | null {
+  const fromSelector = textOf(container, DETAIL_PAGE.name) ?? textOf(root, DETAIL_PAGE.name);
+  if (fromSelector) return fromSelector;
+  for (const selector of DETAIL_PAGE.nameMeta) {
+    const meta = root.querySelector(selector);
+    const name = cleanTitle(meta?.getAttribute("content"));
+    if (name) return name;
+  }
+  const doc = (root as Document).title !== undefined ? (root as Document) : root.querySelector("title")?.ownerDocument ?? null;
+  const fromTitle = cleanTitle(doc?.title ?? root.querySelector("title")?.textContent);
+  if (fromTitle) return fromTitle;
+  return cleanTitle(root.querySelector("h1")?.textContent);
+}
+
 function parseDetailPage(root: ParentNode, url: string): CardParseOutcome {
   const container = queryFirst(root, DETAIL_PAGE.root) ?? (root as unknown as Element);
-  const name = textOf(container, DETAIL_PAGE.name);
+  const name = detailProductName(root, container);
   let productId: string | null = null;
   for (const pattern of PRODUCT_ID_URL_PATTERNS) {
     const match = url.match(pattern);
@@ -528,8 +557,8 @@ function parseDetailPage(root: ParentNode, url: string): CardParseOutcome {
       thumbnail_url: absoluteUrl(thumb?.getAttribute("src"), url),
       rank: null,
       view_count: null,
-      // 상세 페이지에서는 문서 전체를 대상으로 문구를 찾는다.
-      ...monthlyPurchaseFields(container),
+      // 상세 페이지에서는 문서 전체를 대상으로 문구를 찾는다 (컨테이너가 좁게 잡혀도 놓치지 않게).
+      ...monthlyPurchaseFields(root),
     },
   };
 }
