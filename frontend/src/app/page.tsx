@@ -53,7 +53,7 @@ export default function DashboardPage() {
 
   /** 자동 스캔 설정·상태 */
   const [scanPages, setScanPages] = React.useState(1);
-  const [scanDetailLimit, setScanDetailLimit] = React.useState(50);
+  const [scanDetailLimit, setScanDetailLimit] = React.useState(30);
   const [scanStatus, setScanStatus] = React.useState<ScanStatus | null>(null);
   const [scanStarting, setScanStarting] = React.useState(false);
   const [sort, setSort] = React.useState<string>("monthly_revenue_desc");
@@ -660,6 +660,8 @@ export default function DashboardPage() {
             total={total}
             hasConditions={hasConditions}
             onToggleSave={(p) => void toggleSave(p)}
+            breakdown={stats?.condition_breakdown ?? null}
+            passedView={view === "passed"}
           />
             </>
           )}

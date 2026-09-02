@@ -172,3 +172,21 @@ def test_monthly_revenue_sort_and_measured_scope(client):
     assert stats["condition_passed_products"] == 1  # A(600)만 통과
     assert stats["passed_monthly_revenue"] == 6_000_000
     assert stats["monthly_pending_products"] == 1  # C
+
+
+def test_condition_breakdown_explains_zero_results(client):
+    """조건 통과 0건일 때 어떤 조건이 몇 개를 탈락시켰는지 알려준다 (값 없음도 탈락)."""
+    client.post("/api/products/collect", json={"source_url": "https://www.coupang.com/np/categories/1", "page_type": "category", "products": [
+        {"product_id": "A", "product_name": "A", "product_url": "https://www.coupang.com/vp/products/A", "price": 10000, "review_count": 10, "rating": 4.8, "delivery_type": "rocket"},
+        {"product_id": "B", "product_name": "B", "product_url": "https://www.coupang.com/vp/products/B", "price": 50000, "review_count": 10, "rating": 4.0, "delivery_type": "seller"},
+        {"product_id": "C", "product_name": "C", "product_url": "https://www.coupang.com/vp/products/C", "price": None, "review_count": 10, "rating": None, "delivery_type": None},
+    ], "skipped": 0})
+    stats = client.get("/api/stats?purchase_min=500&monthly_sales_min=500&rating_min=4.5&delivery_types=rocket,rocket_growth").json()
+    assert stats["condition_passed_products"] == 0
+    assert stats["condition_breakdown"] == {
+        "rating": 2,          # B(4.0), C(없음)
+        "monthly_sales": 3,   # 아무도 측정 안 됨
+        "purchase": 3,        # 문구 없음
+        "delivery": 2,        # B(seller), C(없음)
+        "unmeasured": 3,
+    }

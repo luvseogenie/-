@@ -53,6 +53,8 @@ class DiscoveredCategory(BaseModel):
 class ScanTargetDone(BaseModel):
     product_count: int | None = None
     error: str | None = None
+    # 처리 메모 (정렬 확인 결과 등)
+    note: str | None = None
     # 이 목록 페이지 카테고리의 직계 하위로 발견된 카테고리들
     discovered_children: list[DiscoveredCategory] = Field(default_factory=list)
 
@@ -75,6 +77,7 @@ class ScanStatusOut(BaseModel):
     recent_errors: list[ScanTargetError] = Field(default_factory=list)
     last_done_label: str | None = None
     last_product_count: int | None = None
+    last_done_note: str | None = None
     status: str
     phase: str
     list: ScanPhaseProgress

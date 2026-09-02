@@ -52,7 +52,7 @@ def diagnostics(db: Session = Depends(get_db)) -> dict:
             "pages_per_category": job.pages_per_category,
             "detail_limit": job.detail_limit,
             "conditions": job.conditions,
-            "done": [{"label": t.label, "url": t.url, "products": t.product_count} for t in done],
+            "done": [{"label": t.label, "url": t.url, "products": t.product_count, "note": t.note} for t in done],
             "failed": [{"label": t.label, "url": t.url, "error": t.error} for t in failed],
         })
     return {"version": app_version(), "counts": counts, "recent_scans": recent_jobs, "log": recent_logs()}

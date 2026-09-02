@@ -42,6 +42,8 @@ export type ParseResult = {
   sourceUrl: string;
   /** 어떤 selector로 카드를 찾았는지 (디버깅용) */
   matchedCardSelector: string | null;
+  /** 쿠팡이 접근을 제한한 화면이면 그 단서 텍스트 (아니면 없음) */
+  blocked?: string | null;
 };
 
 export type CollectResponse = {

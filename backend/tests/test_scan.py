@@ -189,10 +189,11 @@ def test_discovered_children_are_registered_and_queued(client, tree):
 def test_status_exposes_recent_errors_and_last_result(client, tree):
     client.post("/api/scan/start", json={"category_ids": [tree["발매트"]["id"]], "pages_per_category": 2})
     t1 = client.get("/api/scan/next").json()
-    client.post(f"/api/scan/targets/{t1['id']}/done", json={"product_count": 57})
+    client.post(f"/api/scan/targets/{t1['id']}/done", json={"product_count": 57, "note": "정렬: 쿠팡 랭킹순 → 판매량순으로 변경"})
     t2 = client.get("/api/scan/next").json()
     client.post(f"/api/scan/targets/{t2['id']}/done", json={"error": "상품을 찾지 못했습니다."})
     status = client.get("/api/scan/status").json()
     assert status["last_done_label"] == "발매트 1페이지"
     assert status["last_product_count"] == 57
+    assert status["last_done_note"] == "정렬: 쿠팡 랭킹순 → 판매량순으로 변경"
     assert status["recent_errors"] == [{"kind": "list", "label": "발매트 2페이지", "error": "상품을 찾지 못했습니다."}]

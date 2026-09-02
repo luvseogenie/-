@@ -26,6 +26,8 @@ import {
   type ReviewEntry,
 } from "@/parsers/coupang_review_parser";
 import { parseCategoryTree, type CategoryTreeResult } from "@/parsers/coupang_category_parser";
+import { ensureListSortSalesDesc, readListSort } from "@/parsers/coupang_list_sort";
+import { detectBlockedPage } from "@/parsers/blocked_page";
 import { buildDiagnosticsReport } from "@/parsers/diagnostics";
 import {
   CATEGORY_MENU_TRIGGER_TEXTS,
@@ -41,6 +43,8 @@ import type { ParseResult, ReviewDateResult } from "@/lib/types";
 
 function scan(): ParseResult {
   const result = parseProductList(document, location.href);
+  result.blocked = detectBlockedPage(document);
+  if (result.blocked) log.warn("쿠팡 접근 제한 화면 감지:", result.blocked);
   if (result.products.length === 0) {
     log.warn("상품을 찾지 못했습니다.", {
       url: location.href,
@@ -271,6 +275,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     scanCategories()
       .then((result) => sendResponse({ ok: true, result }))
       .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    return true;
+  }
+  if (message?.type === "ENSURE_LIST_SORT") {
+    sendResponse({ ok: true, result: ensureListSortSalesDesc(document) });
+    return true;
+  }
+  if (message?.type === "READ_LIST_SORT") {
+    sendResponse({ ok: true, result: readListSort(document) });
     return true;
   }
   if (message?.type === "NEXT_REVIEW_PAGE") {

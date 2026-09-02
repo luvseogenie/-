@@ -107,6 +107,8 @@ export type Stats = {
   monthly_pending_products: number;
   /** 조건 통과 상품의 30일 예상매출 합계(원) */
   passed_monthly_revenue: number;
+  /** 조건별 탈락 상품 수 (설정된 조건만) + unmeasured(30일 미측정) */
+  condition_breakdown: Record<string, number>;
   review_sales_multiplier: number;
 };
 
@@ -210,6 +212,8 @@ export type ScanStatus = {
   recent_errors: ScanTargetError[];
   last_done_label: string | null;
   last_product_count: number | null;
+  /** 방금 처리한 대상의 메모 (정렬 확인 결과, 읽음/저장 개수) */
+  last_done_note: string | null;
   status: "running" | "paused" | "completed" | "stopped";
   phase: "list" | "detail";
   list: ScanPhaseProgress;
@@ -225,7 +229,20 @@ export type ScanStatus = {
 /** 카테고리마다 훑을 목록 페이지 수 선택지 (판매량순이라 앞쪽이 중요) */
 export const PAGES_OPTIONS = [1, 2, 3, 5, 10] as const;
 /** 2단계에서 상세를 확인할 상품 수 선택지 */
-export const DETAIL_LIMIT_OPTIONS = [20, 50, 100, 200] as const;
+export const DETAIL_LIMIT_OPTIONS = [10, 20, 30, 50, 100] as const;
+
+/** 조건 탈락 원인 라벨 */
+export const BREAKDOWN_LABELS: Record<string, string> = {
+  price: "판매가격",
+  review: "누적 리뷰수",
+  sales: "누적 예상판매량",
+  rating: "평점",
+  monthly_sales: "30일 예상판매(미측정 포함)",
+  monthly_review: "30일 리뷰수(미측정 포함)",
+  purchase: "한 달 구매 문구 없음/미달",
+  delivery: "배송방식",
+  unmeasured: "30일 미측정",
+};
 
 /** 보관함 한 줄 — 저장 시점 스냅샷 + 현재 상품 값 */
 export type SavedProduct = {

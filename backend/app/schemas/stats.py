@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StatsOut(BaseModel):
@@ -20,4 +20,6 @@ class StatsOut(BaseModel):
     monthly_pending_products: int = 0
     # 조건 통과 상품의 30일 예상매출 합계(원) — 30일 예상 판매량 × 가격
     passed_monthly_revenue: int = 0
+    # 조건별 탈락 상품 수 (설정된 조건만) + unmeasured(30일 미측정). "왜 0건인지" 안내용
+    condition_breakdown: dict[str, int] = Field(default_factory=dict)
     review_sales_multiplier: int

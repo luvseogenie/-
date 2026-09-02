@@ -172,9 +172,9 @@ export function ScanPanel({
             </Button>
           </div>
           {status!.last_done_label && (
-            <p className="truncate text-[10px] text-muted-foreground" title={status!.last_done_label}>
-              방금: {status!.last_done_label}
-              {status!.last_product_count !== null && ` — 상품 ${status!.last_product_count}개`}
+            <p className="text-[10px] leading-snug text-muted-foreground" title={status!.last_done_note ?? undefined}>
+              <span className="block truncate">방금: {status!.last_done_label}</span>
+              {status!.last_done_note && <span className="block truncate">{status!.last_done_note}</span>}
             </p>
           )}
           {!extensionConnected && (

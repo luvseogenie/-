@@ -109,6 +109,8 @@ class ScanTarget(Base):
         String(16), nullable=False, default=TargetStatus.PENDING, index=True
     )
     product_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 처리 메모 (예: "정렬: 판매량순 확인됨 · 상품 120개")
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

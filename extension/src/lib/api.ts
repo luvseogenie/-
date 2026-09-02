@@ -157,6 +157,7 @@ export const api = {
     body: {
       product_count?: number | null;
       error?: string | null;
+      note?: string | null;
       discovered_children?: { category_code: string; category_name: string; category_url: string | null }[];
     },
   ) =>

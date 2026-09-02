@@ -66,6 +66,7 @@ def finish(target_id: int, payload: ScanTargetDone, db: Session = Depends(get_db
         target_id,
         product_count=payload.product_count,
         error=payload.error,
+        note=payload.note,
         discovered_children=[c.model_dump() for c in payload.discovered_children],
     )
     if target is None:

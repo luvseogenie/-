@@ -13,12 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber, formatPrice, formatRating } from "@/lib/format";
-import {
-  CONFIDENCE_LABELS,
+import { BREAKDOWN_LABELS, CONFIDENCE_LABELS,
   DELIVERY_TYPES,
   MONTHLY_METHODS,
-  type Product,
-} from "@/lib/types";
+  type Product, } from "@/lib/types";
 
 function DeliveryBadge({ type }: { type: Product["delivery_type"] }) {
   if (!type) return <span className="text-muted-foreground">-</span>;
@@ -118,6 +116,8 @@ export function ProductTable({
   total,
   hasConditions,
   onToggleSave,
+  breakdown,
+  passedView,
 }: {
   products: Product[];
   loading: boolean;
@@ -126,6 +126,10 @@ export function ProductTable({
   hasConditions: boolean;
   /** ☆ 보관함 넣기/빼기 */
   onToggleSave?: (product: Product) => void;
+  /** 조건 통과 0건일 때 보여줄 조건별 탈락 수 */
+  breakdown?: Record<string, number> | null;
+  /** 지금 보고 있는 탭이 "조건 통과"인지 */
+  passedView?: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
@@ -158,9 +162,35 @@ export function ProductTable({
             {!loading && products.length === 0 && (
               <TableRow>
                 <TableCell colSpan={12} className="py-10 text-center text-xs text-muted-foreground">
-                  수집된 상품이 없습니다.
-                  <br />
-                  왼쪽에서 카테고리를 체크하고 [소싱 시작] → 크롬 확장에서 [자동 수집 시작]을 눌러주세요.
+                  {passedView && hasConditions && breakdown && Object.keys(breakdown).length > 0 ? (
+                    <>
+                      <b className="text-foreground">조건을 모두 만족하는 상품이 없습니다.</b>
+                      <br />
+                      조건별로 탈락시킨 상품 수 (한 상품이 여러 조건에 걸릴 수 있음):
+                      <ul className="mx-auto mt-2 inline-block text-left leading-relaxed">
+                        {Object.entries(breakdown)
+                          .filter(([key]) => key !== "unmeasured")
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([key, count]) => (
+                            <li key={key}>
+                              · {BREAKDOWN_LABELS[key] ?? key}: <b className="text-foreground">{formatNumber(count)}</b>개
+                            </li>
+                          ))}
+                        {breakdown.unmeasured > 0 && (
+                          <li className="mt-1 text-[11px]">
+                            ※ 30일 리뷰수를 아직 못 잰 상품 {formatNumber(breakdown.unmeasured)}개 — 30일 조건은 측정 전엔 통과할 수 없습니다.
+                            [소싱 시작]의 &quot;상세 확인 상품 수&quot;를 늘리거나, &quot;한 달 구매&quot; 칸을 비워 보세요.
+                          </li>
+                        )}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      수집된 상품이 없습니다.
+                      <br />
+                      왼쪽에서 카테고리를 체크하고 [소싱 시작]을 누르세요.
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             )}

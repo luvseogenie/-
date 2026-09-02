@@ -476,4 +476,35 @@ export const REVIEW_CURRENT_PAGE_SELECTORS = [
 ] as const;
 
 /** 자동 스캔이 상품 하나에서 넘겨 보는 리뷰 페이지 상한 (상품당 시간 제한) */
-export const MAX_REVIEW_PAGES_AUTO = 20;
+export const MAX_REVIEW_PAGES_AUTO = 10;
+
+/* ------------------------------------------------------------------ */
+/* 목록 페이지 정렬 확인 (주소 파라미터만 믿지 않고 화면의 정렬 상태를 본다)  */
+/* ------------------------------------------------------------------ */
+
+/** 쿠팡 목록 정렬 이름들. 화면에서 이 텍스트를 가진 컨트롤을 찾는다 */
+export const LIST_SORT_LABELS = [
+  "쿠팡 랭킹순", "쿠팡랭킹순", "랭킹순", "판매량순", "낮은가격순", "높은가격순", "최신순", "리뷰순", "평점순",
+  "판매량 많은순", "판매량 순",
+] as const;
+
+/** 우리가 원하는 정렬 (앞에 있는 것부터 찾는다) */
+export const LIST_SORT_WANTED = ["판매량순", "판매량 많은순", "판매량 순"] as const;
+
+/** 정렬 컨트롤 중 "현재 선택됨"을 나타내는 표시 */
+export const LIST_SORT_ACTIVE_ATTRS = ["aria-selected", "aria-current", "aria-checked", "data-selected", "data-active"] as const;
+export const LIST_SORT_ACTIVE_CLASS = /(^|\s|-|_)(active|selected|on|checked|current)(\s|-|_|$)/i;
+
+/**
+ * 쿠팡(Akamai)이 접근을 막았을 때 뜨는 화면의 단서. 이게 보이면 우회하지 않고 즉시 멈춘다.
+ *   "Access Denied — You don't have permission to access ... Reference #18.xxxx"
+ */
+export const BLOCKED_PAGE_PATTERNS = [
+  /access denied/i,
+  /you don't have permission to access/i,
+  /errors\.edgesuite\.net/i,
+  /reference #\d+\.[0-9a-f]+\.\d+\.[0-9a-f]+/i,
+  /captcha/i,
+  /비정상적인 접근/,
+  /자동화된 접근/,
+] as const;

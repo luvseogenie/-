@@ -116,6 +116,44 @@ def get_stats(
         monthly_pending_stmt = monthly_pending_stmt.where(first_expr)
     monthly_pending_count = db.scalar(monthly_pending_stmt) or 0
 
+    # "왜 0건인가": 조건별로 탈락시킨 상품 수 (범위 안 전체 기준). 값이 없어 탈락한 것도 포함한다.
+    def _range_fail(col, low, high):
+        parts = [col.is_(None)]
+        if low is not None:
+            parts.append(col < low)
+        if high is not None:
+            parts.append(col > high)
+        return or_(*parts)
+
+    breakdown_specs = [
+        ("price", Product.price, filters.price_min, filters.price_max),
+        ("review", Product.review_count, filters.review_min, filters.review_max),
+        ("sales", Product.estimated_sales, filters.sales_min, filters.sales_max),
+        ("rating", Product.rating, filters.rating_min, filters.rating_max),
+        ("monthly_sales", Product.monthly_estimated_sales, filters.monthly_sales_min, filters.monthly_sales_max),
+        ("monthly_review", Product.monthly_review_count, filters.monthly_review_min, filters.monthly_review_max),
+        ("purchase", Product.monthly_purchase_count, filters.purchase_min, filters.purchase_max),
+    ]
+    condition_breakdown: dict[str, int] = {}
+    for name, col, low, high in breakdown_specs:
+        if low is None and high is None:
+            continue
+        stmt = select(func.count()).select_from(Product).where(_range_fail(col, low, high))
+        for clause in scope:
+            stmt = stmt.where(clause)
+        condition_breakdown[name] = int(db.scalar(stmt) or 0)
+    if filters.delivery_types:
+        stmt = select(func.count()).select_from(Product).where(
+            or_(Product.delivery_type.is_(None), Product.delivery_type.notin_(filters.delivery_types))
+        )
+        for clause in scope:
+            stmt = stmt.where(clause)
+        condition_breakdown["delivery"] = int(db.scalar(stmt) or 0)
+    unmeasured_stmt = select(func.count()).select_from(Product).where(Product.monthly_review_count.is_(None))
+    for clause in scope:
+        unmeasured_stmt = unmeasured_stmt.where(clause)
+    condition_breakdown["unmeasured"] = int(db.scalar(unmeasured_stmt) or 0)
+
     multiplier = estimation.get_multiplier(db)
     db.commit()
 
@@ -129,5 +167,6 @@ def get_stats(
         purchase_pending_products=int(pending_count),
         monthly_pending_products=int(monthly_pending_count),
         passed_monthly_revenue=int(passed_revenue),
+        condition_breakdown=condition_breakdown,
         review_sales_multiplier=multiplier,
     )

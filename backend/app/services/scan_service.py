@@ -358,6 +358,7 @@ def finish_target(
     *,
     product_count: int | None = None,
     error: str | None = None,
+    note: str | None = None,
     discovered_children: list[dict] | None = None,
 ) -> ScanTarget | None:
     target = db.get(ScanTarget, target_id)
@@ -367,6 +368,7 @@ def finish_target(
     target.status = TargetStatus.FAILED if error else TargetStatus.DONE
     target.product_count = product_count
     target.error = error
+    target.note = (note or "")[:300] or None
     target.finished_at = now
     if target.started_at is not None:
         started = target.started_at
@@ -456,6 +458,7 @@ def job_status(db: Session, job: ScanJob) -> dict:
         "recent_errors": recent_errors,
         "last_done_label": last_done.label if last_done else None,
         "last_product_count": last_done.product_count if last_done else None,
+        "last_done_note": last_done.note if last_done else None,
         "job_id": job.id,
         "status": job.status,
         "phase": job.phase,

@@ -37,6 +37,7 @@ def init_db() -> None:
 # 이미 만들어진 DB 에 나중에 추가된 컬럼. (컬럼명, 테이블, DDL 타입)
 _LATE_COLUMNS = [
     ("products", "last_scan_job_id", "INTEGER"),
+    ("scan_targets", "note", "VARCHAR(300)"),
 ]
 
 

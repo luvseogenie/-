@@ -274,7 +274,8 @@ popup [현재 페이지 수집]
          GET /api/scan/next ─▶ 대상 없음 → completed, 탭 닫고 종료
          tabs.update(url) → 로드 대기(status·URL 확인) → content SCAN
            (content script가 없으면 chrome.scripting 으로 1회 주입)
-         목록: parseProductList → POST /api/products/collect
+         목록: ENSURE_LIST_SORT(화면 정렬이 판매량순이 아니면 "판매량순" 클릭) → 끝까지 스크롤
+               → parseProductList → POST /api/products/collect (저장 0건이면 실패로 기록)
          상세: + 리뷰 최신순 정렬 → ANALYZE_REVIEWS → 30일을 못 덮으면 NEXT_REVIEW_PAGE([다음] 클릭) 반복
                (상품당 최대 20페이지) → POST /api/products/review-dates
          목록: 좌측 메뉴 SCAN_CATEGORIES → 트리 등록 + 직계 하위를 done 에 실어 보냄

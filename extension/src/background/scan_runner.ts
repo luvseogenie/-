@@ -16,20 +16,31 @@ import { api, getAutoCollect, type ScanTarget } from "@/lib/api";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
 import type { CategoryTreeResult } from "@/parsers/coupang_category_parser";
+import type { ListSortState } from "@/parsers/coupang_list_sort";
 import { MAX_REVIEW_PAGES_AUTO } from "@/parsers/selectors";
 
 import { openBackgroundTab, sendWhenReady, sleep, waitForLoad } from "./tab_utils";
 
-/** 대상 사이 대기(ms). 너무 빠르면 차단 위험이 커진다. */
-const DELAY_BETWEEN_TARGETS_MS = 2500;
+/**
+ * 대상 사이 대기(ms) — 사람이 페이지를 넘기는 속도. 너무 빠르면 쿠팡이 접근을 막는다.
+ * (실제로 상세 50개를 2.5초 간격으로 열자 Access Denied 가 떴다)
+ */
+const DELAY_LIST_MS: [number, number] = [4000, 7000];
+const DELAY_DETAIL_MS: [number, number] = [6000, 10000];
+/** 이만큼 처리할 때마다 잠깐 쉰다 */
+const REST_EVERY = 10;
+const REST_MS: [number, number] = [20000, 35000];
+const BLOCKED_PREFIX = "[차단]";
 /** 페이지 로드 후 Next.js가 데이터를 그릴 시간 */
 const SETTLE_AFTER_LOAD_MS = 1500;
 /** content script 응답 대기 한도 */
 const CONTENT_READY_TIMEOUT_MS = 20000;
 /** 연속 실패 허용 횟수 — 넘으면 멈춘다 */
 const MAX_CONSECUTIVE_FAILURES = 5;
-/** 리뷰 [다음 페이지]를 누른 뒤 새 리뷰가 그려질 시간 */
-const REVIEW_PAGE_SETTLE_MS = 1200;
+/** 리뷰 [다음 페이지]를 누른 뒤 새 리뷰가 그려질 시간 (사람 속도로 무작위) */
+const REVIEW_PAGE_SETTLE_MS: [number, number] = [1500, 2600];
+
+const jitter = ([min, max]: [number, number]) => min + Math.floor(Math.random() * (max - min));
 
 type RunnerState = {
   running: boolean;
@@ -151,7 +162,7 @@ async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | nu
       next = undefined;
     }
     if (!next?.clicked) break;
-    await sleep(REVIEW_PAGE_SETTLE_MS);
+    await sleep(jitter(REVIEW_PAGE_SETTLE_MS));
     const again = await analyzeOnce(tabId);
     if (!again || again.sampleSize <= result.sampleSize) {
       // 새 리뷰가 안 들어왔다 = 마지막 페이지였거나 화면이 바뀌지 않았다.
@@ -165,8 +176,9 @@ async function analyzeReviewsOnTab(tabId: number): Promise<ReviewDateResult | nu
   return result;
 }
 
-/** 차단/오류 페이지인지 간단히 판단한다. 우회하지 않고 멈추기 위한 감지다. */
+/** 차단/오류 페이지인지 판단한다. 우회하지 않고 멈추기 위한 감지다. */
 function looksBlocked(parsed: ParseResult): boolean {
+  if (parsed.blocked) return true;
   const url = parsed.sourceUrl.toLowerCase();
   return url.includes("captcha") || url.includes("access-denied") || url.includes("blocked");
 }
@@ -192,15 +204,50 @@ async function scrollToBottom(tabId: number): Promise<void> {
   }
 }
 
-async function processTarget(target: ScanTarget): Promise<{ count: number; discovered: DiscoveredChild[] }> {
+/**
+ * 목록 페이지가 정말 판매량순인지 화면에서 확인하고, 아니면 "판매량순"을 눌러 맞춘다.
+ * 주소의 sorter 파라미터를 쿠팡이 무시해도 결과가 랭킹순으로 바뀌지 않게 한다.
+ */
+async function ensureSalesSort(tabId: number, url: string): Promise<string> {
+  try {
+    const res = (await sendWhenReady<{ ok: boolean; result?: ListSortState; error?: string }>(
+      tabId,
+      { type: "ENSURE_LIST_SORT" },
+      CONTENT_READY_TIMEOUT_MS,
+    )).result;
+    if (!res) return "정렬: 확인 불가";
+    if (!res.changed) return `정렬: ${res.note}`;
+    // 정렬을 바꾸면 쿠팡이 목록을 다시 그리거나 주소를 바꿔 다시 불러온다.
+    await sleep(2500);
+    await waitForLoad(tabId, url, 15000);
+    await sleep(SETTLE_AFTER_LOAD_MS);
+    const after = (await sendWhenReady<{ ok: boolean; result?: ListSortState }>(
+      tabId,
+      { type: "READ_LIST_SORT" },
+      CONTENT_READY_TIMEOUT_MS,
+    )).result;
+    return `정렬: ${res.note}` + (after?.isSalesDesc ? " (적용 확인)" : " (적용 여부 불명)");
+  } catch (e) {
+    return `정렬: 확인 실패 (${e instanceof Error ? e.message : String(e)})`;
+  }
+}
+
+async function processTarget(target: ScanTarget): Promise<{ count: number; discovered: DiscoveredChild[]; note: string | null }> {
   const tabId = await ensureTab(target.url);
   await waitForLoad(tabId, target.url, 25000);
   await sleep(SETTLE_AFTER_LOAD_MS);
-  if (target.kind === "list") await scrollToBottom(tabId);
+  let note: string | null = null;
+  if (target.kind === "list") {
+    note = await ensureSalesSort(tabId, target.url);
+    await scrollToBottom(tabId);
+  }
 
   const parsed = await scanWhenReady(tabId);
   if (looksBlocked(parsed)) {
-    throw new Error("쿠팡이 접근을 제한한 것으로 보입니다. 잠시 후 다시 시도하세요.");
+    throw new Error(
+      `${BLOCKED_PREFIX} 쿠팡이 접근을 제한했습니다(Access Denied). 자동 수집을 멈췄습니다. ` +
+        "30분~1시간 뒤 [재개]를 누르세요. 상세 확인 상품 수를 줄이면 덜 걸립니다.",
+    );
   }
   if (parsed.products.length === 0) {
     const where = parsed.pageType === "product" ? "상세 페이지" : "목록 페이지";
@@ -254,7 +301,8 @@ async function processTarget(target: ScanTarget): Promise<{ count: number; disco
       }
     }
   }
-  return { count: parsed.products.length, discovered };
+  const summary = `${note ?? ""}${note ? " · " : ""}읽음 ${parsed.products.length}개 · 저장 ${saved.saved}개 (신규 ${saved.inserted}, 갱신 ${saved.updated})`;
+  return { count: parsed.products.length, discovered, note: summary };
 }
 
 async function loop(): Promise<void> {
@@ -291,8 +339,8 @@ async function loop(): Promise<void> {
     log.info("스캔 대상", target.label, target.url);
 
     try {
-      const { count, discovered } = await processTarget(target);
-      await api.scanDone(target.id, { product_count: count, discovered_children: discovered });
+      const { count, discovered, note } = await processTarget(target);
+      await api.scanDone(target.id, { product_count: count, discovered_children: discovered, note });
       state.processed += 1;
       state.consecutiveFailures = 0;
     } catch (e) {
@@ -300,6 +348,13 @@ async function loop(): Promise<void> {
       log.warn("스캔 대상 실패", target.url, message);
       await api.scanDone(target.id, { error: message }).catch(() => undefined);
       state.failures += 1;
+      if (message.startsWith(BLOCKED_PREFIX)) {
+        // 차단 화면: 계속 두드리면 더 오래 막힌다. 바로 멈추고 사용자에게 맡긴다.
+        state.lastMessage = message;
+        await api.scanPause().catch(() => undefined);
+        stopRunner("쿠팡 접근 제한");
+        break;
+      }
       state.consecutiveFailures += 1;
       if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
         state.lastMessage = `연속 ${MAX_CONSECUTIVE_FAILURES}회 실패로 멈췄습니다: ${message}`;
@@ -310,7 +365,11 @@ async function loop(): Promise<void> {
     }
 
     state.currentTarget = null;
-    await sleep(DELAY_BETWEEN_TARGETS_MS);
+    await sleep(jitter(target.kind === "detail" ? DELAY_DETAIL_MS : DELAY_LIST_MS));
+    if (state.processed > 0 && state.processed % REST_EVERY === 0) {
+      state.lastMessage = "잠깐 쉬는 중 (차단 방지)";
+      await sleep(jitter(REST_MS));
+    }
   }
 }
 

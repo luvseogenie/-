@@ -31,6 +31,8 @@ function checkStateOf(node: CategoryTreeNode, selected: Set<number>): CheckState
 function matchesKeyword(node: CategoryTreeNode, keyword: string): boolean {
   if (!keyword) return true;
   if (node.category_name.toLowerCase().includes(keyword)) return true;
+  // 쿠팡 주소의 categoryId(숫자 코드)로도 찾을 수 있게
+  if (node.category_code.includes(keyword)) return true;
   return node.children.some((child) => matchesKeyword(child, keyword));
 }
 
@@ -203,7 +205,7 @@ export function CategoryTree({ tree, loading, error, selected, onChange, onImpor
       </div>
 
       <Input
-        placeholder="카테고리 검색"
+        placeholder="카테고리 이름 또는 코드(예: 185870) 검색"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         className="h-7 text-xs"
