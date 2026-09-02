@@ -1,7 +1,7 @@
 import * as S from './lib/store.js';
 import { computeLedger } from './lib/ledger.js';
 import { normalizeAds, parseNumber, localIso } from './lib/parse.js';
-import { importSalesFile, importAdsFile } from './lib/importer.js';
+import { importSalesFile, importAdsFile, dateFromReportName } from './lib/importer.js';
 
 const $ = (s) => document.querySelector(s);
 const fmtInt = (v) => Math.round(v).toLocaleString('ko-KR');
@@ -20,6 +20,7 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   if (b.dataset.tab === 'ads') loadAds(); if (b.dataset.tab === 'options') loadOptions(); if (b.dataset.tab === 'data') loadSettings();
 });
 if (location.hash === '#import') document.getElementById('import-card').scrollIntoView();
+else if (location.hash === '#range') { document.getElementById('range-details').open = true; document.getElementById('range-card').scrollIntoView(); }
 else if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
 
 /* ---- 요약 ---- */
@@ -192,7 +193,7 @@ $('#ads-csv').onclick = async () => {
   for (const date of Object.keys(d.ads).sort()) for (const r of Object.values(d.ads[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(','));
   download('광고데이터.csv', lines.join('\n'));
 };
-const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
+const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, serverSync: false, server: 'http://127.0.0.1:8765' };
 async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
@@ -206,15 +207,24 @@ $('#set-save').onclick = async () => {
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 30초쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); loadSummary(); loadLedger(); };
 
 /* ---- 리포트 파일 올리기 ---- */
-$('#import-sales').onchange = async (ev) => {
-  const files = [...ev.target.files]; if (!files.length) return;
-  const results = [];
-  for (const f of files) {
-    try { const r = await importSalesFile(await f.arrayBuffer(), f.name, $('#import-date').value || null); results.push(`${f.name} → ${r.date} 판매 ${r.saved}건 저장` + (r.unmapped ? ` (캠페인/마진 미입력 옵션 ${r.unmapped}개 → 옵션 · 마진 관리)` : '')); }
-    catch (e) { results.push(`${f.name}: ${e.message}`); }
+let pendingFiles = [];
+$('#import-sales').onchange = (ev) => {
+  pendingFiles = [...ev.target.files]; ev.target.value = '';
+  if (!pendingFiles.length) return;
+  const base = $('#import-date').value || localIso(yday);
+  $('#import-rows').innerHTML = pendingFiles.map((f, i) => `<tr><td>${esc(f.name)}</td><td><input type="date" class="date" data-i="${i}" value="${dateFromReportName(f.name) || base}"></td><td class="mini" data-res="${i}"></td></tr>`).join('');
+  $('#import-list').style.display = 'block'; msg('#import-msg', '');
+};
+$('#import-clear').onclick = () => { pendingFiles = []; $('#import-list').style.display = 'none'; };
+$('#import-go').onclick = async () => {
+  let bad = 0;
+  for (let i = 0; i < pendingFiles.length; i++) {
+    const f = pendingFiles[i]; const date = $(`#import-rows input[data-i="${i}"]`).value; const cell = $(`#import-rows [data-res="${i}"]`);
+    try { const r = await importSalesFile(await f.arrayBuffer(), f.name, date); cell.textContent = `${r.date} 판매 ${r.saved}건 저장` + (r.unmapped ? ` (캠페인/마진 미입력 옵션 ${r.unmapped}개)` : ''); cell.style.color = '#059669'; }
+    catch (e) { cell.textContent = e.message; cell.style.color = '#dc2626'; bad++; }
   }
-  msg('#import-msg', results.join(' / '), results.some((r) => /실패|못|않/.test(r)) ? 'err' : 'ok');
-  ev.target.value = ''; loadSummary(); loadLedger();
+  msg('#import-msg', bad ? `${pendingFiles.length - bad}개 저장, ${bad}개 실패` : `${pendingFiles.length}개 파일 저장 완료`, bad ? 'err' : 'ok');
+  loadSummary(); loadLedger();
 };
 $('#import-ads').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
@@ -223,6 +233,30 @@ $('#import-ads').onchange = async (ev) => {
   ev.target.value = ''; loadSummary(); loadLedger();
 };
 $('#import-date').value = localIso(yday);
+
+/* ---- 지난 날짜 채우기 ---- */
+{
+  const a = new Date(yday); a.setDate(a.getDate() - 6);
+  $('#range-start').value = localIso(a); $('#range-end').value = localIso(yday);
+}
+const rangeDates = () => { const out = []; const d = new Date($('#range-start').value + 'T00:00:00'); const e = new Date($('#range-end').value + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(localIso(d)); return out; };
+$('#range-check').onclick = async () => {
+  const d = await S.load(); const dates = rangeDates();
+  const ms = dates.filter((x) => !d.sales[x]), ma = dates.filter((x) => !d.ads[x]);
+  $('#range-missing-list').innerHTML = `판매 없는 날 ${ms.length}일: ${ms.map((x) => x.slice(5)).join(', ') || '없음'}<br>광고 없는 날 ${ma.length}일: ${ma.map((x) => x.slice(5)).join(', ') || '없음'}`;
+};
+$('#range-go').onclick = async () => {
+  const kinds = [$('#range-sales').checked && 'sales', $('#range-ads').checked && 'ads'].filter(Boolean);
+  if (!kinds.length || !$('#range-start').value || !$('#range-end').value) return;
+  await chrome.runtime.sendMessage({ type: 'collectRange', start: $('#range-start').value, end: $('#range-end').value, kinds, onlyMissing: $('#range-missing').checked });
+  $('#range-log').style.display = 'block'; $('#range-stop').style.display = ''; $('#range-go').disabled = true; pollJob();
+};
+$('#range-stop').onclick = () => chrome.runtime.sendMessage({ type: 'cancelJob' });
+async function pollJob() {
+  const j = await chrome.runtime.sendMessage({ type: 'jobStatus' });
+  $('#range-log').textContent = `${j.done}/${j.total} 진행\n` + j.log.join('\n');
+  if (j.running) setTimeout(pollJob, 1500); else { $('#range-stop').style.display = 'none'; $('#range-go').disabled = false; loadSummary(); loadLedger(); }
+}
 
 /* ---- 초기화 ---- */
 $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;

@@ -1,5 +1,6 @@
 import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
+const SALES_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}';
 
 const $ = (s) => document.querySelector(s);
 const msg = (t, cls = '') => { $('#msg').textContent = t; $('#msg').className = 'msg ' + cls; };
@@ -75,8 +76,20 @@ $('#send-ads').onclick = () => saveKind('ads');
 $('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
 $('#open-import').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#import') });
 
+$('#date-yday').onclick = () => { $('#date').value = yesterdayIso(); };
+$('#goto-sales').onclick = async (e) => {
+  e.preventDefault(); const date = $('#date').value || yesterdayIso();
+  const { salesUrl } = await chrome.storage.sync.get({ salesUrl: SALES_URL });
+  const url = (salesUrl.includes('{date}') ? salesUrl : SALES_URL).replace(/\{date\}/g, date);
+  const tab = await activeTab();
+  if (tab?.url?.includes('coupang.com')) chrome.tabs.update(tab.id, { url }); else chrome.tabs.create({ url });
+  msg(`${date} 판매분석 화면을 여는 중… 화면이 뜨면 ① 을 누르세요.`);
+};
+$('#open-range').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#range') });
+
 (async () => {
   $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
+  const tab = await activeTab(); $('#date').value = dateFromUrl(tab?.url || '') || yesterdayIso();
   const d = await S.load(); const ds = S.dates(d);
   if (!ds.length) msg('아직 저장된 데이터가 없습니다. ①, ② 를 눌러 시작하세요.');
   else msg(`저장된 데이터: ${ds[0]} ~ ${ds[ds.length - 1]} (${ds.length}일)`);

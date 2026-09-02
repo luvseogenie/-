@@ -33,6 +33,27 @@
       <span class="mini">광고 CSV/XLSX:</span><label class="btn">파일 선택 <input type="file" id="import-ads" accept=".xlsx,.csv" style="display:none"></label>
       <span id="import-msg" class="msg"></span>
     </div>
+    <div id="import-list" style="display:none;margin-top:8px">
+      <table class="form-table"><thead><tr><th>파일</th><th>데이터 날짜</th><th>결과</th></tr></thead><tbody id="import-rows"></tbody></table>
+      <div class="row" style="margin-top:6px"><button class="btn primary" id="import-go">이 날짜로 가져오기</button><button class="btn" id="import-clear">취소</button><span class="mini">파일마다 날짜를 확인하세요. 파일명에 기간이 있으면 자동으로 채워집니다.</span></div>
+    </div>
+  </div>
+  <div class="card" id="range-card">
+    <details id="range-details">
+      <summary><b>📅 지난 날짜 채우기</b> <span class="mini">— 며칠 못 했을 때 기간을 정해 자동으로 가져옵니다 (판매분석 화면을 날짜별로 열어 리포트를 받음)</span></summary>
+      <div class="row" style="margin-top:8px">
+        <label>기간</label><input type="date" id="range-start" class="date"> ~ <input type="date" id="range-end" class="date">
+        <label><input type="checkbox" id="range-sales" checked> 판매</label>
+        <label><input type="checkbox" id="range-ads" checked> 광고</label>
+        <label><input type="checkbox" id="range-missing" checked> 이미 있는 날은 건너뛰기</label>
+        <button class="btn" id="range-check">빠진 날 확인</button>
+        <button class="btn primary" id="range-go">자동으로 가져오기</button>
+        <button class="btn" id="range-stop" style="display:none">중단</button>
+      </div>
+      <div id="range-missing-list" class="mini" style="margin-top:6px"></div>
+      <div class="mini" style="margin-top:6px">광고는 광고 관리 주소에 <code>{date}</code> 가 있어야 자동으로 열 수 있습니다(백업 · 설정). 없으면 광고센터에서 날짜를 고르고 팝업의 날짜를 맞춘 뒤 ② 를 누르세요. 크롬이 로그인된 상태여야 하며, 실행 중 탭이 열렸다 닫힙니다.</div>
+      <pre class="log" id="range-log" style="display:none"></pre>
+    </details>
   </div>
   <div class="card row">
     <label>기간</label>
@@ -126,6 +147,7 @@
     <p class="mini">크롬이 켜져 있으면 정해진 시각에 두 화면을 백그라운드에서 열어 '어제' 데이터를 저장합니다. 주소의 <code>{date}</code> 자리에 어제 날짜가 자동으로 들어갑니다. 광고 관리 화면은 '어제' 를 누른 뒤 주소창의 주소를 복사해 넣으세요.</p>
     <div class="row"><label style="width:150px">판매분석 주소</label><input id="set-salesUrl" style="width:520px"></div>
     <div class="row"><label style="width:150px">광고 관리 주소</label><input id="set-adsUrl" style="width:520px"></div>
+    <div class="row"><label style="width:150px">빠진 날 보충</label>최근 <input type="number" id="set-fillMissingDays" class="num" min="0" max="60"> 일 중 저장 안 된 날도 함께 수집 (0 = 안 함)</div>
     <div class="row"><label style="width:150px">시각</label><input type="time" id="set-autoTime"> <label><input type="checkbox" id="set-autoEnabled"> 자동 수집 켜기</label>
       <label style="margin-left:12px">페이지 대기(초)</label><input type="number" id="set-waitSeconds" class="num" min="3" max="120"></div>
     <div class="row"><button class="btn primary" id="set-save">설정 저장</button><button class="btn" id="run-auto">지금 자동 수집 실행</button><span id="set-msg" class="msg"></span></div>

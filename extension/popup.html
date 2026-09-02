@@ -11,22 +11,21 @@
   .msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
   .ok { color: #059669; } .err { color: #dc2626; }
   .row { display: flex; gap: 6px; align-items: center; }
+  label { font-size: 12px; color: #6b7280; }
   input[type=date] { font: inherit; padding: 4px; }
   details { margin-top: 8px; } summary { font-size: 12px; color: #6b7280; cursor: pointer; }
   pre { background: #f3f4f6; padding: 6px; font-size: 11px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
 </style></head>
 <body>
 <h1>쿠팡 광고계산기 <span id="ver" style="font-size:11px;font-weight:400;color:#6b7280"></span></h1>
-<div class="hint">쿠팡 화면에서 <b>어제</b> 를 누른 뒤 아래 버튼을 누르세요.</div>
+<div class="row" style="margin-bottom:6px"><label>데이터 날짜</label><input type="date" id="date"><button id="date-yday" style="width:auto;margin:0;padding:4px 8px;font-size:12px">어제</button></div>
+<div class="hint">쿠팡 화면에서 이 날짜를 고른 뒤 아래 버튼을 누르세요. 판매분석은 <a href="#" id="goto-sales">이 날짜 화면 열기</a> 로 바로 갈 수 있습니다.</div>
 <button class="primary big" id="send-sales">① 판매 데이터 저장<br><span style="font-weight:400;font-size:11px">판매분석 › 어제 화면에서 누르면 '상품별 판매 리포트' 를 받아 저장</span></button>
 <button class="primary big" id="send-ads">② 광고 데이터 저장<br><span style="font-weight:400;font-size:11px">광고센터 › 광고 관리 › 매출 성장</span></button>
 <button id="open-app">📒 장부 보기 · 옵션/마진 관리</button>
 <button id="open-import">📂 리포트 파일 올리기 (직접 받은 엑셀)</button>
 <div id="msg" class="msg"></div>
-<details><summary>날짜 직접 지정 / 찾은 표 보기</summary>
-  <div class="row" style="margin-top:6px"><label>데이터 날짜</label><input type="date" id="date"></div>
-  <div class="hint">비워 두면 화면의 날짜를 찾고, 없으면 어제로 저장합니다.</div>
-  <pre id="detail"></pre>
-</details>
+<button id="open-range">📅 지난 날짜 한꺼번에 채우기</button>
+<details><summary>찾은 표 보기 (문제 확인용)</summary><pre id="detail"></pre></details>
 <script type="module" src="popup.js"></script>
 </body></html>
