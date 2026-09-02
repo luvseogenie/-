@@ -36,8 +36,15 @@ def current_version() -> str:
         return "?"
 
 
+_remote_cache = {"ts": 0, "version": None, "zip": None}
+
+
 def remote_version() -> str | None:
-    """GitHub API 로 최신 VERSION 파일 내용을 읽는다."""
+    """최신 VERSION 을 읽는다. GitHub API(시간당 60회 제한)가 막히면 ZIP 을 직접 받아 안에서 읽는다."""
+    import time as _t
+    if _remote_cache["version"] and _t.time() - _remote_cache["ts"] < 60:
+        return _remote_cache["version"]
+    ver = None
     try:
         import base64
         import json as _json
@@ -45,10 +52,22 @@ def remote_version() -> str | None:
         req = urllib.request.Request(url, headers={"User-Agent": "coupang-sourcing-updater", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=15) as r:
             d = _json.loads(r.read().decode("utf-8"))
-        return base64.b64decode(d["content"]).decode("utf-8").strip()
+        ver = base64.b64decode(d["content"]).decode("utf-8").strip()
     except Exception as e:  # noqa: BLE001
-        _note(f"최신 버전 확인 실패(무시함): {e}")
-        return None
+        _note(f"GitHub API 버전 확인 실패(무시하고 ZIP 으로 확인): {e}")
+    if not ver:
+        try:
+            data = download_zip()
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            for name in zf.namelist():
+                if name.endswith("/VERSION"):
+                    ver = zf.read(name).decode("utf-8").strip()
+                    break
+            _remote_cache["zip"] = data
+        except Exception as e:  # noqa: BLE001
+            _note(f"ZIP 으로 버전 확인 실패: {e}")
+    _remote_cache.update({"ts": _t.time(), "version": ver})
+    return ver
 
 
 def _download_python() -> bytes:
@@ -90,7 +109,12 @@ def download_zip() -> bytes:
 
 def apply_update(zip_path: str | None = None) -> dict:
     _note(f"업데이트 시작 (현재 {current_version()})")
-    data = Path(zip_path).read_bytes() if zip_path else download_zip()
+    if zip_path:
+        data = Path(zip_path).read_bytes()
+    elif _remote_cache.get("zip"):
+        data = _remote_cache.pop("zip")
+    else:
+        data = download_zip()
     zf = zipfile.ZipFile(io.BytesIO(data))
     names = zf.namelist()
     if not names:

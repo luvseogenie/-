@@ -467,7 +467,14 @@ def update_apply():
     try:
         r = updater.apply_update()
     except Exception as e:  # noqa: BLE001
-        return _err(f"업데이트 실패: {e}")
+        tail = ""
+        try:
+            lines = (config.BASE_DIR / "업데이트기록.txt").read_text(encoding="utf-8").splitlines()[-6:]
+            tail = " | ".join(lines)
+        except Exception:  # noqa: BLE001
+            pass
+        log.error(f"업데이트 실패: {e}")
+        return _err(f"업데이트 실패: {e}  [기록: {tail}]")
     updater.restart_program()
     return {"ok": True, "message": f"업데이트 완료 (파일 {r['changed']}개, 버전 {r['version']}). 프로그램을 다시 시작합니다. 10초 뒤 이 페이지를 새로고침 하세요.", **r}
 

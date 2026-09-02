@@ -332,7 +332,10 @@
     toast('최신 버전 확인 중…');
     const c = await api('/api/update/check');
     if (c.remote && c.remote === c.current) { toast(`이미 최신 버전입니다 (${c.current}).`); return; }
-    if (!confirm(`업데이트를 받을까요?\n현재 ${c.current} → 최신 ${c.remote || '(확인 불가, 그래도 시도)'}\n\n받은 뒤 프로그램이 자동으로 다시 시작됩니다.`)) return;
+    const msg = c.remote
+      ? `업데이트를 받을까요?\n현재 ${c.current} → 최신 ${c.remote}\n\n받은 뒤 프로그램이 자동으로 다시 시작됩니다.`
+      : `최신 버전 번호는 확인하지 못했지만 업데이트는 받을 수 있습니다.\n현재 ${c.current}\n\n지금 받을까요? (받은 뒤 프로그램이 자동으로 다시 시작됩니다)`;
+    if (!confirm(msg)) return;
     toast('업데이트 내려받는 중… (30초~2분)');
     const r = await api('/api/update/apply', {});
     openModal('업데이트', `<p>${esc(r.message)}</p><p class="muted small">새 창이 뜨지 않으면 2_run.bat 을 직접 다시 실행해 주세요.</p>`);
