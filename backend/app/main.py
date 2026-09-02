@@ -33,11 +33,12 @@ app = FastAPI(
 )
 
 # Chrome 확장의 origin(chrome-extension://<id>)은 설치 전에는 id를 알 수 없다.
-# 대시보드 origin은 화이트리스트, 확장은 정규식으로 허용한다.
+# 로컬 대시보드는 포트가 바뀔 수 있으므로 localhost/127.0.0.1 전체를 허용한다.
+# (로컬 개발 전용 설정이다. 외부에 배포할 때는 반드시 좁혀야 한다.)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_origin_regex=r"chrome-extension://.*",
+    allow_origin_regex=r"^(chrome-extension://.*|http://(localhost|127\.0\.0\.1)(:\d+)?)$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
