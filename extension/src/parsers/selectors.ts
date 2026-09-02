@@ -193,6 +193,10 @@ export const MAX_BREADCRUMB_DEPTH = 8;
 
 /** 현재 페이지의 카테고리명이 표시되는 위치 */
 export const CATEGORY_NAME_SELECTORS = [
+  // 실제 목록 페이지는 카테고리명을 h1으로 렌더링한다.
+  "h1[class*='fw-text-']",
+  "main h1",
+  "h1.title",
   "h2.title",
   ".breadcrumb li:last-child",
   "#breadcrumb li:last-child",

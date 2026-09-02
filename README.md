@@ -234,6 +234,32 @@ cd frontend  && npx tsc --noEmit && npm run lint && npm run build
 
 ---
 
+## 상품 데이터는 DOM이 아니라 페이지 데이터에서 읽습니다
+
+쿠팡 목록/검색 페이지는 Next.js로 만들어져 있고, 상품 데이터를 화면에 그리기 전에
+아래 형태로 페이지에 함께 실어 보냅니다.
+
+```js
+self.__next_f.push([1, "...{\"legacyProductId\":8133306304,
+  \"imageAndTitleArea\":{\"title\":\"...\"},
+  \"priceArea\":{\"i18nSalesPrice\":{\"amount\":\"9800\"}},
+  \"reviewArea\":{\"ratingCount\":18,\"ratingAverage\":4},
+  \"deliveryUnificationBadgeArea\":{...\"badgeId\":\"ROCKET_MERCHANT\"}}..."])
+```
+
+**이걸 1순위로 읽습니다.** DOM에서 클래스명으로 긁는 것보다 정확하고,
+쿠팡이 화면을 개편해도 이 데이터 구조는 잘 바뀌지 않습니다.
+
+| | DOM 파싱 | 페이지 데이터 |
+|---|---|---|
+| 상품 ID | `data-id="0"` 같은 함정 있음 | `legacyProductId` 정확 |
+| 가격 | `"13,900"` 텍스트 파싱 | `"9800"` 숫자 |
+| 리뷰수·평점 | `"( 590 )"` 텍스트 파싱 | `590`, `4.5` 숫자 |
+| 배송 방식 | alt 없는 배지 이미지 추정 | `ROCKET_MERCHANT` 코드 |
+| 카테고리명 | selector 의존 | 페이로드에 포함 |
+
+페이지 데이터를 찾지 못하면 아래 DOM 파싱으로 넘어갑니다.
+
 ## 쿠팡이 화면을 개편해도 동작하는 이유
 
 쿠팡은 개편 때마다 클래스명을 통째로 바꿉니다
@@ -242,6 +268,7 @@ cd frontend  && npx tsc --noEmit && npm run lint && npm run build
 
 | 대상 | 1순위 | 2순위 (개편 대비) |
 |---|---|---|
+| **전체 상품 목록** | **`__next_f` 페이지 데이터 (1순위)** | 아래 DOM 경로들 |
 | 상품 카드 | 알려진 클래스 selector | **`a[href*="/vp/products/"]` 링크에서 위로 역추적** |
 | 상품 ID | **상품 URL의 `/vp/products/{id}`** | data-* 속성 (6자리 이상 숫자만) |
 | 상품명 | 클래스 selector | 썸네일 `img[alt]` |

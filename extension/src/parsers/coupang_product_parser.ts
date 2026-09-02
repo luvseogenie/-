@@ -37,6 +37,7 @@ import {
 } from "@/parsers/selectors";
 import { absoluteUrl, parsePrice, parseRating, parseReviewCount } from "@/parsers/normalize";
 import { findMonthlyPurchase } from "@/parsers/coupang_purchase_parser";
+import { parseNextData } from "@/parsers/coupang_next_data";
 import type { CollectedProduct, DeliveryType, PageType, ParseResult } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -561,6 +562,25 @@ export function parseProductList(root: ParentNode, sourceUrl: string): ParseResu
     return result;
   }
 
+  // 1순위: 쿠팡이 페이지에 실어 보내는 Next.js 데이터.
+  // DOM에서 클래스명으로 긁는 것보다 정확하고 화면 개편에도 영향받지 않는다.
+  const nextData = parseNextData(root);
+  if (nextData) {
+    result.products = nextData.products;
+    result.skipped += nextData.skipped;
+    result.matchedCardSelector = "__next_f (페이지 데이터)";
+    if (!result.categoryName && nextData.categoryName) {
+      result.categoryName = nextData.categoryName;
+      // 카테고리 경로도 페이지 데이터의 이름으로 채운다.
+      const code = result.categoryCode;
+      if (code && result.categoryPath.length === 0) {
+        result.categoryPath = [{ code, name: nextData.categoryName }];
+      }
+    }
+    return result;
+  }
+
+  // 2순위: DOM 파싱
   const { cards, selector } = findCards(root);
   result.matchedCardSelector = selector;
 

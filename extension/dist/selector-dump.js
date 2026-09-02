@@ -54,6 +54,10 @@
     ".delivery-badge"
   ];
   var CATEGORY_NAME_SELECTORS = [
+    // 실제 목록 페이지는 카테고리명을 h1으로 렌더링한다.
+    "h1[class*='fw-text-']",
+    "main h1",
+    "h1.title",
     "h2.title",
     ".breadcrumb li:last-child",
     "#breadcrumb li:last-child",

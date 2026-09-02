@@ -53,7 +53,8 @@ frontend/src/
 
 extension/src/
   parsers/selectors.ts              ★ 모든 DOM selector 집중 관리
-  parsers/coupang_product_parser.ts ★ 상품 카드 파서 (순수 함수)
+  parsers/coupang_next_data.ts      ★ Next.js 페이지 데이터 파서 (상품 추출 1순위)
+  parsers/coupang_product_parser.ts ★ 상품 카드 DOM 파서 (2순위 fallback)
   parsers/coupang_review_parser.ts  ★ 리뷰 작성일 파서 (최근 30일 리뷰수)
   parsers/normalize.ts              리뷰수/가격/평점 정규화
   content/content.ts                DOM 스캔 → 메시지 응답

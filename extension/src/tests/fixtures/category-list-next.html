@@ -1,0 +1,28 @@
+<!--
+  테스트용 픽스처 — 실제 쿠팡 목록 페이지(Next.js) 구조.
+
+  쿠팡 목록 페이지는 상품 데이터를 self.__next_f.push([1,"..."]) 안에 JSON으로 싣는다.
+  DOM에서 클래스명으로 긁는 것보다 훨씬 정확하고, 개편에도 영향받지 않는다.
+
+  재현하는 특징
+    - 페이로드가 여러 청크로 쪼개져 있다 (이어붙여야 파싱된다)
+    - legacyProductId 가 진짜 상품 ID (DOM의 data-id="0" 과 다르다)
+    - 배송 방식이 badgeId 코드로 명확하다 (ROCKET_MERCHANT / ROCKET / 없음)
+    - DOM에는 배지가 alt 없는 이미지로만 렌더링된다
+-->
+<script>self.__next_f.push([1,"1a:[\"$\",\"div\",null,{\"className\":\"fw-mt-[20px]\",\"children\":[[\"$\",\"h1\",\"title\",{\"className\":\"fw-px-[16px]\",\"children\":\"후드집업/집업류\"}],[\"$\",\"$L23\",null,{\"products\":[{\"imageAndTitleArea\": {\"defaultUrl\": \"//thumbnail.coupangcdn.com/thumbnails/remote/230x230ex/image/vendor_inventory/c715/8c6c.png\", \"title\": \"여성용 자외선 차단 쿨냉감 후드집업 자켓 뉴타임즈 Q395X486\"}, \"legacyProductId\": 8133306304, \"link\": \"/vp/products/8133306304?itemId=23100258889&vendorItemId=90133694818&sourceType=CATEGORY&categoryId=564575\", \"priceArea\": {\"basePrice\": \"24,300\", \"discountRate\": 59, \"i18nSalesPrice\": {\"amount\": \"9800\", \"currency\": \"KRW\"}, \"price\": \"9,800\"}, \"reviewArea\": {\"ratingAverage\": 4, \"ratingCount\": 18, \"ratingRatio\": 80}, \"deliveryUnificationBadgeArea\": {\"show\": true, \"badge\": {\"badgeList\": [{\"badgeId\": \"ROCKET_MERCHANT\", \"badgeType\": \"IMAGE\"}, {\"badgeId\": \"TOMORROW\", \"badgeType\": \"IMAGE\"}]}}, \"rocketArea\": {\"show\": true}, \"sequence\": 0, \"soldoutArea\": {\"soldOutText\": \"품절\", \"soldout\": false}, \"vendorItemId\": 90133694818}, {\"imageAndTitleArea\": {\"defaultUrl\": \"//thumbnail.coupangcdn.com/thumbnails/remote/230x230ex/image/vendor_inventory/f45e/e8d1.jpg\", \"title\": \"바닐라비 바스락 후드집업\"}, \"legacyProductId\": 8919055588, \"link\": \"/vp/products/8919055588?itemId=26061637033&vendorItemId=93042918815&sourceType=CATEGORY&categoryId=564575\", \"priceArea\": {\"basePrice\": \"66,000\", \"discountRate\": 69, \"i18nSalesPrice\": {\"amount\": \"19900\", \"currency\": \"KRW\"}, \"price\": \"19,900\"}, \"reviewArea\": {\"ratingAverage\": 5, \"ratingCount\": 1, \"ratingRatio\": 100}, \"deliveryUnificationBadgeArea\": {\"show\": false, \"badge\": null}, \"rocketArea\": {\"show\": false}, \"sequence\": 1, \"soldoutArea\": {\"soldOutText\": \"품절\", \"soldout\": false}, \"vendorItemId\": 93042918815}, {\"imageAndTitleArea\": {\"def"])</script>
+<script>self.__next_f.push([1,"aultUrl\": \"//thumbnail.coupangcdn.com/thumbnails/remote/230x230ex/image/rs_quotation_api/7wjs/5e19.jpg\", \"title\": \"포플러앤씨 여성용 벤디움데 빅사이즈 후드 집업 P26FJP072301\"}, \"legacyProductId\": 9673081216, \"link\": \"/vp/products/9673081216?itemId=28922549692&vendorItemId=95854193526&sourceType=CATEGORY&categoryId=564575\", \"priceArea\": {\"basePrice\": \"34,400\", \"discountRate\": 33, \"i18nSalesPrice\": {\"amount\": \"22900\", \"currency\": \"KRW\"}, \"price\": \"22,900\"}, \"reviewArea\": {\"ratingAverage\": 5, \"ratingCount\": 1, \"ratingRatio\": 100}, \"deliveryUnificationBadgeArea\": {\"show\": true, \"badge\": {\"badgeList\": [{\"badgeId\": \"ROCKET\", \"badgeType\": \"IMAGE\"}, {\"badgeId\": \"TOMORROW\", \"badgeType\": \"IMAGE\"}]}}, \"rocketArea\": {\"show\": true}, \"sequence\": 3, \"soldoutArea\": {\"soldOutText\": \"일시품절\", \"soldout\": false}, \"vendorItemId\": 95854193526}, {\"imageAndTitleArea\": {\"defaultUrl\": \"//thumbnail.coupangcdn.com/thumbnails/remote/230x230ex/image/vendor_inventory/5a41/f605.png\", \"title\": \"여름 여성 UPF50+ 자외선차단 쿨링 썬가드 바람막이 후드집업 아웃도어 베이잉\"}, \"legacyProductId\": 9543050283, \"link\": \"/vp/products/9543050283?itemId=28467448283&vendorItemId=95417780359&sourceType=CATEGORY&categoryId=564575\", \"priceArea\": {\"basePrice\": \"0\", \"discountRate\": 0, \"i18nSalesPrice\": {\"amount\": \"9990\", \"currency\": \"KRW\"}, \"price\": \"9,990\"}, \"reviewArea\": {\"ratingAverage\": 4.5, \"ratingCount\": 590, \"ratingRatio\": 90}, \"deliveryUnificationBadgeArea\": {\"show\": true, \"badge\": {\"badgeList\": [{\"badgeId\": \"ROCKET_MERCHANT\", \"badgeType\": \"IMAGE\"}, {\"badgeId\": \"TOMORROW\", \"badgeType\": \"IMAGE\"}]}}, \"rocketArea\": {\"show\": true}, \"sequence\": 28, \"soldoutArea\": {\"soldOutText\": \"품절\", \"soldout\": false}, \"vendorItemId\": 95417780359}],\"page\":\"$undefined\",\"listSize\":60,\"linkcodes\":\"498724\",\"pageName\":\"plp\"}]]}]"])</script>
+<div class="ProductListPage">
+  <h1 class="fw-px-[16px] fw-py-[12px] fw-text-[24px] fw-font-bold">후드집업/집업류</h1>
+  <ul class="ProductList_productList__Ry1Vn">
+    <li class="ProductUnit_productUnit__Qd6sv" data-id="0" data-ap-skuid="90133694818">
+      <a href="/vp/products/8133306304?itemId=23100258889">
+        <div class="ProductUnit_productNameV2__cV9cw">여성용 자외선 차단 쿨냉감 후드집업 자켓 뉴타임즈 Q395X486</div>
+        <div class="ProductRating_productRating__jjf7W">
+          <span class="ProductRating_rating__lMxS9">4</span>
+          <span class="ProductRating_ratingCount__R0Vhz">( 18 )</span>
+        </div>
+      </a>
+    </li>
+  </ul>
+</div>
