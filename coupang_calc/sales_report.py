@@ -9,7 +9,7 @@ import csv
 import datetime as dt
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from .common import first_match, norm_header, parse_number, parse_percent
 
@@ -83,14 +83,35 @@ def parse_sales_report(path: Path, date: dt.date) -> List[SalesRow]:
     if not rows:
         return []
     h = _find_header_row(rows)
-    headers = [norm_header(c) for c in rows[h]] if h >= 0 else []
+    headers = [c for c in rows[h]] if h >= 0 else []
+    return normalize_sales_table(headers, rows[h + 1:], date)
+
+
+def normalize_sales_records(records: Iterable[Dict[str, Any]], date: dt.date) -> List[SalesRow]:
+    """{헤더: 값} dict 목록 → SalesRow (크롬 확장 프로그램 / 수집기가 화면 표에서 읽은 데이터)."""
+    records = list(records)
+    if not records:
+        return []
+    headers = list(records[0].keys())
+    rows = [[rec.get(hd) for hd in headers] for rec in records]
+    return normalize_sales_table(headers, rows, date)
+
+
+def normalize_sales_table(headers: Sequence[Any], rows: Iterable[Sequence[Any]], date: dt.date) -> List[SalesRow]:
+    normed = [norm_header(c) for c in headers]
     col_idx = {}
-    for i, (field, aliases) in enumerate(SALES_FIELDS):
-        idx = first_match(headers, aliases)
-        col_idx[field] = idx if idx is not None else i  # 헤더 없으면 위치 기반
+    if normed:
+        # 헤더가 있으면 이름으로만 찾는다. 옵션ID 열을 못 찾으면 이 표는 판매 리포트가 아니다.
+        for field, aliases in SALES_FIELDS:
+            col_idx[field] = first_match(normed, aliases)
+        if col_idx["option_id"] is None:
+            return []
+        col_idx = {f: (i if i is not None else len(normed) + 99) for f, i in col_idx.items()}
+    else:
+        col_idx = {field: i for i, (field, _) in enumerate(SALES_FIELDS)}  # 헤더 없으면 A~M 위치 기반
 
     out: List[SalesRow] = []
-    for raw in rows[h + 1 :]:
+    for raw in rows:
         if raw is None or not any(c not in (None, "") for c in raw):
             continue
 
@@ -99,17 +120,17 @@ def parse_sales_report(path: Path, date: dt.date) -> List[SalesRow]:
             return raw[i] if i < len(raw) else None
 
         option_id = _clean_id(get("option_id"))
-        if not option_id:
+        if not option_id or not option_id.replace(",", "").isdigit():
             continue
         if norm_header(get("option_name")) in ("합계", "총계", "total"):
             continue
         out.append(
             SalesRow(
                 date=date,
-                option_id=option_id,
+                option_id=option_id.replace(",", ""),
                 option_name=_s(get("option_name")),
                 product_name=_s(get("product_name")),
-                product_id=_clean_id(get("product_id")),
+                product_id=_clean_id(get("product_id")).replace(",", ""),
                 category=_s(get("category")),
                 sales_type=_s(get("sales_type")),
                 revenue=parse_number(get("revenue")) or 0.0,

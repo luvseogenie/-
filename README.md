@@ -4,6 +4,11 @@
 캠페인별·일자별 **광고 장부**(광고수익률, CPC, 광고 마진, 순이익 …)를 계산하는 가벼운 프로그램입니다.
 엑셀 대신 SQLite 한 파일(`data/ledger.db`)에 누적하고, 로컬 웹 화면에서 조회·입력합니다.
 
+## 왜 이렇게 만들었나
+쿠팡 Open API(윙 API 키)는 상품·주문·정산 위주라 **광고 성과와 판매분석(방문자·조회·장바구니)은 제공하지 않습니다.**
+그래서 데이터는 (1) 다운로드 파일 업로드, (2) 크롬 확장 프로그램이 로그인된 화면의 표를 읽어 전송, (3) Playwright 자동화
+세 경로 중 하나로 들어오고, 계산·저장·조회는 이 프로그램이 맡습니다.
+
 ## 무엇을 계산하나
 
 캠페인 × 날짜마다 (원래 엑셀 4번 시트와 같은 항목):
@@ -57,7 +62,16 @@ python -m coupang_calc report --date 2025-06-08           # 터미널에서 확�
 `--date` 를 생략하면 파일명에 있는 날짜(예: `sales_2025-06-08.xlsx`)를 쓰고, 없으면 **어제**로 봅니다.
 같은 날짜를 다시 넣으면 덮어씁니다(취소 반영 등으로 숫자가 바뀌어도 중복되지 않음).
 
-### 2단계: 매일 13:00 자동 수집 (브라우저 자동화)
+### 2단계(권장): 크롬 확장 프로그램으로 보내기 — 로그인 문제 없음
+이미 로그인된 크롬에서 화면의 표를 읽어 서버로 보냅니다. `extension/README.md` 참고.
+1. `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드** → `extension` 폴더
+2. `python -m coupang_calc serve` 실행
+3. 판매분석 → 어제 화면에서 확장 아이콘 → **판매 데이터 보내기**, 광고 관리 → 매출 성장 → 어제 화면에서 **광고 데이터 보내기**
+
+설정에서 두 화면의 URL 을 넣고 "매일 자동 수집" 을 켜면 지정 시각(기본 13:00)에 크롬이 백그라운드 탭을 열어 스스로 읽고 보냅니다.
+서버가 꺼져 있으면 확장 프로그램이 데이터를 보관했다가 다음에 다시 보냅니다.
+
+### 3단계(대안): Playwright 자동 수집 (별도 브라우저 자동화)
 ```bash
 python -m coupang_calc login      # 최초 1회: 창이 뜨면 판매자센터·광고센터에 로그인 → 세션이 data/browser_profile 에 저장
 python -m coupang_calc run        # 전일 데이터 수집 (창 보임). 잘 되면 이후엔 --headless
@@ -84,8 +98,9 @@ coupang_calc/
   store.py          SQLite: options, margin_history, sales_daily, ads_daily (날짜 기준 덮어쓰기)
   ledger.py         장부 계산 (캠페인×일자, 월 합계, 마진 이력 적용)
   web.py + static/  Flask 웹 화면
-  collector.py      Playwright 자동 수집
+  collector.py      Playwright 자동 수집 (대안)
   mapping.py        config/mapping.csv ↔ DB
+extension/          크롬 확장 프로그램 (로그인된 크롬에서 표를 읽어 /api/records 로 전송)
 config/mapping.csv  초기 옵션·캠페인·마진 (적용시작일 열로 이력도 표현 가능)
 config/collector.json  수집기 메뉴 글자·URL 설정
 scripts/            매일 13:00 실행 스크립트 (Windows .bat/.ps1, cron .sh)

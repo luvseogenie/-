@@ -16,7 +16,8 @@ from flask import Flask, jsonify, request, send_from_directory
 from .ads_report import AdsRow, normalize_records, parse_ads_file
 from .common import parse_date, parse_number, parse_percent, parse_ratio, yesterday
 from .ledger import METRICS, ledger_from_store
-from .sales_report import parse_sales_report
+from .sales_report import normalize_sales_records, parse_sales_report
+from . import __version__
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
@@ -31,6 +32,46 @@ def create_app(db_path: Path, collector_config: Optional[Path] = None) -> Flask:
 
     def store() -> Store:
         return Store(app.config["DB_PATH"])
+
+    # 크롬 확장 프로그램(chrome-extension://…)에서 호출할 수 있도록 CORS 허용. 서버는 로컬(127.0.0.1)에서만 듣는다.
+    @app.after_request
+    def _cors(resp):
+        if request.path.startswith("/api/"):
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
+
+    @app.route("/api/<path:_any>", methods=["OPTIONS"])
+    def _preflight(_any):
+        return ("", 204)
+
+    @app.get("/api/ping")
+    def api_ping():
+        return jsonify({"ok": True, "app": "coupang_calc", "version": __version__})
+
+    @app.post("/api/records")
+    def api_records():
+        """확장 프로그램이 화면 표에서 읽은 데이터. {kind: 'sales'|'ads', date, records: [{헤더: 값}, …]}"""
+        body = request.get_json(force=True) or {}
+        kind = body.get("kind")
+        d = parse_date(body.get("date")) or yesterday()
+        records = body.get("records") or []
+        if kind not in ("sales", "ads"):
+            return jsonify({"error": "kind 는 sales 또는 ads 여야 합니다"}), 400
+        with store() as s:
+            if kind == "sales":
+                rows = normalize_sales_records(records, d)
+                n = s.upsert_sales(rows)
+            else:
+                rows = normalize_records(records, d)
+                n = s.upsert_ads(rows)
+            unmapped = s.unmapped_option_ids()
+        if not rows:
+            return jsonify({"error": f"{len(records)}행을 받았지만 인식된 행이 없습니다. 표의 헤더를 확인하세요.",
+                            "headers": list(records[0].keys()) if records else []}), 422
+        return jsonify({"ok": True, "kind": kind, "date": d.isoformat(), "received": len(records), "saved": n,
+                        "unmapped_options": unmapped})
 
     # ---- 화면 ----------------------------------------------------------------
     @app.get("/")

@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "쿠팡 광고계산기 수집기",
+  "version": "0.1.0",
+  "description": "로그인된 쿠팡 판매자센터·광고센터 화면의 표를 읽어 로컬 광고계산기(coupang_calc)로 보냅니다.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting",
+    "notifications",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://*.coupang.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "쿠팡 광고계산기 수집기"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.coupang.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

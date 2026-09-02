@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  body { font-family: "Malgun Gothic", sans-serif; font-size: 13px; width: 340px; margin: 0; padding: 12px; color: #1f2933; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 10px; border: 1px solid #cfd4da; border-radius: 6px; background: #fff; cursor: pointer; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  input[type=date] { font: inherit; padding: 4px; }
+  .status { font-size: 12px; color: #6b7280; }
+  .ok { color: #059669; } .err { color: #dc2626; }
+  pre { background: #f3f4f6; padding: 6px; font-size: 11px; max-height: 140px; overflow: auto; white-space: pre-wrap; }
+  a { color: #2563eb; }
+</style></head>
+<body>
+<h1>쿠팡 광고계산기 수집기</h1>
+<div class="row"><span id="server" class="status">서버 확인 중…</span><span style="flex:1"></span><a href="#" id="open-server">화면 열기</a> · <a href="#" id="open-options">설정</a></div>
+<div class="row"><label>데이터 날짜</label><input type="date" id="date"><span class="status">(비우면 화면에서 찾은 날짜, 없으면 어제)</span></div>
+<div class="row">
+  <button class="primary" id="send-sales">이 페이지 → 판매 데이터 보내기</button>
+  <button class="primary" id="send-ads">이 페이지 → 광고 데이터 보내기</button>
+</div>
+<div class="row"><button id="run-auto">지금 자동 수집 (어제)</button><button id="flush">대기 큐 다시 보내기</button></div>
+<div id="msg" class="status"></div>
+<details><summary class="status">이 페이지에서 찾은 표 / 최근 기록</summary><pre id="detail"></pre></details>
+<script src="popup.js"></script>
+</body></html>
