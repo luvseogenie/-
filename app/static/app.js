@@ -72,6 +72,13 @@
     })));
   }
 
+  function findNode(id) {
+    let found = null;
+    const walk = (n) => { if (found) return; if (n.id === id) { found = n; return; } (n.children || []).forEach(walk); };
+    Object.values(state.trees).forEach(walk);
+    return found;
+  }
+
   function uncheckSubtree(id) {
     const walk = (n) => { state.checked.delete(n.id); (n.children || []).forEach(walk); };
     walk(state.trees[id] || { id, children: [] });
@@ -138,10 +145,9 @@
       ev.preventDefault(); ev.stopPropagation();
       const id = Number(el.dataset.exp);
       if (state.expanded.has(id)) { state.expanded.delete(id); renderSubTree(); return; }
+      const node = findNode(id);
       state.expanded.add(id); renderSubTree();
-      // 3차가 아직 없으면 불러온다
-      const topId = Number(el.closest('.sub-group') ? tops[Array.from(box.children).indexOf(el.closest('.sub-group'))].id : 0);
-      const node = (state.trees[topId].children || []).find((k) => k.id === id);
+      // 3차가 아직 없으면 쿠팡 페이지에서 불러온다
       if (node && !node.fetched) {
         const r = await api(`/api/categories/${id}/discover`, {});
         Object.assign(node, r.tree);

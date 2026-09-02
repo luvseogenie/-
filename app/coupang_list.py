@@ -28,6 +28,8 @@ EXTRACT_JS = r"""
     for (const el of all) { const c = cls(el); if (frags.some(f => c.includes(f))) return el; }
     return null;
   };
+  // 상품 카드(li) 안의 링크를 우선으로 하고, 카드 밖의 상품 링크(상단 광고 등)는 광고로 표시한다
+  const units = Array.from(document.querySelectorAll('li[class*="ProductUnit"], li.baby-product, li.search-product'));
   const anchors = Array.from(document.querySelectorAll('a[href*="/vp/products/"]'));
   const seen = new Set();
   const out = [];
@@ -39,6 +41,7 @@ EXTRACT_JS = r"""
     let li = a.closest('li') || a.closest('[class*="product"], [class*="Product"]') || a;
     if (seen.has(li)) continue;
     seen.add(li);
+    const inUnit = units.length === 0 || units.some(u => u === li || u.contains(a));
     let url;
     try { url = new URL(href, location.origin); } catch (e) { continue; }
     const itemId = url.searchParams.get('itemId') || a.dataset.itemId || null;
@@ -73,6 +76,7 @@ EXTRACT_JS = r"""
       if (v !== null && v <= 5) rating = v;
       else { const w = (ratingEl.getAttribute('style') || '').match(/width:\s*([\d.]+)%/); if (w) rating = Math.round(Number(w[1]) / 20 * 10) / 10; }
     }
+    if (rating === null) { const rm = txt(li).match(/(\d(?:\.\d)?)\s*\(\s*[\d,]+\s*\)/); if (rm && Number(rm[1]) <= 5) rating = Number(rm[1]); }
 
     // 배송 형태
     const alts = Array.from(li.querySelectorAll('img[alt]')).map(i => i.getAttribute('alt') || '').join(' ') + ' ' + txt(li);
@@ -82,7 +86,7 @@ EXTRACT_JS = r"""
     else if (/로켓프레시/.test(alts)) delivery = 'ROCKET_FRESH';
     else if (/로켓배송|로켓와우/.test(alts)) delivery = 'ROCKET';
 
-    const isAd = /ad-badge|adbadge|__ad|\bad\b/.test(cls(li)) || !!li.querySelector('[class*="ad-badge"], [class*="adBadge"], [class*="AdMark"], [class*="ad-mark"]') || /\bAD\b/.test(txt(li).slice(0, 40));
+    const isAd = !inUnit || /ad-badge|adbadge|__ad|\bad\b/.test(cls(li)) || !!li.querySelector('[class*="ad-badge"], [class*="adBadge"], [class*="AdMark"], [class*="ad-mark"], [class*="AdBadge"]') || /\bAD\b|광고/.test(txt(li).slice(0, 40));
     const soldOut = /일시품절|품절/.test(txt(li));
     const img = li.querySelector('img');
     const image = img ? (img.getAttribute('src') || img.getAttribute('data-src') || '') : '';
@@ -363,7 +367,7 @@ def diagnose_category(page, cid: int) -> dict:
 PAGE_INFO_JS = r"""
 () => {
   const txt = (el) => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
-  const pag = Array.from(document.querySelectorAll('[class*="Pagination"] a, [class*="pagination"] a')).slice(0, 4).map(a => txt(a) + ' -> ' + (a.getAttribute('href') || ''));
+  const pag = Array.from(document.querySelectorAll('[class*="Pagination"] a, [class*="pagination"] a')).filter(a => /\/np\//.test(a.getAttribute('href') || '')).slice(0, 4).map(a => txt(a) + ' -> ' + (a.getAttribute('href') || ''));
   const sorts = Array.from(document.querySelectorAll('a, button, label, li')).filter(el => /랭킹순|판매량순|낮은가격순|최신순/.test(txt(el)) && txt(el).length < 12).slice(0, 8)
     .map(el => txt(el) + (el.getAttribute('href') ? ' -> ' + el.getAttribute('href') : '') + (el.className ? ' [' + String(el.className).slice(0, 40) + ']' : ''));
   const units = document.querySelectorAll('li[class*="ProductUnit"], li.baby-product, li.search-product').length;
