@@ -7,6 +7,7 @@
   --primary: #38d8c8;
   --danger: #ff6b6b;
   --success: #4ade80;
+  --warn: #fbbf24;
 }
 
 * { box-sizing: border-box; }
@@ -65,6 +66,11 @@ button.ghost {
 }
 button.small { width: auto; padding: 6px 10px; margin: 0; font-size: 11px; }
 
+.section-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+#review-panel button { margin-top: 8px; margin-bottom: 6px; }
+#review-result { line-height: 1.6; }
+#review-result .big { display: block; font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
+#review-result .warn { color: var(--warn); }
 .error { border-color: rgba(255, 107, 107, 0.5); color: var(--danger); line-height: 1.5; }
 #result-main { font-size: 14px; font-weight: 600; color: var(--success); }
 .hidden { display: none; }

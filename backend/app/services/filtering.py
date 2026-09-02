@@ -26,6 +26,11 @@ class ProductFilter:
     review_max: int | None = None
     sales_min: int | None = None
     sales_max: int | None = None
+    # 최근 30일 예상 판매량 / 리뷰수
+    monthly_sales_min: int | None = None
+    monthly_sales_max: int | None = None
+    monthly_review_min: int | None = None
+    monthly_review_max: int | None = None
     rating_min: float | None = None
     rating_max: float | None = None
     # 빈 리스트 또는 None = 전체(배송방식 무관)
@@ -48,6 +53,26 @@ class ProductFilter:
             clauses.append(Product.estimated_sales >= self.sales_min)
         if self.sales_max is not None:
             clauses.append(Product.estimated_sales <= self.sales_max)
+        if self.monthly_sales_min is not None:
+            clauses.append(
+                Product.monthly_estimated_sales.isnot(None)
+                & (Product.monthly_estimated_sales >= self.monthly_sales_min)
+            )
+        if self.monthly_sales_max is not None:
+            clauses.append(
+                Product.monthly_estimated_sales.isnot(None)
+                & (Product.monthly_estimated_sales <= self.monthly_sales_max)
+            )
+        if self.monthly_review_min is not None:
+            clauses.append(
+                Product.monthly_review_count.isnot(None)
+                & (Product.monthly_review_count >= self.monthly_review_min)
+            )
+        if self.monthly_review_max is not None:
+            clauses.append(
+                Product.monthly_review_count.isnot(None)
+                & (Product.monthly_review_count <= self.monthly_review_max)
+            )
         if self.rating_min is not None:
             clauses.append(Product.rating.isnot(None) & (Product.rating >= self.rating_min))
         if self.rating_max is not None:
@@ -70,6 +95,14 @@ class ProductFilter:
         if not self._in_range(product.review_count, self.review_min, self.review_max, required=True):
             return False
         if not self._in_range(product.estimated_sales, self.sales_min, self.sales_max, required=True):
+            return False
+        if not self._in_range(
+            product.monthly_estimated_sales, self.monthly_sales_min, self.monthly_sales_max, required=True
+        ):
+            return False
+        if not self._in_range(
+            product.monthly_review_count, self.monthly_review_min, self.monthly_review_max, required=True
+        ):
             return False
         if not self._in_range(product.rating, self.rating_min, self.rating_max, required=True):
             return False
@@ -96,6 +129,10 @@ class ProductFilter:
 
 
 SORT_FIELDS = {
+    "monthly_sales_desc": (Product.monthly_estimated_sales, "desc"),
+    "monthly_sales_asc": (Product.monthly_estimated_sales, "asc"),
+    "monthly_review_desc": (Product.monthly_review_count, "desc"),
+    "monthly_review_asc": (Product.monthly_review_count, "asc"),
     "price_desc": (Product.price, "desc"),
     "price_asc": (Product.price, "asc"),
     "review_desc": (Product.review_count, "desc"),

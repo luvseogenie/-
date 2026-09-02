@@ -5,7 +5,12 @@
  *   - 수집 결과 표시 ("36개 중 35개 저장 / 중복 1개")
  */
 import { DEFAULT_API_BASE, getApiBase, setApiBase } from "@/lib/api";
-import type { CollectResponse, ParseResult } from "@/lib/types";
+import type {
+  CollectResponse,
+  MonthlyReviewResponse,
+  ParseResult,
+  ReviewDateResult,
+} from "@/lib/types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -18,6 +23,9 @@ const resultPanel = $<HTMLElement>("result");
 const resultMain = $<HTMLElement>("result-main");
 const resultSub = $<HTMLElement>("result-sub");
 const errorPanel = $<HTMLElement>("error");
+const reviewPanel = $<HTMLElement>("review-panel");
+const analyzeButton = $<HTMLButtonElement>("analyze-reviews");
+const reviewResult = $<HTMLElement>("review-result");
 const apiBaseInput = $<HTMLInputElement>("api-base");
 const saveApiButton = $<HTMLButtonElement>("save-api");
 
@@ -52,6 +60,10 @@ function renderScan(result: ParseResult) {
 
   collectButton.disabled = detected === 0;
 
+  // 최근 30일 리뷰 분석은 상품 상세 페이지에서만 의미가 있다.
+  reviewPanel.classList.toggle("hidden", result.pageType !== "product");
+  reviewResult.textContent = "";
+
   if (detected === 0 && result.errors.length > 0) {
     showError(result.errors[0] ?? "상품을 찾지 못했습니다.");
   }
@@ -69,6 +81,53 @@ function renderCollect(response: CollectResponse, detected: number) {
   resultSub.textContent = sub.join(" / ");
 }
 
+const nf = new Intl.NumberFormat("ko-KR");
+
+function renderReviewAnalysis(analysis: ReviewDateResult, result?: MonthlyReviewResponse) {
+  let head = "";
+  const lines: string[] = [];
+
+  if (result && result.monthly_review_count !== null) {
+    const label = result.monthly_review_is_extrapolated ? "추정" : "실측";
+    head = `<span class="big">최근 30일 리뷰 ${nf.format(result.monthly_review_count)}건 (${label})</span>`;
+    if (result.monthly_estimated_sales !== null) {
+      lines.push(
+        `최근 30일 예상 판매량 <b>${nf.format(result.monthly_estimated_sales)}</b> (실제 판매량 아님)`,
+      );
+    }
+  }
+
+  lines.push(
+    `읽은 리뷰 ${nf.format(analysis.sampleSize)}건 · 30일 이내 ${nf.format(analysis.reviewsInWindow)}건`,
+  );
+  if (analysis.newestReviewDate && analysis.oldestReviewDate) {
+    lines.push(`표본 기간 ${analysis.oldestReviewDate} ~ ${analysis.newestReviewDate}`);
+  }
+  if (result?.message) lines.push(result.message);
+  for (const warning of analysis.warnings) {
+    lines.push(`<span class="warn">⚠ ${warning}</span>`);
+  }
+
+  reviewResult.innerHTML = head + lines.join("<br />");
+}
+
+async function analyzeReviews() {
+  clearError();
+  analyzeButton.disabled = true;
+  analyzeButton.textContent = "분석 중...";
+  reviewResult.textContent = "";
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "ANALYZE_REVIEWS" });
+    if (response?.analysis) {
+      renderReviewAnalysis(response.analysis as ReviewDateResult, response.result);
+    }
+    if (!response?.ok) showError(response?.error ?? "리뷰 분석에 실패했습니다.");
+  } finally {
+    analyzeButton.textContent = "리뷰 날짜 분석";
+    analyzeButton.disabled = false;
+  }
+}
+
 async function scan() {
   clearError();
   resultPanel.classList.add("hidden");
@@ -76,6 +135,7 @@ async function scan() {
   detectSub.textContent = "";
   detectMeta.textContent = "";
   collectButton.disabled = true;
+  reviewPanel.classList.add("hidden");
 
   const response = await chrome.runtime.sendMessage({ type: "SCAN" });
   if (!response?.ok) {
@@ -105,6 +165,7 @@ async function collect() {
 
 collectButton.addEventListener("click", () => void collect());
 rescanButton.addEventListener("click", () => void scan());
+analyzeButton.addEventListener("click", () => void analyzeReviews());
 saveApiButton.addEventListener("click", () => {
   const value = apiBaseInput.value.trim() || DEFAULT_API_BASE;
   void setApiBase(value).then(() => {

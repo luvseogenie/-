@@ -142,3 +142,74 @@ export const CATEGORY_NAME_SELECTORS = [
   "[class*='breadcrumb'] li:last-child",
   "h1.page-title",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// 리뷰 영역 (최근 30일 리뷰수 산출용)
+//
+// 쿠팡은 "최근 1달 리뷰수"를 표시하지 않는다. 상세 페이지의 리뷰 목록을
+// 최신순으로 정렬한 뒤, 화면에 렌더된 리뷰들의 작성일을 직접 읽어서 센다.
+// 자동으로 다음 페이지를 요청하지 않는다(사용자가 화면에 띄운 것만 읽는다).
+// ---------------------------------------------------------------------------
+
+/** 리뷰 목록 영역(루트) */
+export const REVIEW_SECTION_SELECTORS = [
+  "section#sdpReview",
+  "#sdpReview",
+  "div.review-list",
+  "section[class*='review']",
+  "div[class*='reviewList']",
+  "#productReview",
+] as const;
+
+/** 리뷰 한 건 */
+export const REVIEW_ITEM_SELECTORS = [
+  "article.sdp-review__article__list",
+  "article[class*='review__article__list']",
+  "div.sdp-review__article__list",
+  "li[class*='reviewItem']",
+  "article[class*='ReviewItem']",
+] as const;
+
+/** 리뷰 한 건 안의 작성일 */
+export const REVIEW_DATE_SELECTORS = [
+  "div.sdp-review__article__list__info__product-info__reg-date",
+  "[class*='reg-date']",
+  "[class*='regDate']",
+  "[class*='review-date']",
+  "time",
+] as const;
+
+/** 리뷰 정렬 컨트롤 (최신순으로 되어 있는지 확인용) */
+export const REVIEW_SORT_SELECTORS = [
+  "div.sdp-review__article__order__sort",
+  "[class*='order__sort']",
+  "[class*='reviewSort']",
+] as const;
+
+/** 정렬이 "최신순"임을 나타내는 활성 항목 */
+export const REVIEW_SORT_ACTIVE_SELECTORS = [
+  "div.sdp-review__article__order__sort__newest-btn.active",
+  "[class*='newest'][class*='active']",
+  "[aria-selected='true']",
+  ".active",
+] as const;
+
+/** 상세 페이지의 누적 리뷰수 */
+export const REVIEW_TOTAL_COUNT_SELECTORS = [
+  "span#prod-review-nav-link-count",
+  "[class*='sdp-review__average__total-star__info-count']",
+  "[class*='reviewCount']",
+  ".count",
+] as const;
+
+/**
+ * 리뷰 작성일 텍스트 패턴.
+ * 쿠팡은 "2026.08.15" 형태를 쓰지만, 표기가 바뀌어도 잡히도록 몇 가지를 함께 둔다.
+ */
+export const REVIEW_DATE_PATTERNS = [
+  /(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/, // 2026.08.15 / 2026-08-15
+  /(20\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일/, // 2026년 8월 15일
+] as const;
+
+/** "최신순" 정렬 여부를 판단할 때 찾는 문구 */
+export const REVIEW_NEWEST_KEYWORDS = ["최신순", "최근순", "newest"] as const;

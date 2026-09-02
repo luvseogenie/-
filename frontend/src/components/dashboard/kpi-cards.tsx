@@ -1,4 +1,4 @@
-import { CheckCircle2, Copy, FolderTree, Package } from "lucide-react";
+import { CalendarClock, CheckCircle2, Copy, FolderTree, Package } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
@@ -8,6 +8,12 @@ const ITEMS = [
   { key: "selected_categories", label: "선택 카테고리", icon: FolderTree, tone: "text-primary" },
   { key: "collected_products", label: "수집 상품", icon: Package, tone: "text-foreground" },
   { key: "unique_products", label: "중복 제외", icon: Copy, tone: "text-foreground" },
+  {
+    key: "monthly_measured_products",
+    label: "30일 측정",
+    icon: CalendarClock,
+    tone: "text-foreground",
+  },
   {
     key: "condition_passed_products",
     label: "조건 통과",
@@ -24,7 +30,7 @@ export function KpiCards({
   hasConditions?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       {ITEMS.map(({ key, label, icon: Icon, tone }) => (
         <Card key={key} className="p-3">
           <div className="flex items-center justify-between">

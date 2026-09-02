@@ -45,5 +45,10 @@ def recalculate_all(db: Session, multiplier: int) -> int:
     db.execute(
         update(Product).values(estimated_sales=Product.review_count * multiplier)
     )
+    # 최근 30일 예상 판매량도 같은 배수를 쓰므로 함께 갱신한다.
+    from app.services import monthly_reviews
+
+    monthly_reviews.recalculate_monthly_sales(db, multiplier)
+
     count = db.scalar(select(func.count()).select_from(Product)) or 0
     return int(count)

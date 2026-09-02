@@ -21,6 +21,7 @@ from app.models.category import Category
 from app.models.collection_job import CollectionJob, JobStatus
 from app.models.product import DeliveryType, Product
 from app.schemas.product import CollectedProduct, CollectRequest, CollectResult
+from app.services import monthly_reviews
 from app.services.estimation import calculate_estimated_sales, get_multiplier
 
 logger = get_logger(__name__)
@@ -124,6 +125,10 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
                 last_collected_at=now,
             )
             db.add(product)
+            db.flush()  # product.id 확보(스냅샷 FK)
+            monthly_reviews.record_snapshot(
+                db, product, product.review_count, source=payload.page_type
+            )
             result.inserted += 1
         else:
             # 이미 있는 상품: 최신 값으로 갱신하고 마지막 수집 시각만 업데이트한다.
@@ -147,6 +152,12 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
             if item.rank is not None:
                 existing.rank = item.rank
             existing.last_collected_at = now
+            monthly_reviews.record_snapshot(
+                db, existing, existing.review_count, source=payload.page_type
+            )
+            db.flush()
+            # 누적 리뷰수 변화로 최근 30일 리뷰수를 다시 구한다.
+            monthly_reviews.refresh_from_snapshots(db, existing, multiplier)
             result.updated += 1
 
     result.saved = result.inserted + result.updated

@@ -11,12 +11,34 @@ type RangeKeys =
   | ["price_min", "price_max"]
   | ["review_min", "review_max"]
   | ["sales_min", "sales_max"]
+  | ["monthly_review_min", "monthly_review_max"]
+  | ["monthly_sales_min", "monthly_sales_max"]
   | ["rating_min", "rating_max"];
 
-const RANGES: { label: string; keys: RangeKeys; step?: string; placeholder: [string, string] }[] = [
+type Range = {
+  label: string;
+  keys: RangeKeys;
+  step?: string;
+  placeholder: [string, string];
+  note?: string;
+};
+
+const RANGES: Range[] = [
   { label: "판매가격 (원)", keys: ["price_min", "price_max"], placeholder: ["9000", "100000"] },
-  { label: "리뷰 수", keys: ["review_min", "review_max"], placeholder: ["0", "250"] },
-  { label: "예상 판매량", keys: ["sales_min", "sales_max"], placeholder: ["1000", "10000"] },
+  { label: "리뷰 수 (누적)", keys: ["review_min", "review_max"], placeholder: ["0", "250"] },
+  { label: "예상 판매량 (누적)", keys: ["sales_min", "sales_max"], placeholder: ["1000", "10000"] },
+  {
+    label: "최근 30일 리뷰수",
+    keys: ["monthly_review_min", "monthly_review_max"],
+    placeholder: ["10", "500"],
+    note: "측정된 상품만 통과합니다",
+  },
+  {
+    label: "최근 30일 예상 판매량",
+    keys: ["monthly_sales_min", "monthly_sales_max"],
+    placeholder: ["200", "10000"],
+    note: "측정된 상품만 통과합니다",
+  },
   { label: "평점", keys: ["rating_min", "rating_max"], step: "0.1", placeholder: ["4.0", "5.0"] },
 ];
 
@@ -51,9 +73,12 @@ export function ConditionPanel({
         상품 조건
       </div>
 
-      {RANGES.map(({ label, keys, step, placeholder }) => (
+      {RANGES.map(({ label, keys, step, placeholder, note }) => (
         <div key={label} className="space-y-1">
-          <Label>{label}</Label>
+          <Label>
+            {label}
+            {note && <span className="ml-1 text-[10px] opacity-70">· {note}</span>}
+          </Label>
           <div className="flex items-center gap-1.5">
             <Input
               type="number"

@@ -39,7 +39,8 @@ backend/
     services/
       category_service.py   ★ 카테고리 import/tree (수집과 분리)
       product_collector.py  ★ 상품 수집/중복제거 (카테고리와 분리)
-      estimation.py         예상 판매량 계산
+      estimation.py         예상 판매량 계산 (누적)
+      monthly_reviews.py    ★ 최근 30일 리뷰수/판매량 산출
       filtering.py          조건 필터 → SQLAlchemy 조건 변환
   data/categories_sample.json
   tests/
@@ -52,7 +53,8 @@ frontend/src/
 
 extension/src/
   parsers/selectors.ts              ★ 모든 DOM selector 집중 관리
-  parsers/coupang_product_parser.ts ★ fallback 파서 (순수 함수)
+  parsers/coupang_product_parser.ts ★ 상품 카드 파서 (순수 함수)
+  parsers/coupang_review_parser.ts  ★ 리뷰 작성일 파서 (최근 30일 리뷰수)
   parsers/normalize.ts              리뷰수/가격/평점 정규화
   content/content.ts                DOM 스캔 → 메시지 응답
   background/service_worker.ts      API 통신
@@ -90,6 +92,24 @@ extension/src/
 | category_id | INTEGER FK NULL | |
 | rank | INTEGER NULL | 마지막 수집 시 노출 순위(부가) |
 | first_collected_at / last_collected_at | DATETIME | |
+| monthly_review_count | INTEGER NULL | **최근 30일 리뷰수** — 유도값, 못 구하면 NULL |
+| monthly_estimated_sales | INTEGER NULL | 최근 30일 리뷰수 × 배수 |
+| monthly_review_method | VARCHAR NULL | `review_dates` / `snapshot_delta` |
+| monthly_review_window_days | FLOAT NULL | 실제 관측 구간(일) |
+| monthly_review_is_extrapolated | BOOLEAN | 30일을 못 덮어 환산했는지 |
+| monthly_review_measured_at | DATETIME NULL | |
+
+### review_snapshots
+수집할 때마다 (상품, 누적 리뷰수, 시각)을 한 줄 남긴다.
+두 시점의 차이가 그 구간에 실제로 늘어난 리뷰수다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | |
+| product_id | INTEGER FK→products.id | |
+| review_count | INTEGER | 그 시점의 **누적** 리뷰수 |
+| captured_at | DATETIME | |
+| source | VARCHAR NULL | list / search / detail |
 
 ### settings (싱글턴 id=1)
 | 컬럼 | 타입 |
@@ -115,7 +135,8 @@ extension/src/
 | GET | `/api/categories` | `?tree=true` 전체 트리 / `?parent_id=` / `?leaf_only=` |
 | GET | `/api/categories/{id}/children` | 지연 로딩용 |
 | POST | `/api/categories/import` | JSON/CSV import |
-| POST | `/api/products/collect` | 확장 프로그램 → 상품 수집 |
+| POST | `/api/products/collect` | 확장 프로그램 → 상품 수집 (리뷰수 스냅샷 자동 기록) |
+| POST | `/api/products/review-dates` | 확장 → 리뷰 작성일 분석 결과 (최근 30일 리뷰수 산출) |
 | GET | `/api/products` | 필터 + 정렬 + 페이징, `?condition_passed=true` |
 | GET | `/api/settings` / PUT | review_sales_multiplier |
 | GET | `/api/stats` | KPI 4종 |
@@ -136,6 +157,32 @@ popup [현재 페이지 수집]
                  → popup "36개 중 35개 저장 / 중복 1개"
 ```
 
+## 5-1. 최근 30일 리뷰수를 구하는 방법
+
+쿠팡은 최근 1달 리뷰수를 표시하지 않는다. 카드/상세의 리뷰수는 모두 **누적값**이다.
+따라서 두 가지 방법으로 유도한다.
+
+```
+① review_dates  (즉시 / 상품 1건씩)
+   상품 상세 페이지 → 리뷰 최신순 정렬 → 렌더된 리뷰의 작성일을 읽음
+   ├ 표본에 30일보다 오래된 리뷰가 있다  → 30일 이내 개수 = 실측값
+   └ 표본이 전부 30일 안에 있다          → 리뷰 속도(표본÷기간)×30 = 환산값(추정)
+
+② snapshot_delta (누적 / 카테고리 전체)
+   수집할 때마다 누적 리뷰수를 review_snapshots 에 기록
+   ├ 30일 이전 스냅샷이 있다  → (최신 − 그 시점) 을 30일로 정규화 = 실측값
+   └ 구간이 30일 미만          → 30일로 환산 = 추정값 (1일 미만이면 계산 안 함)
+```
+
+채택 규칙: `(환산 아님, 관측 구간 길이)` 가 큰 쪽을 남긴다.
+어느 쪽도 못 구하면 NULL. **임의 값을 만들지 않는다.**
+
+구현 위치
+- 백엔드: `app/services/monthly_reviews.py`
+- 확장: `src/parsers/coupang_review_parser.ts` (selector는 `selectors.ts`에)
+
+자동 페이지네이션 크롤링은 하지 않는다. 사용자가 화면에 띄운 리뷰만 읽는다.
+
 ## 6. 파서 설계 원칙
 
 1. selector는 `selectors.ts` 한 파일에만 존재한다. 다른 파일에 CSS selector 문자열을 쓰지 않는다.
@@ -147,5 +194,5 @@ popup [현재 페이지 수집]
 
 ## 7. 하지 않는 것 (MVP 범위 밖)
 
-28일 실제 판매량/조회수, 전환율, 매출 추정, Opportunity Score, 1688 연동, 마진 계산,
+실제 판매량/조회수, 전환율, 매출 추정, Opportunity Score, 1688 연동, 마진 계산,
 대규모 자동 크롤링, CAPTCHA/anti-bot 우회.

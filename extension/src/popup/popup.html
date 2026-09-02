@@ -22,6 +22,16 @@
     <button id="collect" type="button" disabled>현재 페이지 수집</button>
     <button id="rescan" type="button" class="ghost">다시 감지</button>
 
+    <section id="review-panel" class="panel hidden">
+      <div class="section-title">최근 30일 리뷰 분석</div>
+      <p class="meta">
+        쿠팡은 최근 1달 리뷰수를 표시하지 않습니다. 상세 페이지 리뷰를
+        <b>최신순</b>으로 정렬하고 더보기로 리뷰를 충분히 불러온 뒤 아래 버튼을 누르세요.
+      </p>
+      <button id="analyze-reviews" type="button" class="ghost">리뷰 날짜 분석</button>
+      <div id="review-result" class="meta"></div>
+    </section>
+
     <section id="result" class="panel hidden">
       <div id="result-main"></div>
       <div id="result-sub" class="meta"></div>

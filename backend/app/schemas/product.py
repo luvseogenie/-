@@ -47,6 +47,41 @@ class CollectResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ReviewDateAnalysis(BaseModel):
+    """확장 프로그램이 상품 상세 페이지에서 읽은 리뷰 작성일 분석 결과.
+
+    쿠팡은 최근 1달 리뷰수를 표시하지 않으므로, 화면에 렌더된 리뷰의
+    작성일을 직접 세어 보낸다.
+    """
+
+    product_id: str
+    product_url: str | None = None
+    # 30일 이내로 확인된 리뷰 개수
+    reviews_in_window: int = Field(ge=0)
+    # 날짜를 읽어낸 전체 리뷰 개수(표본 크기)
+    sample_size: int = Field(ge=0)
+    # 표본의 가장 오래된 리뷰 ~ 가장 최근 리뷰 사이 일수
+    sample_span_days: float | None = None
+    # 표본이 30일 경계를 넘었는지(= 30일보다 오래된 리뷰를 봤는지)
+    covers_window: bool = False
+    # 참고용 원본 날짜(최대 200개)
+    newest_review_date: str | None = None
+    oldest_review_date: str | None = None
+    # 상세 페이지에서 읽은 누적 리뷰수(있으면 스냅샷으로도 남긴다)
+    total_review_count: int | None = None
+
+
+class ReviewDateAnalysisResult(BaseModel):
+    product_id: str
+    applied: bool
+    monthly_review_count: int | None = None
+    monthly_estimated_sales: int | None = None
+    monthly_review_method: str | None = None
+    monthly_review_window_days: float | None = None
+    monthly_review_is_extrapolated: bool = False
+    message: str
+
+
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -64,6 +99,15 @@ class ProductOut(BaseModel):
     category_id: int | None
     category_name: str | None = None
     rank: int | None
+
+    # 최근 30일 지표. 유도할 수 없으면 None (임의 값 생성 금지).
+    monthly_review_count: int | None = None
+    monthly_estimated_sales: int | None = None
+    monthly_review_method: str | None = None
+    monthly_review_window_days: float | None = None
+    monthly_review_is_extrapolated: bool = False
+    monthly_review_measured_at: datetime | None = None
+
     first_collected_at: datetime
     last_collected_at: datetime
     condition_passed: bool = False

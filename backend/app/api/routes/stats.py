@@ -44,6 +44,13 @@ def get_stats(
         passed_stmt = passed_stmt.where(expr)
     passed_count = db.scalar(passed_stmt) or 0
 
+    measured_stmt = select(func.count()).select_from(Product).where(
+        Product.monthly_review_count.isnot(None)
+    )
+    for clause in scope:
+        measured_stmt = measured_stmt.where(clause)
+    measured_count = db.scalar(measured_stmt) or 0
+
     multiplier = estimation.get_multiplier(db)
     db.commit()
 
@@ -52,5 +59,6 @@ def get_stats(
         collected_products=int(collected),
         unique_products=int(unique_count),
         condition_passed_products=int(passed_count),
+        monthly_measured_products=int(measured_count),
         review_sales_multiplier=multiplier,
     )

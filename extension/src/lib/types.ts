@@ -44,11 +44,42 @@ export type CollectResponse = {
 };
 
 /** popup ↔ background ↔ content 메시지 */
+export type ReviewDateResult = {
+  reviewsInWindow: number;
+  sampleSize: number;
+  sampleSpanDays: number | null;
+  coversWindow: boolean;
+  newestReviewDate: string | null;
+  oldestReviewDate: string | null;
+  totalReviewCount: number | null;
+  sortedByNewest: boolean | null;
+  warnings: string[];
+  productId: string | null;
+  productUrl: string;
+};
+
+export type MonthlyReviewResponse = {
+  product_id: string;
+  applied: boolean;
+  monthly_review_count: number | null;
+  monthly_estimated_sales: number | null;
+  monthly_review_method: string | null;
+  monthly_review_window_days: number | null;
+  monthly_review_is_extrapolated: boolean;
+  message: string;
+};
+
 export type ScanMessage = { type: "SCAN" };
 export type CollectMessage = { type: "COLLECT" };
 export type GetStateMessage = { type: "GET_STATE" };
 
-export type ExtensionMessage = ScanMessage | CollectMessage | GetStateMessage;
+export type AnalyzeReviewsMessage = { type: "ANALYZE_REVIEWS" };
+
+export type ExtensionMessage =
+  | ScanMessage
+  | CollectMessage
+  | GetStateMessage
+  | AnalyzeReviewsMessage;
 
 export type ScanSummary = {
   detected: number;

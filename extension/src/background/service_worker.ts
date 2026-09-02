@@ -6,7 +6,12 @@
  */
 import { api, ApiError, type CollectPayload } from "@/lib/api";
 import { log } from "@/lib/logger";
-import type { CollectResponse, ParseResult } from "@/lib/types";
+import type {
+  CollectResponse,
+  MonthlyReviewResponse,
+  ParseResult,
+  ReviewDateResult,
+} from "@/lib/types";
 
 const COUPANG_HOST = /(^|\.)coupang\.com$/;
 
@@ -108,7 +113,95 @@ async function handleCollect(): Promise<{
   }
 }
 
+/**
+ * 최근 30일 리뷰수 산출.
+ *
+ * 1) content script가 상세 페이지의 렌더된 리뷰 작성일을 읽는다.
+ * 2) 그 결과를 백엔드에 보내 최근 30일 리뷰수 / 예상 판매량을 계산·저장한다.
+ *
+ * 상품이 아직 수집되지 않았으면 먼저 수집한다(상세 페이지도 수집 대상이다).
+ */
+async function handleAnalyzeReviews(): Promise<{
+  ok: boolean;
+  analysis?: ReviewDateResult;
+  result?: MonthlyReviewResponse;
+  error?: string;
+}> {
+  const tab = await getActiveTab();
+  if (!tab?.id) return { ok: false, error: "활성 탭을 찾을 수 없습니다." };
+  if (!isCoupangUrl(tab.url)) {
+    return { ok: false, error: "쿠팡 상품 상세 페이지에서 실행하세요." };
+  }
+
+  let analysis: ReviewDateResult;
+  try {
+    const response = await chrome.tabs
+      .sendMessage(tab.id, { type: "ANALYZE_REVIEWS" })
+      .catch((e: unknown) => {
+        throw new Error(
+          `페이지와 통신할 수 없습니다. 새로고침 후 다시 시도하세요. (${
+            e instanceof Error ? e.message : String(e)
+          })`,
+        );
+      });
+    if (!response?.ok) return { ok: false, error: response?.error ?? "리뷰 분석에 실패했습니다." };
+    analysis = response.result as ReviewDateResult;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    log.error("리뷰 분석 실패:", message);
+    return { ok: false, error: message };
+  }
+
+  if (!analysis.productId) {
+    return { ok: false, analysis, error: "URL에서 상품 ID를 찾지 못했습니다." };
+  }
+  if (analysis.sampleSize === 0) {
+    return {
+      ok: false,
+      analysis,
+      error: analysis.warnings[0] ?? "리뷰 작성일을 읽지 못했습니다.",
+    };
+  }
+
+  const payload = {
+    product_id: analysis.productId,
+    product_url: analysis.productUrl,
+    reviews_in_window: analysis.reviewsInWindow,
+    sample_size: analysis.sampleSize,
+    sample_span_days: analysis.sampleSpanDays,
+    covers_window: analysis.coversWindow,
+    newest_review_date: analysis.newestReviewDate,
+    oldest_review_date: analysis.oldestReviewDate,
+    total_review_count: analysis.totalReviewCount,
+  };
+
+  try {
+    return { ok: true, analysis, result: await api.submitReviewDates(payload) };
+  } catch (e) {
+    // 아직 수집되지 않은 상품이면 먼저 수집한 뒤 한 번 더 시도한다.
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("404")) {
+      const collected = await handleCollect();
+      if (!collected.ok) return { ok: false, analysis, error: collected.error };
+      try {
+        return { ok: true, analysis, result: await api.submitReviewDates(payload) };
+      } catch (retryError) {
+        return {
+          ok: false,
+          analysis,
+          error: retryError instanceof Error ? retryError.message : String(retryError),
+        };
+      }
+    }
+    return { ok: false, analysis, error: message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "ANALYZE_REVIEWS") {
+    void handleAnalyzeReviews().then(sendResponse);
+    return true;
+  }
   if (message?.type === "SCAN") {
     void handleScan().then(sendResponse);
     return true;

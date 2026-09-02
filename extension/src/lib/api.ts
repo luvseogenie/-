@@ -3,7 +3,12 @@
  * fetch는 service worker에서만 호출한다(CORS/권한 관리를 한 곳에 모으기 위해).
  */
 import { log } from "@/lib/logger";
-import type { CollectedProduct, CollectResponse, PageType } from "@/lib/types";
+import type {
+  CollectedProduct,
+  CollectResponse,
+  MonthlyReviewResponse,
+  PageType,
+} from "@/lib/types";
 
 export const DEFAULT_API_BASE = "http://localhost:8000";
 const API_BASE_KEY = "apiBaseUrl";
@@ -58,11 +63,28 @@ export type CollectPayload = {
   parse_errors: string[];
 };
 
+export type ReviewDatePayload = {
+  product_id: string;
+  product_url: string | null;
+  reviews_in_window: number;
+  sample_size: number;
+  sample_span_days: number | null;
+  covers_window: boolean;
+  newest_review_date: string | null;
+  oldest_review_date: string | null;
+  total_review_count: number | null;
+};
+
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
   activeJob: () => request<{ id: number } | null>("/api/collection-jobs/active"),
   collect: (payload: CollectPayload) =>
     request<CollectResponse>("/api/products/collect", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  submitReviewDates: (payload: ReviewDatePayload) =>
+    request<MonthlyReviewResponse>("/api/products/review-dates", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
