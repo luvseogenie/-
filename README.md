@@ -14,6 +14,7 @@
 | `frontend/` | Next.js(App Router), TypeScript, Tailwind CSS, shadcn/ui 스타일 | 다크모드 분석 대시보드 |
 | `extension/` | Manifest V3, TypeScript | 현재 Chrome 페이지 DOM에서 상품 정보 추출 |
 
+초보자 가이드: [시작하기.md](시작하기.md)
 설계 문서: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ---

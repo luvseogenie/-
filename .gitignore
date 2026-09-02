@@ -22,6 +22,10 @@ out/
 dist/
 *.tsbuildinfo
 
+# 초보자가 빌드 없이 바로 확장을 쓸 수 있도록 빌드 결과물은 커밋한다
+!extension/dist/
+!extension/dist/**
+
 # Env
 .env
 .env.local
