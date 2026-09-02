@@ -16,8 +16,11 @@
  */
 
 import {
+  REVIEW_CARD_CONTAINERS,
+  REVIEW_DATE_EXACT_PATTERNS,
   REVIEW_DATE_PATTERNS,
   REVIEW_DATE_SELECTORS,
+  REVIEW_ID_ANCHOR_SELECTORS,
   REVIEW_ITEM_SELECTORS,
   REVIEW_NEWEST_KEYWORDS,
   REVIEW_SECTION_SELECTORS,
@@ -102,6 +105,85 @@ function oldestReviewLabel(oldest: Date): string {
   return formatDate(oldest);
 }
 
+/** 요소의 전체 텍스트가 날짜뿐인지 (리뷰 본문 속 날짜를 걸러내기 위함) */
+export function isExactDateText(raw: string | null | undefined): boolean {
+  const text = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return REVIEW_DATE_EXACT_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * 리뷰 카드 안에서 작성일을 찾는다.
+ *
+ * 1) 날짜 전용 selector
+ * 2) 전체 텍스트가 날짜와 정확히 일치하는 잎 노드 (개편 이후 주 경로)
+ * 3) 카드 전체 텍스트의 첫 날짜 (최후의 수단)
+ */
+export function findReviewDate(card: Element): Date | null {
+  const dateEl = queryFirst(card, REVIEW_DATE_SELECTORS);
+  const fromSelector =
+    parseReviewDate(dateEl?.getAttribute("datetime")) ?? parseReviewDate(dateEl?.textContent);
+  if (fromSelector) return fromSelector;
+
+  for (const el of Array.from(card.querySelectorAll("*"))) {
+    if (el.children.length > 0) continue;
+    const text = el.textContent;
+    if (!isExactDateText(text)) continue;
+    const date = parseReviewDate(text);
+    if (date) return date;
+  }
+
+  return parseReviewDate(card.textContent);
+}
+
+/** 카드(또는 그 안쪽)에 붙은 리뷰 식별자 */
+export function findReviewId(card: Element): string | null {
+  for (const selector of REVIEW_ID_ANCHOR_SELECTORS) {
+    try {
+      const attr = selector.replace(/[[\]]/g, "");
+      const own = card.getAttribute(attr);
+      if (own && own.trim() !== "") return own.trim();
+      const child = card.querySelector(selector);
+      const value = child?.getAttribute(attr);
+      if (value && value.trim() !== "") return value.trim();
+    } catch {
+      /* 다음 selector */
+    }
+  }
+  return null;
+}
+
+/**
+ * 리뷰 카드를 찾는다.
+ *
+ * 1) 알려진 카드 selector
+ * 2) data-review-id 앵커에서 위로 올라가 카드 컨테이너를 역추적 (개편 이후 주 경로)
+ */
+export function findReviewCards(root: ParentNode): { cards: Element[]; via: string } {
+  const bySelector = queryAll(root, REVIEW_ITEM_SELECTORS);
+  if (bySelector.length > 0) return { cards: bySelector, via: "selector" };
+
+  const cards: Element[] = [];
+  const seen = new Set<Element>();
+  for (const selector of REVIEW_ID_ANCHOR_SELECTORS) {
+    let anchors: Element[] = [];
+    try {
+      anchors = Array.from(root.querySelectorAll(selector));
+    } catch {
+      continue;
+    }
+    for (const anchor of anchors) {
+      const card = anchor.closest(REVIEW_CARD_CONTAINERS) ?? anchor.parentElement;
+      if (card && !seen.has(card)) {
+        seen.add(card);
+        cards.push(card);
+      }
+    }
+    if (cards.length > 0) return { cards, via: "data-review-id" };
+  }
+  return { cards: [], via: "none" };
+}
+
 function formatDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -156,26 +238,33 @@ export function extractReviewEntries(root: ParentNode): {
 } {
   const section = queryFirst(root, REVIEW_SECTION_SELECTORS) ?? root;
 
-  const items = queryAll(section, REVIEW_ITEM_SELECTORS);
-  if (items.length > 0) {
+  // 리뷰 영역 selector가 엉뚱한(리뷰 카드 안쪽) 요소를 잡을 수 있으므로,
+  // 그 안에서 카드를 못 찾으면 문서 전체에서 다시 찾는다.
+  let { cards } = findReviewCards(section);
+  if (cards.length === 0 && section !== root) {
+    cards = findReviewCards(root).cards;
+  }
+  if (cards.length > 0) {
     const entries: ReviewEntry[] = [];
-    for (const item of items) {
-      const dateEl = queryFirst(item, REVIEW_DATE_SELECTORS);
-      const date =
-        parseReviewDate(dateEl?.getAttribute("datetime")) ??
-        parseReviewDate(dateEl?.textContent) ??
-        // 날짜 전용 요소를 못 찾으면 카드 텍스트에서 첫 날짜를 찾는다.
-        parseReviewDate(item.textContent);
-      if (date) entries.push({ key: entryKey(item, date, item.textContent ?? ""), date });
+    for (const card of cards) {
+      const date = findReviewDate(card);
+      if (!date) continue;
+      const reviewId = findReviewId(card);
+      entries.push({
+        key: reviewId ? `id:${reviewId}` : entryKey(card, date, card.textContent ?? ""),
+        date,
+      });
     }
     if (entries.length > 0) return { entries, usedFallback: false };
   }
 
-  // fallback: 리뷰 영역 안의 잎 노드에서 날짜만 훑는다.
+  // 최후의 안전망: "전체 텍스트가 날짜인" 잎 노드만 훑는다.
   const entries: ReviewEntry[] = [];
   const seen = new Map<string, number>();
-  for (const el of Array.from(section.querySelectorAll("*"))) {
+  const scanRoot = section.querySelectorAll("*").length > 0 ? section : root;
+  for (const el of Array.from(scanRoot.querySelectorAll("*"))) {
     if (el.children.length > 0) continue;
+    if (!isExactDateText(el.textContent)) continue;
     const date = parseReviewDate(el.textContent);
     if (!date) continue;
     // 같은 날짜가 여러 건일 수 있으므로 순번을 붙여 구분한다.

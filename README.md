@@ -157,7 +157,7 @@ category_code, category_name, parent_category_code, depth, category_url
 # 백엔드 (pytest 59건)
 cd backend && ./.venv/bin/python -m pytest
 
-# 확장 파서 (vitest + jsdom, 51건)
+# 확장 파서 (vitest + jsdom, 65건)
 cd extension && npm test
 
 # 타입/린트/빌드
@@ -219,8 +219,30 @@ extension/src/parsers/selectors.ts
 2. `PRODUCT_CARD_SELECTORS` / `NAME_SELECTORS` / `PRICE_SELECTORS` 등 해당 배열 **맨 앞**에 추가
 3. `npm run build` 후 `chrome://extensions` 에서 확장 새로고침
 
-리뷰 날짜가 읽히지 않을 때도 같은 파일의 `REVIEW_ITEM_SELECTORS` / `REVIEW_DATE_SELECTORS` 를
-수정하면 됩니다. 리뷰 카드 구조를 못 찾으면 날짜 패턴(`2026.08.15`)만으로 훑는 안전망이 동작하며,
+### 리뷰 영역은 클래스가 아니라 앵커로 찾습니다
+
+쿠팡은 2026년 개편으로 리뷰 영역을 Tailwind 유틸리티 클래스로 바꿨습니다.
+
+```html
+<article class="twc-pt-[16px] xl:twc-pt-[24px] twc-border-b-[1px] ...">
+  <div class="twc-text-[14px]/[15px] twc-text-bluegray-700">2026.07.24</div>  <!-- 작성일 -->
+  <div class="twc-text-[14px]/[17px] twc-text-bluegray-700">판매자: 쿠팡(주)</div>  <!-- 같은 클래스! -->
+  ...
+  <div class="sdp-review__article__list__help js_reviewArticleHelpfulContainer"
+       data-review-id="956372574">  <!-- ← 유일하게 안정적인 앵커 -->
+```
+
+의미 있는 클래스명이 없고 작성일·판매자·옵션명이 같은 클래스를 공유하므로,
+파서는 클래스 대신 **구조적 앵커**를 씁니다.
+
+| 대상 | 방법 |
+|---|---|
+| 리뷰 카드 | `[data-review-id]` 앵커 → `closest("article, li, section")` |
+| 작성일 | 요소의 **전체 텍스트가 날짜와 정확히 일치**하는 잎 노드 (본문 속 날짜 오인 방지) |
+| 중복 제거 키 | `data-review-id` (없으면 작성일 + 본문 앞 80자) |
+
+리뷰 날짜가 읽히지 않을 때도 같은 파일의 `REVIEW_ITEM_SELECTORS` / `REVIEW_DATE_SELECTORS` /
+`REVIEW_ID_ANCHOR_SELECTORS` 를 수정하면 됩니다. 리뷰 카드 구조를 못 찾으면 날짜 패턴(`2026.08.15`)만으로 훑는 안전망이 동작하며,
 이 경우 확장이 "값이 부정확할 수 있습니다"라고 경고합니다.
 
 위 예시라면 이렇게 고칩니다.

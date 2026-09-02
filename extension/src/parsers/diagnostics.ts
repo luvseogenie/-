@@ -21,12 +21,14 @@ import {
   RATING_SELECTORS,
   REVIEW_DATE_PATTERNS,
   REVIEW_DATE_SELECTORS,
+  REVIEW_ID_ANCHOR_SELECTORS,
   REVIEW_ITEM_SELECTORS,
   REVIEW_SECTION_SELECTORS,
   REVIEW_SORT_SELECTORS,
   REVIEW_TOTAL_COUNT_SELECTORS,
   REVIEW_COUNT_SELECTORS,
 } from "@/parsers/selectors";
+import { findReviewCards, findReviewId } from "@/parsers/coupang_review_parser";
 
 const MAX_SAMPLE_NODES = 60;
 const MAX_DATE_SAMPLES = 12;
@@ -41,19 +43,33 @@ function looksLikeMetric(text: string): boolean {
   return text.length <= 20 && /^[\d,.\s()%원점개별★☆]+$/.test(text);
 }
 
-/** 짧은 UI 라벨 화이트리스트 (정렬 버튼 등 — 구조 파악에 필요) */
-const SAFE_LABELS = [
-  "최신순", "베스트순", "최근순", "평점 높은순", "평점 낮은순",
-  "로켓배송", "로켓그로스", "판매자배송", "무료배송", "내일 도착",
-  "더보기", "다음", "이전", "상품평", "리뷰",
-];
+/**
+ * UI 라벨 화이트리스트 (정렬 버튼 등 — 구조 파악에 필요).
+ *
+ * 반드시 **정확히 일치**할 때만 통과시킨다.
+ * startsWith로 느슨하게 비교하면 "리뷰 본문입니다…" 같은 실제 리뷰 텍스트가
+ * "리뷰" 접두사에 걸려 그대로 노출된다.
+ */
+const SAFE_LABELS = new Set([
+  "최신순", "베스트순", "최근순", "평점 높은순", "평점 낮은순", "등록순",
+  "로켓배송", "로켓그로스", "판매자배송", "무료배송", "내일 도착", "새벽배송",
+  "더보기", "다음", "이전", "상품평", "리뷰", "리뷰 쓰기", "신고하기",
+  "도움이 됐어요", "옵션", "판매자",
+]);
 
 function maskText(raw: string | null | undefined): string {
   const text = (raw ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   if (looksLikeDate(text) || looksLikeMetric(text)) return text;
-  if (SAFE_LABELS.some((label) => text === label || text.startsWith(label))) {
-    return text.slice(0, 24);
+  if (SAFE_LABELS.has(text)) return text;
+
+  // 짧고 숫자가 섞인 텍스트(리뷰수·가격 등)는 숫자만 따로 알려준다.
+  // 본문 자체는 노출하지 않는다.
+  if (text.length <= 30) {
+    const numbers = text.match(/[\d,.]+/g);
+    if (numbers && numbers.length > 0) {
+      return `⟨text:${text.length} nums:${numbers.slice(0, 3).join("/")}⟩`;
+    }
   }
   return `⟨text:${text.length}⟩`;
 }
@@ -142,6 +158,20 @@ function dateCandidates(root: ParentNode): string[] {
   return found.length > 0 ? found : ["  ⚠ 날짜로 보이는 텍스트를 찾지 못했습니다."];
 }
 
+/** 숫자가 섞인 짧은 텍스트 — 리뷰수/가격 selector를 찾는 단서 */
+function numberCandidates(root: ParentNode): string[] {
+  const found: string[] = [];
+  for (const el of Array.from(root.querySelectorAll("*"))) {
+    if (el.children.length > 0) continue;
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (!text || text.length > 30 || !/\d/.test(text)) continue;
+    if (looksLikeDate(text)) continue; // 날짜는 위에서 이미 다뤘다
+    found.push(`  ${describeElement(el)}  "${maskText(text)}"`);
+    if (found.length >= MAX_DATE_SAMPLES) break;
+  }
+  return found.length > 0 ? found : ["  (없음)"];
+}
+
 /**
  * 진단 리포트를 만든다.
  * @param root 분석할 문서
@@ -176,6 +206,24 @@ export function buildDiagnosticsReport(root: ParentNode, url: string): string {
   out.push("");
   out.push(...selectorReport(root, "리뷰 카드", REVIEW_ITEM_SELECTORS));
   out.push("");
+
+  // 개편 이후에는 클래스가 아니라 data-review-id 앵커로 카드를 찾는다.
+  out.push(...selectorReport(root, "리뷰 식별자 앵커", REVIEW_ID_ANCHOR_SELECTORS));
+  const found = findReviewCards(root);
+  out.push(
+    `  → 최종 인식된 리뷰 카드: ${found.cards.length}개 (경로: ${
+      found.via === "selector"
+        ? "클래스 selector"
+        : found.via === "data-review-id"
+          ? "data-review-id 앵커"
+          : "실패"
+    })`,
+  );
+  if (found.cards.length > 0) {
+    const ids = found.cards.slice(0, 3).map((c) => findReviewId(c) ?? "(없음)");
+    out.push(`  → 리뷰 식별자 예시: ${ids.join(", ")}`);
+  }
+  out.push("");
   out.push(...selectorReport(root, "리뷰 작성일", REVIEW_DATE_SELECTORS));
   out.push("");
   out.push(...selectorReport(root, "리뷰 정렬 컨트롤", REVIEW_SORT_SELECTORS));
@@ -185,6 +233,11 @@ export function buildDiagnosticsReport(root: ParentNode, url: string): string {
 
   out.push("[날짜로 보이는 텍스트]");
   out.push(...dateCandidates(root));
+  out.push("");
+
+  // 누적 리뷰수 selector가 실패했을 때 후보를 찾기 위한 목록
+  out.push("[숫자가 들어간 짧은 텍스트 (리뷰수·가격 후보)]");
+  out.push(...numberCandidates(root));
   out.push("");
 
   // --- 실제 구조 샘플
@@ -199,27 +252,21 @@ export function buildDiagnosticsReport(root: ParentNode, url: string): string {
   }
 
   out.push("[리뷰 카드 구조 샘플]");
-  let sample: Element | null = null;
-  for (const selector of REVIEW_ITEM_SELECTORS) {
-    try {
-      sample = (section ?? root).querySelector(selector);
-      if (sample) break;
-    } catch {
-      /* 다음 selector */
-    }
+  let sample: Element | null = found.cards[0] ?? null;
+  if (sample && found.via === "data-review-id") {
+    out.push("  (클래스 selector 실패 → data-review-id 앵커로 찾은 카드)");
   }
   if (!sample) {
-    // 리뷰 카드 selector가 전부 실패하면, 날짜를 가진 요소의 조상을 후보로 본다.
-    // (리뷰 영역 selector까지 실패했을 수 있으므로 문서 전체에서 찾는다)
+    // 앵커까지 실패하면 날짜를 가진 요소의 조상을 후보로 본다.
     for (const el of Array.from((section ?? root).querySelectorAll("*"))) {
       if (el.children.length === 0 && looksLikeDate((el.textContent ?? "").trim())) {
         sample = el.closest("article, li, div[class]") ?? el.parentElement;
         break;
       }
     }
-    if (sample) out.push("  (리뷰 카드 selector가 모두 실패해 날짜 요소의 조상으로 추정)");
+    if (sample) out.push("  (모든 방법 실패 → 날짜 요소의 조상으로 추정)");
   }
-  out.push(sample ? outline(sample).join("\n") : "  ⚠ 리뷰 카드를 찾지 못했습니다.");
+  out.push(sample ? outline(sample, 0, 5).join("\n") : "  ⚠ 리뷰 카드를 찾지 못했습니다.");
   out.push("");
 
   // 정렬 컨트롤은 "최신순" 정렬 여부 판별에 쓰이므로 구조를 따로 보여준다.

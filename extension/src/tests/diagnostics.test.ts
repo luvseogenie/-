@@ -97,3 +97,44 @@ describe("진단 리포트 — 상품 목록 페이지", () => {
     expect(report).toContain("[가격]");
   });
 });
+
+describe("진단 리포트 — 개편된 리뷰 DOM (twc 유틸 클래스)", () => {
+  it("클래스 selector 실패를 알리면서도 앵커로 찾았음을 보여준다", () => {
+    document.body.innerHTML = loadFixture("product-reviews-twc.html");
+    const report = buildDiagnosticsReport(document, URL_);
+
+    expect(report).toContain("[리뷰 식별자 앵커]");
+    expect(report).toContain("[data-review-id] → 6개");
+    expect(report).toContain("최종 인식된 리뷰 카드: 6개 (경로: data-review-id 앵커)");
+    expect(report).toContain("리뷰 식별자 예시: 956372574");
+    expect(report).toContain("(클래스 selector 실패 → data-review-id 앵커로 찾은 카드)");
+  });
+
+  it("작성자명과 리뷰 본문은 여전히 마스킹한다", () => {
+    document.body.innerHTML = loadFixture("product-reviews-twc.html");
+    const report = buildDiagnosticsReport(document, URL_);
+    expect(report).not.toContain("리뷰 본문 자리");
+    expect(report).not.toContain("구매자");
+    expect(report).not.toContain("리뷰 제목 자리");
+    expect(report).toContain("⟨text:");
+  });
+
+  it("'리뷰'로 시작하는 본문이 안전 라벨로 오인되지 않는다", () => {
+    document.body.innerHTML = `<div><span>리뷰 본문입니다. 아주 만족합니다.</span></div>`;
+    const report = buildDiagnosticsReport(document, URL_);
+    expect(report).not.toContain("아주 만족합니다");
+  });
+
+  it("리뷰수 후보를 찾아주되 본문은 숫자만 남긴다", () => {
+    document.body.innerHTML = `
+      <section id="sdpReview">
+        <span class="ReviewCount_root__a1">상품평 1,284개</span>
+        <article class="x"><div>2026.08.28</div></article>
+      </section>`;
+    const report = buildDiagnosticsReport(document, URL_);
+    expect(report).toContain("[숫자가 들어간 짧은 텍스트 (리뷰수·가격 후보)]");
+    expect(report).toContain("span.ReviewCount_root__a1");
+    expect(report).toContain("nums:1,284");
+    expect(report).not.toContain("상품평 1,284개");
+  });
+});

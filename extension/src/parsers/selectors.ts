@@ -158,10 +158,25 @@ export const REVIEW_SECTION_SELECTORS = [
   "div.review-list",
   "section[class*='review']",
   "div[class*='reviewList']",
+  "div[class*='js_reviewArticleList']",
+  "div[class*='js_reviewArticleContainer']",
   "#productReview",
 ] as const;
 
-/** 리뷰 한 건 */
+/**
+ * 리뷰 한 건.
+ *
+ * 2026년 개편 이후 쿠팡 리뷰 카드는 Tailwind 유틸리티 클래스만 쓴다.
+ *   <article class="twc-pt-[16px] xl:twc-pt-[24px] twc-border-b-[1px] ...">
+ * 의미 있는 클래스명이 없어 클래스 기반 selector는 신뢰할 수 없다.
+ *
+ * 대신 각 리뷰 카드 안에는 도움돼요 영역에 data-review-id 가 남아 있다.
+ *   <div class="sdp-review__article__list__help js_reviewArticleHelpfulContainer"
+ *        data-review-id="956372574" data-count="4">
+ * 그래서 파서는 REVIEW_ID_ANCHOR_SELECTORS 로 앵커를 찾아
+ * closest(REVIEW_CARD_CONTAINERS) 로 카드를 역추적한다(coupang_review_parser.ts).
+ * 아래 목록은 구버전/변형 레이아웃 대비용이다.
+ */
 export const REVIEW_ITEM_SELECTORS = [
   "article.sdp-review__article__list",
   "article[class*='review__article__list']",
@@ -170,13 +185,34 @@ export const REVIEW_ITEM_SELECTORS = [
   "article[class*='ReviewItem']",
 ] as const;
 
-/** 리뷰 한 건 안의 작성일 */
+/**
+ * ★ 리뷰 카드를 찾는 가장 안정적인 앵커.
+ * 클래스명이 바뀌어도 리뷰 식별자는 남는다.
+ */
+export const REVIEW_ID_ANCHOR_SELECTORS = [
+  "[data-review-id]",
+  "[data-reviewid]",
+  "[data-review_id]",
+] as const;
+
+/** 앵커에서 위로 올라가며 찾을 카드 컨테이너 */
+export const REVIEW_CARD_CONTAINERS = "article, li, section" as const;
+
+/**
+ * 리뷰 한 건 안의 작성일.
+ *
+ * 개편 이후에는 날짜 전용 클래스가 없다. 작성일·판매자·옵션명이
+ * 모두 `twc-text-bluegray-700` 을 공유하기 때문에 클래스로는 구분할 수 없다.
+ *   <div class="twc-text-[14px]/[15px] twc-text-bluegray-700">2026.07.24</div>
+ * 그래서 파서는 아래 selector가 실패하면
+ * "요소의 전체 텍스트가 날짜 형식과 정확히 일치"하는 잎 노드를 찾는다.
+ */
 export const REVIEW_DATE_SELECTORS = [
   "div.sdp-review__article__list__info__product-info__reg-date",
   "[class*='reg-date']",
   "[class*='regDate']",
   "[class*='review-date']",
-  "time",
+  "time[datetime]",
 ] as const;
 
 /** 리뷰 정렬 컨트롤 (최신순으로 되어 있는지 확인용) */
@@ -184,6 +220,7 @@ export const REVIEW_SORT_SELECTORS = [
   "div.sdp-review__article__order__sort",
   "[class*='order__sort']",
   "[class*='reviewSort']",
+  "[class*='js_reviewArticleOrder']",
 ] as const;
 
 /** 정렬이 "최신순"임을 나타내는 활성 항목 */
@@ -200,6 +237,15 @@ export const REVIEW_TOTAL_COUNT_SELECTORS = [
   "[class*='sdp-review__average__total-star__info-count']",
   "[class*='reviewCount']",
   ".count",
+] as const;
+
+/**
+ * 요소 전체가 날짜인지 판별할 때 쓰는 패턴(앞뒤에 다른 글자가 없어야 한다).
+ * 리뷰 본문 안의 날짜를 작성일로 오인하지 않기 위해 필요하다.
+ */
+export const REVIEW_DATE_EXACT_PATTERNS = [
+  /^(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})\.?$/,
+  /^(20\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일$/,
 ] as const;
 
 /**
