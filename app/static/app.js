@@ -450,7 +450,7 @@
     const r = await api(`/api/tools/${tool}`, {});
     toast(r.message || '완료');
     if (r.text) {
-      openModal('쿠팡 연결 테스트 결과 (전체 복사해서 보내주세요)', `<button class="btn" id="copy-test">전체 복사</button><pre>${esc(r.text)}</pre>`);
+      openModal((tool === 'test_wing' ? '윙' : '쿠팡') + ' 연결 테스트 결과 (전체 복사해서 보내주세요)', `<button class="btn" id="copy-test">전체 복사</button><pre>${esc(r.text)}</pre>`);
       $('#copy-test').addEventListener('click', () => { navigator.clipboard.writeText(r.text).then(() => toast('복사했습니다.')); });
     }
     if (tool === 'reset_categories') { state.trees = {}; state.checked.clear(); renderAll(); }

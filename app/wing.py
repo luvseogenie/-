@@ -149,7 +149,15 @@ def stop_capture():
 
 
 def open_login(bt):
-    page = bt.new_page()
+    ctx = bt.ensure_context()
+    page = None
+    for pg in ctx.pages:
+        if "wing.coupang.com" in pg.url or "xauth.coupang.com" in pg.url:
+            page = pg
+            break
+    if page is None:
+        page = ctx.new_page()
+    page.bring_to_front()
     page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=60000)
     log.info("윙 로그인 창을 열었습니다. 로그인 후 이 창은 그대로 두셔도 됩니다.")
     return True
@@ -201,6 +209,80 @@ def _to_int(v):
 
 TRENDS_URL = "https://wing.coupang.com/tenants/rfm-ss/api/trends/search"
 
+FETCH_JS = """
+async (args) => {
+  const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {} };
+  if (args.body !== undefined && args.body !== null) opt.body = args.body;
+  try {
+    const r = await fetch(args.url, opt);
+    const text = await r.text();
+    return { status: r.status, url: r.url, ctype: r.headers.get('content-type') || '', text: text.slice(0, 2000000), redirected: r.redirected };
+  } catch (e) { return { status: 0, url: args.url, ctype: '', text: '', error: String(e) }; }
+}
+"""
+
+
+def _is_login_url(url: str) -> bool:
+    u = (url or "").lower()
+    return "xauth.coupang.com" in u or "/login" in u or "/sso/" in u
+
+
+def wing_page(bt):
+    """로그인된 윙 탭을 찾거나 연다. 로그인 페이지에 있으면 WingLoginRequired."""
+    ctx = bt.ensure_context()
+    page = None
+    for pg in ctx.pages:
+        try:
+            if "wing.coupang.com" in pg.url and not _is_login_url(pg.url):
+                page = pg
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if page is None:
+        for pg in ctx.pages:
+            try:
+                if "wing.coupang.com" in pg.url or "xauth.coupang.com" in pg.url:
+                    page = pg
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+    if page is None:
+        page = ctx.new_page()
+        page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(1500)
+    if _is_login_url(page.url):
+        raise WingLoginRequired()
+    return page
+
+
+def _fetch_json(page, url: str, method: str = "GET", body=None, headers=None):
+    """윙 탭 안에서 fetch 를 실행해 JSON 을 돌려준다. 로그인 페이지로 튕기면 WingLoginRequired."""
+    hdrs = {"accept": "application/json, text/plain, */*"}
+    if headers:
+        hdrs.update(headers)
+    data = None
+    if body is not None:
+        data = json.dumps(body, ensure_ascii=False)
+        hdrs["content-type"] = "application/json"
+    r = page.evaluate(FETCH_JS, {"url": url, "method": method, "body": data, "headers": hdrs})
+    if r.get("error"):
+        raise RuntimeError(f"요청 실패: {r['error'][:120]}")
+    if r["status"] == 401 or _is_login_url(r.get("url")):
+        raise WingLoginRequired()
+    text = r.get("text") or ""
+    if "json" not in (r.get("ctype") or "").lower():
+        if "<title>쿠팡!</title>" in text or "error403" in text:
+            raise RuntimeError(f"윙이 요청을 거부했습니다 (HTTP {r['status']})")
+        if 'name="username"' in text or "login-actions" in text:
+            raise WingLoginRequired()
+        raise RuntimeError(f"윙 응답이 JSON 이 아닙니다 (HTTP {r['status']})")
+    if r["status"] >= 400:
+        raise RuntimeError(f"윙 응답 오류 HTTP {r['status']}")
+    try:
+        return json.loads(text)
+    except Exception:
+        raise RuntimeError("윙 응답을 해석하지 못했습니다")
+
 
 def _clean_query(name: str) -> str:
     n = (name or "").split(",")[0].strip()
@@ -238,24 +320,13 @@ def _parse_item(it: dict) -> dict:
     }
 
 
-def _trends_search(ctx, query: str, limit: int = 100) -> list:
+def _trends_search(page, query: str, limit: int = 100) -> list:
     body = {"searchCondition": {"start": 0, "limit": limit, "query": query, "sort": ["BEST_SELLING"], "filter": {},
             "context": {"bundleId": 62, "ip": "127.0.0.1", "viewType": "WEB", "sourcePage": "Srp", "pcid": "unknown",
                         "channel": "unknown", "userNo": 0, "uuid": "", "osType": "PC", "appVersion": "1.0.0",
                         "abTests": None, "engineParams": {}, "filteredAbTests": None, "swapSet": None}}}
-    resp = ctx.request.post(TRENDS_URL, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                            headers={"content-type": "application/json", "accept": "application/json",
-                                     "referer": "https://wing.coupang.com/tenants/rfm-ss/", "origin": "https://wing.coupang.com"},
-                            timeout=30000)
-    if resp.status in (401, 403) or "login" in resp.url:
-        raise WingLoginRequired()
-    if resp.status >= 400:
-        raise RuntimeError(f"윙 응답 오류 HTTP {resp.status}")
-    try:
-        data = resp.json()
-    except Exception:
-        raise RuntimeError("윙 응답을 해석하지 못했습니다 (로그인이 풀렸을 수 있습니다)")
-    return data.get("searchItems") or []
+    data = _fetch_json(page, TRENDS_URL, "POST", body)
+    return (data or {}).get("searchItems") or []
 
 
 PREMATCH_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/productmatch/prematch/product-items"
@@ -270,15 +341,15 @@ def reset_caches():
     _category_cache.clear()
 
 
-def _public_category_id(ctx, pid):
-    """쿠팡 공개 API 로 내부 categoryId 를 얻는다 (로그인 불필요)."""
+def _public_category_id(page, pid):
+    """쿠팡 공개 API 로 내부 categoryId 를 얻는다 (로그인 불필요, 윙 탭에서 교차 요청)."""
     if pid in _category_cache:
         return _category_cache[pid]
     try:
-        r = ctx.request.get(PUBLIC_CATEGORY_URL.format(pid=pid), timeout=20000,
-                            headers={"accept": "application/json", "referer": f"https://www.coupang.com/vp/products/{pid}"})
-        if r.ok:
-            d = r.json()
+        r = page.evaluate(FETCH_JS, {"url": PUBLIC_CATEGORY_URL.format(pid=pid), "method": "GET",
+                                     "headers": {"accept": "application/json"}})
+        if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
+            d = json.loads(r["text"])
             cid = _dig(d, "reviewable.contents.categoryId")
             if cid:
                 _category_cache[pid] = cid
@@ -288,23 +359,22 @@ def _public_category_id(ctx, pid):
     return None
 
 
-def _prematch(ctx, product: dict, category_id=None) -> dict | None:
+def _prematch(page, product: dict, category_id=None) -> dict | None:
     """카탈로그 매칭 API: 정확한 28일 조회수, 아이템위너 가격, 경쟁 판매자 수."""
     pid = product.get("product_id")
-    params = {"productId": pid, "allowSingleProduct": "true"}
+    params = [f"productId={pid}", "allowSingleProduct=true"]
     if product.get("item_id"):
-        params["itemId"] = product["item_id"]
+        params.append(f"itemId={product['item_id']}")
     if category_id:
-        params["categoryId"] = category_id
-    resp = ctx.request.get(PREMATCH_URL, params=params, timeout=30000,
-                           headers={"accept": "application/json, text/plain, */*",
-                                    "referer": "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"})
-    if resp.status in (401,) or "login" in resp.url:
-        raise WingLoginRequired()
-    ctype = (resp.headers.get("content-type") or "").lower()
-    if resp.status >= 400 or "json" not in ctype:
+        params.append(f"categoryId={category_id}")
+    url = PREMATCH_URL + "?" + "&".join(params)
+    try:
+        data = _fetch_json(page, url, "GET", None, {"referer": "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"})
+    except WingLoginRequired:
+        raise
+    except RuntimeError as e:
+        log.warn(f"카탈로그 매칭 응답 없음 {pid}: {e}")
         return None
-    data = resp.json()
     if not isinstance(data, dict) or data.get("productId") is None:
         return None
     items = data.get("items") or []
@@ -314,7 +384,6 @@ def _prematch(ctx, product: dict, category_id=None) -> dict | None:
             mine = it
             break
     if mine is None and items:
-        # 옵션이 안 맞으면 아이템위너 가격이 가장 낮은(대표) 옵션
         mine = min(items, key=lambda x: (_to_int(x.get("buyboxWinnerPrice")) or 10**12))
     flags = (mine or {}).get("controlFlags") or {}
     do_not_merge = str(flags.get("DO_NOT_MERGE", "")).lower() == "true"
@@ -336,7 +405,7 @@ def _prematch(ctx, product: dict, category_id=None) -> dict | None:
     }
 
 
-def _trends_fill(ctx, product: dict):
+def _trends_fill(page, product: dict):
     """인기상품검색으로 순위·조회수 범위를 가져와 캐시에 넣는다 (한 번에 최대 100개)."""
     want = product.get("product_id")
     queries = [_clean_query(product.get("name"))]
@@ -346,7 +415,7 @@ def _trends_fill(ctx, product: dict):
     for q in queries:
         if not q:
             continue
-        for it in _trends_search(ctx, q):
+        for it in _trends_search(page, q):
             pid = _to_int(it.get("productId"))
             if pid is None:
                 continue
@@ -360,33 +429,27 @@ def _trends_fill(ctx, product: dict):
 def lookup(bt, product: dict):
     """상품 하나를 조회한다. 반환: (fields | None, others: {product_id: fields})
 
-    1) 인기상품검색(캐시)으로 순위·범위·내부 카테고리번호를 얻고
-    2) 카탈로그 매칭 API 로 정확한 28일 조회수·아이템위너 가격·경쟁 판매자 수를 얻어 합친다.
-    others 에는 같은 검색에서 함께 얻은(범위만 있는) 다른 상품들이 들어간다.
+    모든 요청은 로그인된 윙 탭 안에서 보낸다 (봇 방어에 걸리지 않도록).
+    1) 카탈로그 매칭 API 로 정확한 28일 조회수·아이템위너 가격·경쟁 판매자 수
+    2) 인기상품검색(캐시)으로 순위·범위 보조
     """
-    ctx = bt.ensure_context()
+    page = wing_page(bt)
     pid = product.get("product_id")
     before = set(_trends_cache.keys())
     if pid not in _trends_cache:
         try:
-            _trends_fill(ctx, product)
+            _trends_fill(page, product)
         except WingLoginRequired:
             raise
         except Exception as e:  # noqa: BLE001
             log.warn(f"인기상품검색 실패 {pid}: {e}")
     base = dict(_trends_cache.get(pid) or {})
-    cat = base.get("category_internal") or _public_category_id(ctx, pid)
-    exact = None
-    try:
-        exact = _prematch(ctx, product, cat)
-        if exact is None and cat is None:
-            cat2 = _public_category_id(ctx, pid)
-            if cat2:
-                exact = _prematch(ctx, product, cat2)
-    except WingLoginRequired:
-        raise
-    except Exception as e:  # noqa: BLE001
-        log.warn(f"카탈로그 매칭 조회 실패 {pid}: {e}")
+    cat = base.get("category_internal")
+    exact = _prematch(page, product, cat)
+    if exact is None:
+        cat2 = _public_category_id(page, pid)
+        if cat2 and cat2 != cat:
+            exact = _prematch(page, product, cat2)
     if exact:
         merged = dict(base)
         merged.update({k: v for k, v in exact.items() if v is not None or k in ("pv_low", "pv_high")})
@@ -400,6 +463,29 @@ def lookup(bt, product: dict):
     new_ids = set(_trends_cache.keys()) - before
     others = {k: _trends_cache[k] for k in new_ids if k != pid}
     return self_fields, others
+
+
+def test_connection(bt) -> dict:
+    """윙 연결 테스트: 알려진 상품 하나로 두 API 를 호출해 결과를 보여준다."""
+    page = wing_page(bt)
+    out = {"page_url": page.url}
+    sample = {"product_id": 8350616562, "item_id": 24124670002, "name": "코멧 뽑아쓰는 분리수거 배접 비닐봉투, 200개, 60L"}
+    try:
+        items = _trends_search(page, "코멧 분리수거 비닐봉투")
+        out["trends_count"] = len(items)
+        out["trends_first"] = {k: items[0].get(k) for k in ("productId", "productName", "lowerPvLast28d", "upperPvLast28d", "pvLast28dRank")} if items else None
+    except WingLoginRequired:
+        out["trends_error"] = "로그인 필요"
+    except Exception as e:  # noqa: BLE001
+        out["trends_error"] = str(e)
+    try:
+        ex = _prematch(page, sample, 1839)
+        out["prematch"] = {k: ex.get(k) for k in ("views_28", "wing_price", "seller_count", "mergeable", "option_total", "wing_category")} if ex else None
+    except WingLoginRequired:
+        out["prematch_error"] = "로그인 필요"
+    except Exception as e:  # noqa: BLE001
+        out["prematch_error"] = str(e)
+    return out
 
 
 def lookup_generic(bt, product: dict) -> dict:

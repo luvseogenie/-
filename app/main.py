@@ -386,6 +386,17 @@ def tools(name: str):
                 lines.append(c)
                 lines.append("-----")
             return {"ok": True, "message": msg, "result": r, "text": "\n".join(lines)}
+        if name == "test_wing":
+            r = browser.call(wing.test_connection, "윙 연결 테스트", timeout=120)
+            lines = [f"윙 탭 주소: {r.get('page_url')}", "",
+                     f"[인기상품검색] {'오류: ' + r['trends_error'] if r.get('trends_error') else '상품 ' + str(r.get('trends_count')) + '개'}",
+                     json.dumps(r.get("trends_first"), ensure_ascii=False) if r.get("trends_first") else "",
+                     "", f"[카탈로그 매칭] {'오류: ' + r['prematch_error'] if r.get('prematch_error') else ('응답 없음' if not r.get('prematch') else '정상')}",
+                     json.dumps(r.get("prematch"), ensure_ascii=False) if r.get("prematch") else ""]
+            ok = bool(r.get("prematch")) or bool(r.get("trends_first"))
+            msg = "윙 연결 정상입니다." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
+            log.info(msg)
+            return {"ok": True, "message": msg, "text": "\n".join(lines)}
         if name == "wing_login":
             browser.call(wing.open_login, "윙 로그인", timeout=90)
             return {"ok": True, "message": "윙 로그인 창을 열었습니다. 로그인해 주세요."}
