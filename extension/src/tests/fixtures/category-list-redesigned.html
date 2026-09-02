@@ -1,0 +1,86 @@
+<!--
+  테스트용 픽스처 — 쿠팡이 목록 페이지를 전면 개편한 상황을 가정.
+
+  기존 클래스명(search-product / name / price-value / rating-total-count /
+  ProductUnit_* / Price_* / ProductRating_*)이 **하나도** 남지 않았고,
+  <li>가 아니라 <div>로 바뀌었으며, data-product-id 도 없다.
+
+  파서는 클래스가 아니라 상품 링크(/vp/products/) 앵커로 카드를 역추적해야 한다.
+  배송 배지는 텍스트가 아니라 img의 alt에만 들어 있다.
+-->
+<div class="PlpRoot_root__8sK2p">
+  <section class="PlpList_grid__2Yn1F">
+  <div class="PlpCard_root__9fK2x twc-relative" data-pid="7010001">
+    <a class="PlpCard_link__aa1Bz" href="/vp/products/7010001?itemId=99&amp;vendorItemId=88&amp;rank=1">
+      <figure class="PlpCard_thumb__Kd0Lm">
+        <img alt="OO 채칼세트 5종 스테인리스" src="//img1a.coupangcdn.com/thumb/7010001.jpg" loading="lazy">
+      </figure>
+      <div class="PlpCard_body__Xy3Kl twc-flex twc-flex-col">
+        <div class="PlpCard_title__gre7e twc-line-clamp-2">OO 채칼세트 5종 스테인리스</div>
+        <div class="PlpCard_priceRow__NPRV9 twc-flex twc-items-baseline">
+          <strong class="PlpCard_amount__A4KOr">13,900</strong><span class="twc-text-[13px]">원</span>
+        </div>
+        <div class="PlpCard_reviewRow__jjf7W twc-flex twc-items-center">
+          <span class="PlpCard_starFill__RGSlV" style="width:94%"></span>
+          <span class="PlpCard_reviewNum__R0Vhz">(82)</span>
+        </div>
+        <div class="PlpCard_shipping__2FrGO"><img alt="로켓그로스" src="/badges/x.png"></div>
+      </div>
+    </a>
+  </div>
+  <div class="PlpCard_root__9fK2x twc-relative" data-pid="7010002">
+    <a class="PlpCard_link__aa1Bz" href="/vp/products/7010002?itemId=99&amp;vendorItemId=88&amp;rank=1">
+      <figure class="PlpCard_thumb__Kd0Lm">
+        <img alt="신상품 감자칼" src="//img1a.coupangcdn.com/thumb/7010002.jpg" loading="lazy">
+      </figure>
+      <div class="PlpCard_body__Xy3Kl twc-flex twc-flex-col">
+        <div class="PlpCard_title__gre7e twc-line-clamp-2">신상품 감자칼</div>
+        <div class="PlpCard_priceRow__NPRV9 twc-flex twc-items-baseline">
+          <strong class="PlpCard_amount__A4KOr">4,900</strong><span class="twc-text-[13px]">원</span>
+        </div>
+        <div class="PlpCard_reviewRow__jjf7W twc-flex twc-items-center">
+          <span class="PlpCard_starFill__RGSlV" style="width:90%"></span>
+          <span class="PlpCard_reviewNum__R0Vhz">(0)</span>
+        </div>
+        <div class="PlpCard_shipping__2FrGO"><img alt="로켓배송" src="/badges/x.png"></div>
+      </div>
+    </a>
+  </div>
+  <div class="PlpCard_root__9fK2x twc-relative" data-pid="7010003">
+    <a class="PlpCard_link__aa1Bz" href="/vp/products/7010003?itemId=99&amp;vendorItemId=88&amp;rank=1">
+      <figure class="PlpCard_thumb__Kd0Lm">
+        <img alt="프리미엄 슬라이서 3종" src="//img1a.coupangcdn.com/thumb/7010003.jpg" loading="lazy">
+      </figure>
+      <div class="PlpCard_body__Xy3Kl twc-flex twc-flex-col">
+        <div class="PlpCard_title__gre7e twc-line-clamp-2">프리미엄 슬라이서 3종</div>
+        <div class="PlpCard_priceRow__NPRV9 twc-flex twc-items-baseline">
+          <strong class="PlpCard_amount__A4KOr">29,000</strong><span class="twc-text-[13px]">원</span>
+        </div>
+        <div class="PlpCard_reviewRow__jjf7W twc-flex twc-items-center">
+          <span class="PlpCard_starFill__RGSlV" style="width:98%"></span>
+          <span class="PlpCard_reviewNum__R0Vhz">(1,234)</span>
+        </div>
+        <div class="PlpCard_shipping__2FrGO"><img alt="판매자배송" src="/badges/x.png"></div>
+      </div>
+    </a>
+  </div>
+  <div class="PlpCard_root__9fK2x twc-relative" data-pid="7010004">
+    <a class="PlpCard_link__aa1Bz" href="/vp/products/7010004?itemId=99&amp;vendorItemId=88&amp;rank=1">
+      <figure class="PlpCard_thumb__Kd0Lm">
+        <img alt="노브랜드 슬라이서" src="//img1a.coupangcdn.com/thumb/7010004.jpg" loading="lazy">
+      </figure>
+      <div class="PlpCard_body__Xy3Kl twc-flex twc-flex-col">
+        <div class="PlpCard_title__gre7e twc-line-clamp-2">노브랜드 슬라이서</div>
+        <div class="PlpCard_priceRow__NPRV9 twc-flex twc-items-baseline">
+          <strong class="PlpCard_amount__A4KOr">7,500</strong><span class="twc-text-[13px]">원</span>
+        </div>
+        <div class="PlpCard_reviewRow__jjf7W twc-flex twc-items-center">
+          <span class="PlpCard_starFill__RGSlV" style="width:84%"></span>
+          <span class="PlpCard_reviewNum__R0Vhz">(3)</span>
+        </div>
+        <div class="PlpCard_shipping__2FrGO"><img alt="로켓배송" src="/badges/x.png"></div>
+      </div>
+    </a>
+  </div>
+  </section>
+</div>

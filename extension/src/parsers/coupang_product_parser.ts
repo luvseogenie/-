@@ -19,8 +19,14 @@ import {
   NAME_FALLBACK_IMG_SELECTORS,
   NAME_SELECTORS,
   PRICE_SELECTORS,
+  PRODUCT_CARD_CONTAINERS,
   PRODUCT_CARD_SELECTORS,
   PRODUCT_ID_ATTRIBUTES,
+  PRODUCT_LINK_SELECTOR,
+  PRICE_TEXT_PATTERN,
+  PRICE_UNIT_KEYWORDS,
+  RATING_STYLE_PATTERN,
+  REVIEW_COUNT_TEXT_PATTERN,
   PRODUCT_ID_URL_PATTERNS,
   RATING_SELECTORS,
   REVIEW_COUNT_SELECTORS,
@@ -52,17 +58,42 @@ function textOf(root: ParentNode, selectors: readonly string[]): string | null {
   return text === "" ? null : text;
 }
 
-/** 배지 등에서 값이 될 만한 속성을 모두 긁는다. */
+const LABEL_ATTRIBUTES = ["alt", "title", "aria-label", "src", "class"] as const;
+
+/**
+ * 배지 등에서 값이 될 만한 속성을 모두 긁는다.
+ *
+ * 배송 배지는 텍스트가 아니라 이미지의 alt에 들어 있는 경우가 많다.
+ *   <div class="ImageBadge_default_image__x"><img alt="로켓그로스"></div>
+ * 그래서 요소 자신뿐 아니라 자손의 속성까지 함께 본다.
+ */
 function attributeSoup(el: Element | null): string {
   if (!el) return "";
-  const parts = [
-    el.textContent ?? "",
-    el.getAttribute("alt") ?? "",
-    el.getAttribute("title") ?? "",
-    el.getAttribute("src") ?? "",
-    el.getAttribute("class") ?? "",
-    el.getAttribute("aria-label") ?? "",
-  ];
+  const parts: string[] = [el.textContent ?? ""];
+  const collect = (target: Element) => {
+    for (const attr of LABEL_ATTRIBUTES) parts.push(target.getAttribute(attr) ?? "");
+  };
+  collect(el);
+  for (const child of Array.from(el.querySelectorAll("img, [alt], [title], [aria-label]")).slice(0, 20)) {
+    collect(child);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * 배지를 못 찾았을 때 카드 전체에서 배송 키워드를 찾는다.
+ *
+ * 상품 썸네일의 alt는 상품명이라 오탐을 낼 수 있으므로,
+ * 짧은 라벨성 alt/title만 본다(배지 라벨은 "로켓배송"처럼 짧다).
+ */
+function cardLabelSoup(card: Element): string {
+  const parts: string[] = [card.textContent ?? ""];
+  for (const el of Array.from(card.querySelectorAll("[alt], [title], [aria-label]")).slice(0, 30)) {
+    for (const attr of ["alt", "title", "aria-label"] as const) {
+      const value = el.getAttribute(attr);
+      if (value && value.length <= 20) parts.push(value);
+    }
+  }
   return parts.join(" ");
 }
 
@@ -108,17 +139,21 @@ export function extractName(card: Element): string | null {
 }
 
 export function extractDeliveryType(card: Element): DeliveryType | null {
-  const badge = queryFirst(card, DELIVERY_BADGE_SELECTORS);
-  const haystack = badge ? attributeSoup(badge) : "";
-  // 배지를 못 찾으면 카드 전체 텍스트에서 한 번 더 찾는다.
-  const text = (haystack + " " + (card.textContent ?? "")).toLowerCase();
-
-  for (const { keywords, type } of DELIVERY_KEYWORDS) {
-    if (keywords.some((k) => text.includes(k.toLowerCase()))) {
-      return type as DeliveryType;
+  const match = (haystack: string): DeliveryType | null => {
+    const text = haystack.toLowerCase();
+    for (const { keywords, type } of DELIVERY_KEYWORDS) {
+      if (keywords.some((k) => text.includes(k.toLowerCase()))) return type as DeliveryType;
     }
-  }
-  return null;
+    return null;
+  };
+
+  // 1) 배지 요소(및 그 안의 img alt 등)에서 찾는다.
+  const badge = queryFirst(card, DELIVERY_BADGE_SELECTORS);
+  const fromBadge = badge ? match(attributeSoup(badge)) : null;
+  if (fromBadge) return fromBadge;
+
+  // 2) 배지를 못 찾으면 카드 전체의 짧은 라벨에서 찾는다.
+  return match(cardLabelSoup(card));
 }
 
 export function extractRating(card: Element): number | null {
@@ -136,6 +171,66 @@ export function extractThumbnail(card: Element, baseUrl?: string): string | null
   if (!img) return null;
   const src = img.getAttribute("src") ?? img.getAttribute("data-src") ?? img.getAttribute("data-img-src");
   return absoluteUrl(src, baseUrl);
+}
+
+// ---------------------------------------------------------------------------
+// 값의 형태로 찾는 대체 경로
+//
+// 쿠팡이 클래스명을 완전히 새로 지으면 어떤 selector도 맞출 수 없다.
+// 이때는 클래스가 아니라 **값의 생김새**로 찾는다.
+// ---------------------------------------------------------------------------
+
+/** 카드 안의 잎 노드를 순서대로 훑는다. */
+function leafNodes(card: Element): Element[] {
+  return Array.from(card.querySelectorAll("*")).filter((el) => el.children.length === 0);
+}
+
+/** "(1,234)" 형태의 리뷰수를 찾는다. */
+export function findReviewCountByShape(card: Element): number | null {
+  for (const el of leafNodes(card)) {
+    const text = (el.textContent ?? "").replace(/\s+/g, "").trim();
+    const match = text.match(REVIEW_COUNT_TEXT_PATTERN);
+    if (match && match[1]) {
+      const value = parseReviewCount(match[1]);
+      if (value >= 0) return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * "13,900" 처럼 생긴 가격을 찾는다.
+ * 바로 뒤(또는 부모)에 "원"이 있는 것만 가격으로 본다.
+ */
+export function findPriceByShape(card: Element): number | null {
+  for (const el of leafNodes(card)) {
+    const text = (el.textContent ?? "").replace(/\s+/g, "").trim();
+    if (!PRICE_TEXT_PATTERN.test(text)) continue;
+
+    const nearby = [
+      el.nextElementSibling?.textContent ?? "",
+      el.parentElement?.textContent ?? "",
+    ].join(" ");
+    if (!PRICE_UNIT_KEYWORDS.some((unit) => nearby.includes(unit))) continue;
+
+    const value = parsePrice(text);
+    if (value !== null && value >= 100) return value;
+  }
+  return null;
+}
+
+/** width:94% 같은 스타일로 그린 별점을 찾는다. */
+export function findRatingByShape(card: Element): number | null {
+  for (const el of Array.from(card.querySelectorAll("[style]"))) {
+    const style = el.getAttribute("style") ?? "";
+    const match = style.match(RATING_STYLE_PATTERN);
+    if (!match || !match[1]) continue;
+    const ratio = Number(match[1]);
+    if (!Number.isFinite(ratio) || ratio > 100) continue;
+    const rating = Math.round((ratio / 100) * 5 * 10) / 10;
+    if (rating >= 0 && rating <= 5) return rating;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,10 +258,15 @@ export function parseProductCard(
       product_id: productId,
       product_name: name,
       product_url: url,
-      price: parsePrice(textOf(card, PRICE_SELECTORS)),
+      // selector로 못 찾으면 값의 형태로 다시 찾는다(클래스명 전면 개편 대비).
+      price: parsePrice(textOf(card, PRICE_SELECTORS)) ?? findPriceByShape(card),
       // 리뷰 표기가 없으면 0 (요구사항 6)
-      review_count: parseReviewCount(textOf(card, REVIEW_COUNT_SELECTORS)),
-      rating: extractRating(card),
+      review_count: (() => {
+        const fromSelector = textOf(card, REVIEW_COUNT_SELECTORS);
+        if (fromSelector !== null) return parseReviewCount(fromSelector);
+        return findReviewCountByShape(card) ?? 0;
+      })(),
+      rating: extractRating(card) ?? findRatingByShape(card),
       delivery_type: extractDeliveryType(card),
       thumbnail_url: extractThumbnail(card, options.baseUrl),
       rank: options.rank ?? null,
@@ -226,17 +326,45 @@ export function extractCategoryName(root: ParentNode): string | null {
   return textOf(root, CATEGORY_NAME_SELECTORS);
 }
 
-/** 카드 selector를 순서대로 시도해 가장 먼저 결과가 나온 것을 쓴다. */
-function findCards(root: ParentNode): { cards: Element[]; selector: string | null } {
+/**
+ * 상품 카드를 찾는다.
+ *
+ * 1) 알려진 카드 selector를 순서대로 시도
+ * 2) 전부 실패하면 상품 링크(/vp/products/)에서 위로 올라가 카드를 역추적
+ *
+ * 쿠팡은 개편 때마다 클래스명을 바꾸지만 상품 링크 형태는 바뀌지 않는다.
+ * 그래서 2)가 있으면 화면이 개편되어도 수집이 멈추지 않는다.
+ */
+export function findCards(root: ParentNode): { cards: Element[]; selector: string | null } {
   for (const selector of PRODUCT_CARD_SELECTORS) {
     try {
       const found = Array.from(root.querySelectorAll(selector));
+      // 링크 기반 카드 수보다 턱없이 적으면 잘못 잡은 것으로 본다.
       if (found.length > 0) return { cards: found, selector };
     } catch {
       // 무시하고 다음 selector
     }
   }
-  return { cards: [], selector: null };
+
+  // 안전망: 상품 링크 앵커로 역추적
+  const cards: Element[] = [];
+  const seen = new Set<Element>();
+  let links: Element[] = [];
+  try {
+    links = Array.from(root.querySelectorAll(PRODUCT_LINK_SELECTOR));
+  } catch {
+    return { cards: [], selector: null };
+  }
+  for (const link of links) {
+    const card = link.closest(PRODUCT_CARD_CONTAINERS) ?? link.parentElement;
+    if (card && !seen.has(card)) {
+      seen.add(card);
+      cards.push(card);
+    }
+  }
+  return cards.length > 0
+    ? { cards, selector: `${PRODUCT_LINK_SELECTOR} (링크 앵커)` }
+    : { cards: [], selector: null };
 }
 
 /** 상품 상세 페이지(단일 상품) 파싱 */

@@ -217,7 +217,7 @@ category_code, category_name, parent_category_code, depth, category_url
 # 백엔드 (pytest 73건)
 cd backend && ./.venv/bin/python -m pytest
 
-# 확장 파서 (vitest + jsdom, 75건)
+# 확장 파서 (vitest + jsdom, 82건)
 cd extension && npm test
 
 # 타입/린트/빌드
@@ -226,6 +226,27 @@ cd frontend  && npx tsc --noEmit && npm run lint && npm run build
 ```
 
 ---
+
+## 쿠팡이 화면을 개편해도 동작하는 이유
+
+쿠팡은 개편 때마다 클래스명을 통째로 바꿉니다
+(`search-product` → `ProductUnit_productUnit__해시` → `twc-*` 유틸리티 클래스).
+그래서 파서는 클래스명에만 의존하지 않고 **구조와 값의 형태**를 함께 씁니다.
+
+| 대상 | 1순위 | 2순위 (개편 대비) |
+|---|---|---|
+| 상품 카드 | 알려진 클래스 selector | **`a[href*="/vp/products/"]` 링크에서 위로 역추적** |
+| 상품명 | 클래스 selector | 썸네일 `img[alt]` |
+| 가격 | 클래스 selector | **`13,900` 형태 + 옆에 `원`이 있는 요소** |
+| 리뷰수 | 클래스 selector | **`(1,234)` 형태의 텍스트** |
+| 평점 | 클래스 selector | **`style="width:94%"` → 4.7 환산** |
+| 배송 | 배지 selector | 배지 안 `img[alt]` → 카드의 짧은 라벨 |
+| 리뷰 카드 | 클래스 selector | **`data-review-id` 앵커** |
+| 리뷰 작성일 | 클래스 selector | **전체 텍스트가 날짜인 요소** |
+| 한 달 구매 | 클래스 selector | **"한 달간 N명 이상 구매" 문구 자체** |
+
+클래스명이 **하나도 맞지 않는** 전면 개편 상황을 가정한 테스트가 포함되어 있습니다
+(`extension/src/tests/list-redesign.test.ts`, `review-parser-twc.test.ts`).
 
 ## 쿠팡 화면이 바뀌어 상품/리뷰가 감지되지 않을 때
 

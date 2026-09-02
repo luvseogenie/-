@@ -12,7 +12,13 @@
  * 실제 화면에서 감지가 되지 않으면 개발자도구로 확인 후 여기에 selector를 추가하면 된다.
  */
 
-/** 상품 카드(목록의 상품 한 칸) */
+/**
+ * 상품 카드(목록의 상품 한 칸).
+ *
+ * 쿠팡은 개편 때마다 클래스명을 바꾸므로(예: search-product → ProductUnit_productUnit__해시)
+ * 이 목록만 믿으면 안 된다. 여기서 못 찾으면 파서가
+ * PRODUCT_LINK_SELECTOR 앵커로 카드를 역추적한다(coupang_product_parser.ts).
+ */
 export const PRODUCT_CARD_SELECTORS = [
   "li.search-product",
   "li.baby-product",
@@ -21,15 +27,26 @@ export const PRODUCT_CARD_SELECTORS = [
   "ul.browse-product-list > li",
   "li[data-product-id]",
   "div[data-product-id]",
-  "a[href*='/vp/products/']",
 ] as const;
+
+/**
+ * ★ 상품 카드를 찾는 가장 안정적인 앵커.
+ *
+ * 클래스명은 바뀌어도 상품 링크의 형태(/vp/products/{id})는 바뀌지 않는다.
+ * 이 링크에서 위로 올라가 카드 컨테이너를 찾는다.
+ */
+export const PRODUCT_LINK_SELECTOR = "a[href*='/vp/products/']" as const;
+
+/** 앵커에서 위로 올라가며 찾을 카드 컨테이너 */
+export const PRODUCT_CARD_CONTAINERS = "li, article" as const;
 
 /** 상품명 */
 export const NAME_SELECTORS = [
   "div.name",
   ".search-product-wrap-title",
   "[class*='productName']",
-  "[class*='ProductUnit_productName']",
+  "[class*='ProductName']",
+  "[class*='product-name']",
   ".descriptions .name",
 ] as const;
 
@@ -41,7 +58,8 @@ export const PRICE_SELECTORS = [
   "strong.price-value",
   ".price-value",
   "[class*='priceValue']",
-  "[class*='Price_priceValue']",
+  "[class*='PriceValue']",
+  "[class*='price-value']",
   ".price .price-value",
   "em.sale strong",
 ] as const;
@@ -51,7 +69,8 @@ export const REVIEW_COUNT_SELECTORS = [
   "span.rating-total-count",
   ".rating-total-count",
   "[class*='ratingCount']",
-  "[class*='ProductRating_ratingCount']",
+  "[class*='RatingCount']",
+  "[class*='rating-count']",
   ".product-rating .rating-total-count",
 ] as const;
 
@@ -61,16 +80,19 @@ export const RATING_SELECTORS = [
   "span.star em",
   ".rating",
   "[class*='ratingStar']",
-  "[class*='ProductRating_star']",
+  "[class*='RatingStar']",
+  "[class*='_star']",
+  "[class*='rating-star']",
 ] as const;
 
 /** 배송 배지 (로켓배송 / 로켓그로스 등) */
 export const DELIVERY_BADGE_SELECTORS = [
-  "span.badge.rocket img",
-  ".badge.rocket img",
-  "img[class*='badge']",
-  "[class*='ImageBadge_default_image']",
   "span.badge.rocket",
+  ".badge.rocket",
+  "[class*='ImageBadge']",
+  "[class*='DeliveryBadge']",
+  "[class*='deliveryBadge']",
+  "[class*='badge']",
   ".delivery-badge",
 ] as const;
 
@@ -295,3 +317,23 @@ export const MONTHLY_PURCHASE_PATTERNS = [
 
 /** 문구를 찾을 때 먼저 걸러내는 키워드 (전체 텍스트 스캔 비용 절감) */
 export const MONTHLY_PURCHASE_KEYWORDS = ["구매했어요", "구매 했어요", "판매됐어요", "구매"] as const;
+
+// ---------------------------------------------------------------------------
+// 값의 "형태"로 찾는 패턴
+//
+// 쿠팡이 클래스명을 완전히 새로 지으면(PlpCard_amount__x 처럼) 어떤 selector도
+// 맞출 수 없다. 이때는 클래스 대신 **값의 생김새**로 찾는다.
+// 리뷰 작성일을 "전체 텍스트가 날짜인 요소"로 찾은 것과 같은 방식이다.
+// ---------------------------------------------------------------------------
+
+/** 리뷰수 표기: "(1,234)" — 괄호로 감싼 숫자. 쿠팡 목록에서 매우 특징적이다. */
+export const REVIEW_COUNT_TEXT_PATTERN = /^\(\s*([\d,]+)\s*\)$/;
+
+/** 가격 표기: "13,900" — 천 단위 구분자가 있는 정수 (100 이상) */
+export const PRICE_TEXT_PATTERN = /^\d{1,3}(?:,\d{3})+$|^\d{3,}$/;
+
+/** 가격 옆에 붙는 단위 */
+export const PRICE_UNIT_KEYWORDS = ["원"] as const;
+
+/** 평점 별을 width 스타일로 그리는 경우 */
+export const RATING_STYLE_PATTERN = /width\s*:\s*(\d+(?:\.\d+)?)\s*%/;
