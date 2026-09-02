@@ -1,0 +1,181 @@
+"use client";
+
+import { Download, Pause, Play, Square } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DETAIL_LIMIT_OPTIONS, PAGES_OPTIONS, type ScanStatus } from "@/lib/types";
+
+const STATUS_LABEL: Record<ScanStatus["status"], string> = {
+  running: "수집 중",
+  paused: "일시정지",
+  completed: "완료",
+  stopped: "중단됨",
+};
+
+/**
+ * 자동 스캔 제어 패널.
+ *
+ * [소싱 시작] 한 번으로 선택한 카테고리(하위 포함)의 목록 페이지와
+ * 1차 조건을 통과한 상품의 상세 페이지를 확장 프로그램이 순서대로 방문한다.
+ * 사용자는 페이지를 직접 클릭하지 않는다.
+ */
+export function ScanPanel({
+  selectedCount,
+  pages,
+  detailLimit,
+  status,
+  starting,
+  onPagesChange,
+  onDetailLimitChange,
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+  onExport,
+  exportCount,
+}: {
+  selectedCount: number;
+  pages: number;
+  detailLimit: number;
+  status: ScanStatus | null;
+  starting: boolean;
+  onPagesChange: (pages: number) => void;
+  onDetailLimitChange: (limit: number) => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onExport: () => void;
+  exportCount: number;
+}) {
+  const active = status?.status === "running" || status?.status === "paused";
+  const percent = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold">
+        <Play className="h-3.5 w-3.5 text-primary" />
+        실행
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>카테고리당 페이지</Label>
+          <Select value={String(pages)} onValueChange={(v) => onPagesChange(Number(v))}>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGES_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}페이지 ({n * 120}개)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>상세 확인 상품 수</Label>
+          <Select value={String(detailLimit)} onValueChange={(v) => onDetailLimitChange(Number(v))}>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DETAIL_LIMIT_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  상위 {n}개
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <p className="text-[10px] leading-relaxed text-muted-foreground">
+        판매량순으로 훑으므로 앞쪽 페이지에 잘 팔리는 상품이 모입니다. 상세 확인은 1차 조건을
+        통과한 상품 중 리뷰가 많은 순으로 진행되며, 여기서 &quot;한 달간 N명 구매&quot;와 30일
+        리뷰수를 얻습니다.
+      </p>
+
+      {!active ? (
+        <Button
+          className="w-full"
+          disabled={selectedCount === 0 || starting}
+          onClick={onStart}
+          title={selectedCount === 0 ? "왼쪽에서 카테고리를 먼저 선택하세요" : undefined}
+        >
+          <Play /> 소싱 시작 {selectedCount > 0 && `(${selectedCount}개 카테고리)`}
+        </Button>
+      ) : (
+        <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-primary">
+              {STATUS_LABEL[status!.status]} · {status!.phase === "list" ? "1단계 목록" : "2단계 상세"}
+            </span>
+            <span className="tabular text-muted-foreground">
+              {status!.done}/{status!.total}
+              {status!.failed > 0 && ` · 실패 ${status!.failed}`}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-all"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-1 text-[10px] text-muted-foreground">
+            <span>목록 {status!.list.done}/{status!.list.total}</span>
+            <span>상세 {status!.detail.done}/{status!.detail.total}</span>
+          </div>
+          {status!.current_label && (
+            <p className="truncate text-[10px] text-muted-foreground" title={status!.current_label}>
+              현재: {status!.current_label}
+            </p>
+          )}
+          <div className="flex gap-1">
+            {status!.status === "running" ? (
+              <Button size="sm" variant="outline" className="h-7 flex-1" onClick={onPause}>
+                <Pause /> 일시정지
+              </Button>
+            ) : (
+              <Button size="sm" variant="default" className="h-7 flex-1" onClick={onResume}>
+                <Play /> 재개
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="h-7 text-destructive" onClick={onStop}>
+              <Square /> 중단
+            </Button>
+          </div>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            크롬 확장 popup에서 <b>[자동 수집 시작]</b>을 눌러야 실제로 페이지를 방문합니다.
+          </p>
+        </div>
+      )}
+
+      {status?.status === "completed" && (
+        <p className="rounded-md border border-[var(--success)]/40 bg-[var(--success)]/10 p-2 text-[11px] text-[var(--success)]">
+          수집 완료 — 목록 {status.list.done}페이지, 상세 {status.detail.done}건.
+          {status.failed > 0 && ` 실패 ${status.failed}건.`}
+        </p>
+      )}
+
+      <Button
+        variant="secondary"
+        className="w-full"
+        onClick={onExport}
+        disabled={exportCount === 0}
+        title="현재 조건을 통과한 상품을 엑셀에서 열리는 파일로 저장합니다"
+      >
+        <Download /> 엑셀로 내려받기 {exportCount > 0 && `(${exportCount}건)`}
+      </Button>
+    </div>
+  );
+}

@@ -37,6 +37,10 @@ const reviewResult = $<HTMLElement>("review-result");
 const diagnoseButton = $<HTMLButtonElement>("diagnose");
 const diagnoseResult = $<HTMLElement>("diagnose-result");
 const autoCollectToggle = $<HTMLInputElement>("auto-collect");
+const scanProgress = $<HTMLElement>("scan-progress");
+const scanStart = $<HTMLButtonElement>("scan-start");
+const scanPause = $<HTMLButtonElement>("scan-pause");
+const scanStop = $<HTMLButtonElement>("scan-stop");
 const apiBaseInput = $<HTMLInputElement>("api-base");
 const saveApiButton = $<HTMLButtonElement>("save-api");
 
@@ -180,6 +184,63 @@ async function diagnose() {
     diagnoseButton.disabled = false;
   }
 }
+
+type ScanStateResponse = {
+  ok: boolean;
+  runner: { running: boolean; paused: boolean; lastMessage: string; processed: number; failures: number };
+  backend: {
+    status: string; phase: string; total: number; done: number; failed: number;
+    list: { total: number; done: number }; detail: { total: number; done: number };
+    current_label: string | null;
+  } | null;
+};
+
+function renderScanState(res: ScanStateResponse) {
+  const b = res.backend;
+  const r = res.runner;
+  if (!b) {
+    scanProgress.textContent = "대시보드에서 [소싱 시작]을 누른 뒤 여기서 시작하세요.";
+    scanStart.disabled = true;
+    scanPause.disabled = true;
+    scanStop.disabled = true;
+    return;
+  }
+  const phase = b.phase === "list" ? "1단계 목록" : "2단계 상세";
+  const lines = [
+    `<b>${b.status === "running" ? (r.running ? "수집 중" : "대기 중 — 시작을 누르세요") : b.status === "paused" ? "일시정지" : b.status === "completed" ? "완료" : "중단됨"}</b>`,
+    `${phase} · 전체 ${b.done}/${b.total}` + (b.failed ? ` · 실패 ${b.failed}` : ""),
+    `목록 ${b.list.done}/${b.list.total} · 상세 ${b.detail.done}/${b.detail.total}`,
+  ];
+  if (b.current_label) lines.push(`현재: ${b.current_label.slice(0, 40)}`);
+  if (r.lastMessage && r.running) lines.push(r.lastMessage.slice(0, 60));
+  scanProgress.innerHTML = lines.join("<br />");
+
+  const active = b.status === "running" || b.status === "paused";
+  scanStart.disabled = !active || (r.running && !r.paused);
+  scanStart.textContent = r.paused || b.status === "paused" ? "재개" : "자동 수집 시작";
+  scanPause.disabled = !r.running || r.paused;
+  scanStop.disabled = !active;
+}
+
+async function refreshScanState() {
+  try {
+    const res = (await chrome.runtime.sendMessage({ type: "SCAN_STATE" })) as ScanStateResponse;
+    if (res?.ok) renderScanState(res);
+  } catch {
+    /* 서비스워커가 잠들어 있으면 다음 갱신 때 */
+  }
+}
+
+scanStart.addEventListener("click", () => {
+  clearError();
+  void chrome.runtime.sendMessage({ type: scanStart.textContent === "재개" ? "SCAN_RESUME" : "SCAN_START" })
+    .then((res) => { if (res && res.ok === false) showError(res.error ?? "시작 실패"); })
+    .then(refreshScanState);
+});
+scanPause.addEventListener("click", () => void chrome.runtime.sendMessage({ type: "SCAN_PAUSE" }).then(refreshScanState));
+scanStop.addEventListener("click", () => void chrome.runtime.sendMessage({ type: "SCAN_STOP" }).then(refreshScanState));
+void refreshScanState();
+setInterval(() => void refreshScanState(), 2000);
 
 async function scan() {
   clearError();

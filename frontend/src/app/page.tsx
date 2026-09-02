@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, Play, RefreshCw, Search, ShoppingCart } from "lucide-react";
+import { AlertCircle, RefreshCw, Search, ShoppingCart } from "lucide-react";
 
 import { CategoryTree } from "@/components/dashboard/category-tree";
 import { ConditionPanel } from "@/components/dashboard/condition-panel";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { MultiplierPanel } from "@/components/dashboard/multiplier-panel";
 import { ProductTable } from "@/components/dashboard/product-table";
+import { ScanPanel } from "@/components/dashboard/scan-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,6 +26,7 @@ import {
   type CategoryTreeNode,
   type Conditions,
   type Product,
+  type ScanStatus,
   type Stats,
 } from "@/lib/types";
 
@@ -41,6 +43,12 @@ export default function DashboardPage() {
   const [onlyPassed, setOnlyPassed] = React.useState(false);
   /** 2단계: 구매 문구를 아직 확인하지 못한 상품만 보기 */
   const [onlyPending, setOnlyPending] = React.useState(false);
+
+  /** 자동 스캔 설정·상태 */
+  const [scanPages, setScanPages] = React.useState(1);
+  const [scanDetailLimit, setScanDetailLimit] = React.useState(50);
+  const [scanStatus, setScanStatus] = React.useState<ScanStatus | null>(null);
+  const [scanStarting, setScanStarting] = React.useState(false);
   const [sort, setSort] = React.useState<string>("sales_desc");
   const [keyword, setKeyword] = React.useState("");
   const [debouncedKeyword, setDebouncedKeyword] = React.useState("");
@@ -157,22 +165,83 @@ export default function DashboardPage() {
     }
   };
 
-  /** 수집 시작: job을 만들고, 선택한 카테고리 페이지를 새 탭으로 연다.
-   *  실제 상품 수집은 Chrome 확장 프로그램이 담당한다. */
-  const startCollection = async () => {
+  /** 스캔 진행률 폴링. 진행 중일 땐 3초마다, 아니면 15초마다 확인한다. */
+  React.useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const status = await api.scanStatus();
+        if (cancelled) return;
+        setScanStatus(status);
+        const active = status?.status === "running" || status?.status === "paused";
+        // 수집이 진행되는 동안 결과 테이블도 같이 갱신한다.
+        if (status?.status === "running") setReloadKey((k) => k + 1);
+        timer = setTimeout(() => void tick(), active ? 3000 : 15000);
+      } catch {
+        if (!cancelled) timer = setTimeout(() => void tick(), 15000);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  const toNumber = (value: string): number | null => (value === "" ? null : Number(value));
+
+  /** 소싱 시작: 선택한 카테고리(하위 포함)의 목록 페이지 → 후보 상세 페이지를 자동 순회한다. */
+  const startScan = async () => {
+    setError(null);
+    setScanStarting(true);
+    try {
+      const res = await api.scanStart({
+        category_ids: selectedIds,
+        pages_per_category: scanPages,
+        detail_limit: scanDetailLimit,
+        conditions: {
+          price_min: toNumber(conditions.price_min),
+          price_max: toNumber(conditions.price_max),
+          review_min: toNumber(conditions.review_min),
+          review_max: toNumber(conditions.review_max),
+          rating_min: toNumber(conditions.rating_min),
+          rating_max: toNumber(conditions.rating_max),
+          delivery_types: conditions.delivery_types,
+        },
+      });
+      setScanStatus(await api.scanStatus());
+      setNotice(`${res.message}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "스캔을 시작하지 못했습니다.");
+    } finally {
+      setScanStarting(false);
+    }
+  };
+
+  const scanControl = async (action: "pause" | "resume" | "stop") => {
     setError(null);
     try {
-      const res = await api.startJob(selectedIds);
-      const urls = res.target_urls;
-      urls.slice(0, 10).forEach((url) => window.open(url, "_blank", "noopener"));
-      setNotice(
-        urls.length === 0
-          ? `수집 작업 #${res.job.id} 시작됨. 열 수 있는 카테고리 URL이 없습니다 — Chrome에서 쿠팡 페이지를 직접 열고 확장 프로그램으로 수집하세요.`
-          : `수집 작업 #${res.job.id} 시작됨. 카테고리 ${Math.min(urls.length, 10)}개 탭을 열었습니다. 각 탭에서 확장 프로그램의 [현재 페이지 수집]을 눌러주세요.`,
-      );
+      const status =
+        action === "pause"
+          ? await api.scanPause()
+          : action === "resume"
+            ? await api.scanResume()
+            : await api.scanStop();
+      setScanStatus(status);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "수집을 시작하지 못했습니다.");
+      setError(e instanceof Error ? e.message : "요청에 실패했습니다.");
     }
+  };
+
+  /** 조건 통과 상품을 엑셀(CSV)로 내려받는다. */
+  const exportExcel = () => {
+    const query = buildQuery(conditions, selectedIds, {
+      q: debouncedKeyword || undefined,
+      condition_passed: true,
+      sort,
+    });
+    window.open(api.exportUrl(query), "_blank", "noopener");
   };
 
   return (
@@ -226,15 +295,21 @@ export default function DashboardPage() {
           <Separator />
           <MultiplierPanel multiplier={multiplier} saving={savingMultiplier} onApply={applyMultiplier} />
           <Separator />
-          <div className="space-y-1.5">
-            <Button className="w-full" onClick={() => void startCollection()}>
-              <Play /> 수집 시작
-            </Button>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              선택한 카테고리 페이지를 새 탭으로 엽니다. 각 탭에서 Chrome 확장 프로그램의
-              [현재 페이지 수집]을 눌러 현재 화면에 노출된 상품을 수집하세요.
-            </p>
-          </div>
+          <ScanPanel
+            selectedCount={selected.size}
+            pages={scanPages}
+            detailLimit={scanDetailLimit}
+            status={scanStatus}
+            starting={scanStarting}
+            onPagesChange={setScanPages}
+            onDetailLimitChange={setScanDetailLimit}
+            onStart={() => void startScan()}
+            onPause={() => void scanControl("pause")}
+            onResume={() => void scanControl("resume")}
+            onStop={() => void scanControl("stop")}
+            onExport={exportExcel}
+            exportCount={stats?.condition_passed_products ?? 0}
+          />
 
           <Separator />
 

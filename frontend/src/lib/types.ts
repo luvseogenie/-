@@ -193,3 +193,26 @@ export const CONFIDENCE_LABELS = {
 
 /** 배수 프리셋. 사용자가 직접 입력도 할 수 있어야 하므로 하드코딩된 값만 쓰지 않는다. */
 export const MULTIPLIER_PRESETS = [10, 15, 20, 25, 30, 50];
+
+
+/** 자동 스캔 진행 상태 (backend/app/schemas/scan.py 와 대응) */
+export type ScanPhaseProgress = { total: number; done: number; failed: number; pending: number };
+
+export type ScanStatus = {
+  job_id: number;
+  status: "running" | "paused" | "completed" | "stopped";
+  phase: "list" | "detail";
+  list: ScanPhaseProgress;
+  detail: ScanPhaseProgress;
+  total: number;
+  done: number;
+  failed: number;
+  current_label: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+/** 카테고리마다 훑을 목록 페이지 수 선택지 (판매량순이라 앞쪽이 중요) */
+export const PAGES_OPTIONS = [1, 2, 3, 5, 10] as const;
+/** 2단계에서 상세를 확인할 상품 수 선택지 */
+export const DETAIL_LIMIT_OPTIONS = [20, 50, 100, 200] as const;

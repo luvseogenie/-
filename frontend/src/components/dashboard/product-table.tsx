@@ -139,6 +139,7 @@ export function ProductTable({
               <TableHead className="w-28 whitespace-nowrap text-right">예상 판매량</TableHead>
               <TableHead className="w-24 whitespace-nowrap text-right">30일 리뷰</TableHead>
               <TableHead className="w-32 whitespace-nowrap text-right">30일 예상판매</TableHead>
+              <TableHead className="w-32 whitespace-nowrap text-right">30일 예상매출</TableHead>
               <TableHead className="w-16 text-right">평점</TableHead>
               <TableHead className="w-20 text-right">조회수</TableHead>
               <TableHead className="w-28">배송</TableHead>
@@ -148,17 +149,17 @@ export function ProductTable({
           <TableBody>
             {loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={13} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={14} className="py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                 </TableCell>
               </TableRow>
             )}
             {!loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={13} className="py-10 text-center text-xs text-muted-foreground">
+                <TableCell colSpan={14} className="py-10 text-center text-xs text-muted-foreground">
                   수집된 상품이 없습니다.
                   <br />
-                  Chrome에서 쿠팡 페이지를 열고 확장 프로그램의 [현재 페이지 수집]을 눌러주세요.
+                  왼쪽에서 카테고리를 체크하고 [소싱 시작] → 크롬 확장에서 [자동 수집 시작]을 눌러주세요.
                 </TableCell>
               </TableRow>
             )}
@@ -200,6 +201,12 @@ export function ProductTable({
                 </TableCell>
                 <TableCell className="tabular text-right">
                   <MonthlyCell value={p.monthly_estimated_sales} product={p} emphasize />
+                </TableCell>
+                {/* 30일 예상매출 = 30일 예상 판매량 × 가격. 둘 중 하나라도 없으면 "-" */}
+                <TableCell className="tabular whitespace-nowrap text-right text-muted-foreground">
+                  {p.monthly_estimated_sales !== null && p.price !== null
+                    ? formatPrice(p.monthly_estimated_sales * p.price)
+                    : "-"}
                 </TableCell>
                 <TableCell className="tabular text-right">{formatRating(p.rating)}</TableCell>
                 {/* 조회수는 데이터 원천이 없어 항상 "-" */}

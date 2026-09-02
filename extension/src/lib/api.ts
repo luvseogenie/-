@@ -99,6 +99,30 @@ export type ReviewDatePayload = {
   total_review_count: number | null;
 };
 
+export type ScanTarget = {
+  id: number;
+  job_id: number;
+  kind: "list" | "detail";
+  url: string;
+  label: string | null;
+  page: number | null;
+  position: number;
+  status: string;
+  attempts: number;
+};
+
+export type ScanStatus = {
+  job_id: number;
+  status: "running" | "paused" | "completed" | "stopped";
+  phase: "list" | "detail";
+  list: { total: number; done: number; failed: number; pending: number };
+  detail: { total: number; done: number; failed: number; pending: number };
+  total: number;
+  done: number;
+  failed: number;
+  current_label: string | null;
+};
+
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
   activeJob: () => request<{ id: number } | null>("/api/collection-jobs/active"),
@@ -107,6 +131,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  scanNext: () => request<ScanTarget | null>("/api/scan/next"),
+  scanDone: (targetId: number, body: { product_count?: number | null; error?: string | null }) =>
+    request<ScanTarget>(`/api/scan/targets/${targetId}/done`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  scanStatus: () => request<ScanStatus | null>("/api/scan/status"),
+  scanPause: () => request<ScanStatus | null>("/api/scan/pause", { method: "POST" }),
+  scanResume: () => request<ScanStatus | null>("/api/scan/resume", { method: "POST" }),
+  scanStop: () => request<ScanStatus | null>("/api/scan/stop", { method: "POST" }),
   submitReviewDates: (payload: ReviewDatePayload) =>
     request<MonthlyReviewResponse>("/api/products/review-dates", {
       method: "POST",

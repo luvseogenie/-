@@ -115,3 +115,10 @@ input {
   font-size: 11px;
 }
 .note { margin: 8px 0 0; font-size: 10px; color: var(--muted); line-height: 1.5; }
+
+.scan { border-color: rgba(56, 216, 200, 0.45); }
+.row.gap { gap: 6px; margin-top: 8px; }
+.row.gap button { margin: 0; }
+.row.gap #scan-start { flex: 1; }
+button.danger { color: var(--danger); border-color: rgba(255, 107, 107, 0.4); }
+#scan-progress b { color: var(--primary); }

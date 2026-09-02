@@ -1,4 +1,19 @@
 /**
+ * 중복 주입 방지.
+ * manifest 선언으로 한 번, 자동 스캔이 chrome.scripting 으로 한 번 더 넣을 수 있다.
+ * 두 번째는 아무것도 하지 않는다 (리스너·리뷰 누적이 두 배가 되는 것을 막는다).
+ */
+declare global {
+  interface Window {
+    __coupangSourcingInjected?: boolean;
+  }
+}
+if (window.__coupangSourcingInjected) {
+  throw new Error("coupang-sourcing content script already injected");
+}
+window.__coupangSourcingInjected = true;
+
+/**
  * Content script.
  *
  * 현재 Chrome에 렌더링된 쿠팡 페이지의 DOM만 읽는다.
@@ -130,7 +145,34 @@ function analyzeReviews(): ReviewDateResult {
   return result;
 }
 
+/**
+ * 리뷰 정렬을 최신순으로 바꿔본다 (자동 스캔용, 최선 노력).
+ * 정렬 컨트롤을 못 찾으면 아무것도 하지 않는다.
+ */
+function trySortReviewsNewest(): boolean {
+  const candidates = Array.from(document.querySelectorAll("button, label, a, li, div, span"));
+  for (const el of candidates) {
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text !== "최신순" && text !== "최근순") continue;
+    // 리뷰 영역 근처의 것만 (상단 목록 정렬과 구분)
+    const inReview = el.closest("[class*='review'], [class*='Review'], #sdpReview") !== null;
+    if (!inReview) continue;
+    try {
+      (el as HTMLElement).click();
+      log.info("리뷰 최신순 정렬 클릭");
+      return true;
+    } catch {
+      /* 다음 후보 */
+    }
+  }
+  return false;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "SORT_REVIEWS_NEWEST") {
+    sendResponse({ ok: true, clicked: trySortReviewsNewest() });
+    return true;
+  }
   if (message?.type === "DIAGNOSE") {
     try {
       const report = buildDiagnosticsReport(document, location.href);

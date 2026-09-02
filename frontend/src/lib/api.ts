@@ -3,6 +3,7 @@ import type {
   CollectionJob,
   Conditions,
   ProductListResponse,
+  ScanStatus,
   Settings,
   Stats,
 } from "./types";
@@ -95,6 +96,33 @@ export const api = {
       body: JSON.stringify({ category_ids: categoryIds }),
     }),
   activeJob: () => request<CollectionJob | null>("/api/collection-jobs/active"),
+
+  /** 자동 스캔 */
+  scanStart: (body: {
+    category_ids: number[];
+    pages_per_category: number;
+    detail_limit: number;
+    conditions: {
+      price_min?: number | null;
+      price_max?: number | null;
+      review_min?: number | null;
+      review_max?: number | null;
+      rating_min?: number | null;
+      rating_max?: number | null;
+      delivery_types: string[];
+    };
+  }) =>
+    request<{ job_id: number; list_targets: number; message: string }>("/api/scan/start", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  scanStatus: () => request<ScanStatus | null>("/api/scan/status"),
+  scanPause: () => request<ScanStatus | null>("/api/scan/pause", { method: "POST" }),
+  scanResume: () => request<ScanStatus | null>("/api/scan/resume", { method: "POST" }),
+  scanStop: () => request<ScanStatus | null>("/api/scan/stop", { method: "POST" }),
+
+  /** 엑셀(CSV) 내려받기 주소 — 브라우저가 직접 열어 저장하게 한다 */
+  exportUrl: (query: string) => `${API_BASE}/api/products/export${query}`,
   finishJob: (id: number) =>
     request<CollectionJob>(`/api/collection-jobs/${id}/finish`, { method: "POST" }),
 };

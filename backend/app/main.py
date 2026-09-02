@@ -7,7 +7,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import categories, jobs, products, settings as settings_routes, stats
+from app.api.routes import (
+    categories,
+    export,
+    jobs,
+    products,
+    scan,
+    settings as settings_routes,
+    stats,
+)
 from app.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.db.init_db import init_db
@@ -49,6 +57,8 @@ app.include_router(products.router)
 app.include_router(settings_routes.router)
 app.include_router(stats.router)
 app.include_router(jobs.router)
+app.include_router(scan.router)
+app.include_router(export.router)
 
 
 @app.get("/api/health", tags=["health"])

@@ -128,6 +128,21 @@ extension/src/
 |---|---|
 | id / status / started_at / finished_at / total_products / collected_products |
 
+### scan_jobs — 자동 스캔 작업
+| 컬럼 | 설명 |
+|---|---|
+| status | running / paused / completed / stopped |
+| phase | list(1단계 목록) / detail(2단계 상세) |
+| category_ids (JSON) / pages_per_category / sorter=`saleCountDesc` / list_size=120 | 목록 대상 생성 조건 |
+| conditions (JSON) / detail_limit / detail_prepared | 상세 대상 선정 조건 (1차 조건 통과 & 구매 문구 없음 & 리뷰 많은 순) |
+
+### scan_targets — 방문할 페이지 큐
+| 컬럼 | 설명 |
+|---|---|
+| job_id FK / kind(list·detail) / url / label / category_id / page / position | 방문 순서 |
+| status | pending / in_progress / done / failed |
+| product_count / error / attempts / duration_seconds | 결과·실패 사유 기록 |
+
 `condition_passed`는 **컬럼이 아니다.** 조건이 바뀌면 결과도 바뀌어야 하므로 조회 시점에 계산한다.
 
 ### PostgreSQL 이관 대비
@@ -149,6 +164,12 @@ extension/src/
 | POST | `/api/collection-jobs` | 「수집 시작」 job 생성 |
 | GET | `/api/collection-jobs/active` | 확장이 현재 job에 자동 연결 |
 | POST | `/api/collection-jobs/{id}/finish` | job 종료 |
+| POST | `/api/scan/start` | 「소싱 시작」— 선택 카테고리(하위 포함) × 페이지 → 목록 대상 큐 생성 |
+| GET | `/api/scan/next` | 확장이 다음 대상 하나를 받아감 (목록 소진 시 상세 대상 자동 준비, 없으면 completed) |
+| POST | `/api/scan/targets/{id}/done` | 대상 결과 보고 (성공 상품수 / 실패 사유) |
+| GET | `/api/scan/status` | 진행률 (단계·done/total·실패·현재 대상) |
+| POST | `/api/scan/pause` `/resume` `/stop` | 제어 |
+| GET | `/api/products/export` | 조건 통과 상품 CSV (UTF-8 BOM, 엑셀 호환) |
 
 ## 5. Chrome → FastAPI 통신 흐름
 
@@ -215,6 +236,23 @@ popup [현재 페이지 수집]
 - 확장: `src/parsers/coupang_review_parser.ts` (selector는 `selectors.ts`에)
 
 자동 페이지네이션 크롤링은 하지 않는다. 사용자가 화면에 띄운 리뷰만 읽는다.
+
+## 5-3. 자동 스캔 흐름 (사용자 클릭 없이 목록 → 상세)
+
+```
+대시보드 [소싱 시작]  ─▶ POST /api/scan/start  ─▶ scan_targets(list) 큐
+확장 popup [자동 수집 시작]
+  └▶ service worker scan_runner (탭 1개 재사용, 대상 사이 2.5초)
+       loop:
+         GET /api/scan/next ─▶ 대상 없음 → completed, 탭 닫고 종료
+         tabs.update(url) → 로드 대기(status·URL 확인) → content SCAN
+           (content script가 없으면 chrome.scripting 으로 1회 주입)
+         목록: parseProductList → POST /api/products/collect
+         상세: + 리뷰 최신순 정렬 → ANALYZE_REVIEWS → POST /api/products/review-dates
+         POST /api/scan/targets/{id}/done {product_count | error}
+         5회 연속 실패 → 스스로 정지 (차단·CAPTCHA 를 우회하지 않는다)
+대시보드는 2초마다 GET /api/scan/status 로 진행률을 그린다.
+```
 
 ## 6. 파서 설계 원칙
 

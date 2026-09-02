@@ -13,6 +13,7 @@ from app.models.product import (
     Product,
 )
 from app.models.review_snapshot import ReviewSnapshot
+from app.models.scan import ScanJob, ScanStatus, ScanTarget, TargetKind, TargetStatus
 from app.models.setting import Setting
 
 __all__ = [
@@ -25,5 +26,10 @@ __all__ = [
     "MonthlyReviewMethod",
     "Product",
     "ReviewSnapshot",
+    "ScanJob",
+    "ScanStatus",
+    "ScanTarget",
+    "TargetKind",
+    "TargetStatus",
     "Setting",
 ]

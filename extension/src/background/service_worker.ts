@@ -5,6 +5,13 @@
  * fetch를 여기에 모아 두면 CORS/권한 문제를 한 곳에서 다룰 수 있다.
  */
 import { api, ApiError, type CollectPayload } from "@/lib/api";
+import {
+  getRunnerState,
+  pauseRunner,
+  resumeRunner,
+  startRunner,
+  stopRunnerAndJob,
+} from "@/background/scan_runner";
 import { log } from "@/lib/logger";
 import type {
   CollectResponse,
@@ -231,6 +238,29 @@ async function handleDiagnose(): Promise<{ ok: boolean; report?: string; error?:
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "SCAN_START") {
+    void startRunner().then(sendResponse);
+    return true;
+  }
+  if (message?.type === "SCAN_PAUSE") {
+    void pauseRunner().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message?.type === "SCAN_RESUME") {
+    void resumeRunner().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message?.type === "SCAN_STOP") {
+    void stopRunnerAndJob().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message?.type === "SCAN_STATE") {
+    void api
+      .scanStatus()
+      .catch(() => null)
+      .then((backend) => sendResponse({ ok: true, runner: getRunnerState(), backend }));
+    return true;
+  }
   if (message?.type === "DIAGNOSE") {
     void handleDiagnose().then(sendResponse);
     return true;
