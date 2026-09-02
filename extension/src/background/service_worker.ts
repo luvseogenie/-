@@ -19,6 +19,7 @@ import type {
   ParseResult,
   ReviewDateResult,
 } from "@/lib/types";
+import { importCategoriesFromCoupang } from "./category_importer";
 
 const COUPANG_HOST = /(^|\.)coupang\.com$/;
 
@@ -238,6 +239,10 @@ async function handleDiagnose(): Promise<{ ok: boolean; report?: string; error?:
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "IMPORT_CATEGORIES") {
+    void importCategoriesFromCoupang().then(sendResponse);
+    return true;
+  }
   if (message?.type === "SCAN_START") {
     void startRunner().then(sendResponse);
     return true;

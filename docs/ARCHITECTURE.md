@@ -254,6 +254,22 @@ popup [현재 페이지 수집]
 대시보드는 2초마다 GET /api/scan/status 로 진행률을 그린다.
 ```
 
+## 5-4. 카테고리 트리 가져오기
+
+```
+popup [쿠팡 카테고리 전체 가져오기]
+  └▶ service worker category_importer
+       ├▶ 현재 탭이 쿠팡 첫 화면이 아니면 백그라운드 탭으로 www.coupang.com 열기
+       ├▶ content SCAN_CATEGORIES → parseCategoryTree(document)
+       │    · 카테고리 링크(/np/categories/{code})를 가장 많이 가진 메뉴 컨테이너 선택
+       │    · 부모 = 링크를 감싸는 조상 항목의 대표 링크 (DOM 중첩 기반, 클래스명 무관)
+       │    · breadcrumb·"전체보기"·긴 문구 제외, 코드 중복 합침, 지어내지 않음
+       │    · 링크가 적으면 "카테고리" 버튼에 hover 이벤트를 보내 메뉴를 펼쳐 본 뒤 재시도
+       ├▶ POST /api/categories/import (rows)  — 2-pass upsert, 부모 미지정 행은 기존 부모 유지
+       └▶ 열었던 탭 닫기
+자동 스캔의 목록 대상 처리 후에도 같은 파서로 좌측 메뉴의 하위 카테고리를 등록한다 (부모가 확인된 행만).
+```
+
 ## 6. 파서 설계 원칙
 
 1. selector는 `selectors.ts` 한 파일에만 존재한다. 다른 파일에 CSS selector 문자열을 쓰지 않는다.

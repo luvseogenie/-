@@ -37,6 +37,8 @@ const reviewResult = $<HTMLElement>("review-result");
 const diagnoseButton = $<HTMLButtonElement>("diagnose");
 const diagnoseResult = $<HTMLElement>("diagnose-result");
 const autoCollectToggle = $<HTMLInputElement>("auto-collect");
+const importCategoriesButton = $<HTMLButtonElement>("import-categories");
+const importCategoriesResult = $<HTMLElement>("import-categories-result");
 const scanProgress = $<HTMLElement>("scan-progress");
 const scanStart = $<HTMLButtonElement>("scan-start");
 const scanPause = $<HTMLButtonElement>("scan-pause");
@@ -230,6 +232,43 @@ async function refreshScanState() {
     /* 서비스워커가 잠들어 있으면 다음 갱신 때 */
   }
 }
+
+type ImportCategoriesResponse = {
+  ok: boolean;
+  error?: string;
+  received?: number;
+  created?: number;
+  updated?: number;
+  errors?: number;
+  roots?: number;
+  maxDepth?: number;
+};
+
+async function importCategories() {
+  clearError();
+  importCategoriesButton.disabled = true;
+  importCategoriesResult.textContent = "가져오는 중... (쿠팡 첫 화면 탭이 잠깐 열립니다)";
+  try {
+    const res = (await chrome.runtime.sendMessage({ type: "IMPORT_CATEGORIES" })) as ImportCategoriesResponse;
+    if (!res?.ok) {
+      importCategoriesResult.textContent = "";
+      showError(res?.error ?? "카테고리를 가져오지 못했습니다.");
+      return;
+    }
+    const n = (v?: number) => (v ?? 0).toLocaleString("ko-KR");
+    importCategoriesResult.innerHTML =
+      `<b>카테고리 ${n(res.received)}개 등록</b> (신규 ${n(res.created)} / 갱신 ${n(res.updated)})` +
+      `<br />최상위 ${n(res.roots)}개 · 깊이 ${n(res.maxDepth)}단계` +
+      (res.errors ? `<br />연결 오류 ${n(res.errors)}건 (확장 콘솔 참고)` : "") +
+      "<br />대시보드에서 [새로고침]을 누르면 트리가 보입니다.";
+  } catch (e) {
+    importCategoriesResult.textContent = "";
+    showError(e instanceof Error ? e.message : String(e));
+  } finally {
+    importCategoriesButton.disabled = false;
+  }
+}
+importCategoriesButton.addEventListener("click", () => void importCategories());
 
 scanStart.addEventListener("click", () => {
   clearError();

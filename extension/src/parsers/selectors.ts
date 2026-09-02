@@ -376,3 +376,39 @@ export const PRICE_UNIT_KEYWORDS = ["원"] as const;
 
 /** 평점 별을 width 스타일로 그리는 경우 */
 export const RATING_STYLE_PATTERN = /width\s*:\s*(\d+(?:\.\d+)?)\s*%/;
+
+/* ------------------------------------------------------------------ */
+/* 카테고리 트리 가져오기 (쿠팡 첫 화면 전체 메뉴 / 목록 페이지 좌측 메뉴)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 전체 카테고리 메뉴 컨테이너 후보.
+ * 여러 개가 맞으면 카테고리 링크가 가장 많은 것을 쓰고, 하나도 없으면 문서 전체에서 찾는다.
+ */
+export const CATEGORY_MENU_SELECTORS = [
+  "#gnbAnalytics",
+  ".gnb-menu",
+  "[class*='gnb'] [class*='menu']",
+  "[class*='category-menu']",
+  "[class*='categoryMenu']",
+  "[class*='CategoryMenu']",
+  "[id*='category']",
+  "[class*='categor'] ul",
+  "nav",
+  "aside",
+] as const;
+
+/** 메뉴 컨테이너로 인정하는 최소 카테고리 링크 수 */
+export const MIN_CATEGORY_MENU_LINKS = 10;
+
+/** 카테고리명으로 보기 어려운 긴 텍스트는 제외한다 */
+export const CATEGORY_NAME_MAX_LENGTH = 40;
+
+/** 카테고리명이 아닌 안내 링크 텍스트 */
+export const CATEGORY_NAME_EXCLUDE = ["전체보기", "전체 보기", "더보기", "더 보기", "바로가기", "홈"] as const;
+
+/** 메뉴가 마우스를 올려야 열리는 경우, 이 텍스트를 가진 요소에 hover 이벤트를 보내 본다 */
+export const CATEGORY_MENU_TRIGGER_TEXTS = ["카테고리", "전체 카테고리", "전체카테고리"] as const;
+
+/** 카테고리 메뉴 링크 주소에서 코드를 읽는 패턴 (경로형만 — 쿼리의 component= 는 다른 뜻) */
+export const CATEGORY_MENU_CODE_PATTERN = /\/np\/categories\/([\w-]+)/;

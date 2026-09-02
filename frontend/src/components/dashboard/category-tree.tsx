@@ -201,11 +201,10 @@ export function CategoryTree({ tree, loading, error, selected, onChange }: Categ
         {error && <p className="p-3 text-xs text-destructive">{error}</p>}
         {!loading && !error && tree.length === 0 && (
           <p className="p-3 text-xs leading-relaxed text-muted-foreground">
-            카테고리가 없습니다.
+            카테고리가 아직 없습니다.
             <br />
-            <code className="text-[11px]">python -m app.cli import-categories &lt;파일&gt;</code>
-            <br />
-            또는 <code className="text-[11px]">POST /api/categories/import</code> 로 등록하세요.
+            크롬 확장 아이콘 → <b>[쿠팡 카테고리 전체 가져오기]</b>를 누르면 쿠팡 메뉴에서 전체 트리를
+            읽어옵니다. 그 다음 위의 [새로고침]을 누르세요.
           </p>
         )}
         <ul>

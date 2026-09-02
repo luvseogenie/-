@@ -96,6 +96,10 @@ def import_categories(db: Session, rows: Iterable[CategoryImportRow]) -> Categor
     1) 모든 행을 code 기준으로 upsert (parent는 아직 연결하지 않음)
     2) parent_category_code로 parent_id 연결 + depth 계산
     → 부모가 파일 뒤쪽에 있어도 정상 처리된다.
+
+    parent_category_code 가 비어 있는 행은 "부모를 모른다"는 뜻이다.
+    이미 부모가 연결된 카테고리라면 기존 부모를 유지한다 (확장 프로그램이 목록 페이지에서
+    보이는 카테고리를 조금씩 추가할 때 트리가 무너지지 않도록). 새 카테고리면 루트가 된다.
     """
     rows = list(rows)
     result = CategoryImportResult(received=len(rows), created=0, updated=0, skipped=0)
@@ -149,8 +153,7 @@ def import_categories(db: Session, rows: Iterable[CategoryImportRow]) -> Categor
                 node.parent_id = None
             else:
                 node.parent_id = parent.id
-        else:
-            node.parent_id = None
+        # parent_code 가 없으면 기존 연결을 그대로 둔다 (신규 행은 parent_id=None 상태 그대로 루트)
 
     db.flush()
 

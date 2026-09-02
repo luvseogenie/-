@@ -59,6 +59,7 @@ npm run build                                            # → extension/dist
 
 ### 4) 사용 흐름 — 클릭 3번
 
+0. (처음 한 번) 확장 popup → **[쿠팡 카테고리 전체 가져오기]** → 대시보드 [새로고침]
 1. 대시보드 왼쪽에서 카테고리를 **체크** (상위 카테고리를 체크하면 하위 전체가 포함됩니다)
 2. 상품 조건(가격 / 리뷰수 / 평점 / 배송방식)과 「실행」의 페이지 수·상세 확인 수를 정하고 **[소싱 시작]**
 3. 크롬 확장 아이콘 → **[자동 수집 시작]**
@@ -205,38 +206,36 @@ API에서 `min_confidence=medium` 으로 걸러낼 수 있습니다.
 
 ---
 
-## 카테고리 데이터 등록
+## 카테고리 트리 채우기 — 버튼 한 번
 
-**따로 등록하지 않아도 됩니다.** 쿠팡 카테고리 페이지를 수집하면 그 페이지의
-breadcrumb(홈인테리어 &gt; 카페트/매트 &gt; 발매트)을 읽어 카테고리 계층이 자동으로 만들어집니다.
-수집할수록 왼쪽 트리가 채워집니다.
+카테고리 목록을 직접 만들거나 올릴 필요가 없습니다. 크롬 확장 popup의
+**[쿠팡 카테고리 전체 가져오기]**를 누르면 확장이 쿠팡 첫 화면(www.coupang.com)을 백그라운드
+탭으로 잠깐 열어 **전체 카테고리 메뉴**에 렌더링된 링크를 읽고, 계층까지 그대로 등록한 뒤 탭을 닫습니다.
+대시보드에서 [새로고침]을 누르면 트리가 나타나고, 그때부터는 체크만 하면 됩니다.
 
-> 이름을 읽지 못한 카테고리는 만들지 않습니다(이름을 지어내지 않습니다).
+- 계층은 클래스명이 아니라 메뉴의 **DOM 중첩**으로 판단합니다 (`extension/src/parsers/coupang_category_parser.ts`).
+  쿠팡이 메뉴 디자인을 바꿔도 링크가 중첩돼 있기만 하면 동작합니다.
+- 화면에 있는 카테고리만 등록합니다. 코드나 이름을 지어내지 않습니다.
+- 자동 스캔이 목록 페이지를 방문할 때 **좌측 메뉴에 보이는 하위 카테고리**도 트리에 추가됩니다.
+  쓰면 쓸수록 트리가 깊어집니다.
+- 다시 눌러도 중복되지 않습니다 (코드 기준 갱신).
 
-미리 통째로 넣고 싶다면 JSON/CSV로 import 할 수도 있습니다.
-포맷은 `backend/data/categories_sample.json` / `.csv` 를 참고하세요.
+메뉴를 찾지 못하면 popup에 "카테고리 링크를 N개밖에 찾지 못했습니다"가 뜹니다. 그때는 쿠팡 첫 화면을
+직접 열고 '카테고리' 메뉴를 펼친 상태에서 다시 누르거나, [진단 정보 복사] 결과를 보내주세요.
 
-```
-category_code, category_name, parent_category_code, depth, category_url
-```
-
-- CLI: `python -m app.cli import-categories <파일>`
-- API: `POST /api/categories/import` (JSON) / `POST /api/categories/import/file` (파일 업로드)
-
-부모가 파일 뒤쪽에 나와도 되며(2-pass), `depth`와 `is_leaf`는 import 후 자동 재계산됩니다.
-
-> `backend/data/*` 의 `category_code` / `category_url` 은 **자리표시자**입니다.
-> 실제 쿠팡 카테고리 코드와 URL로 교체해서 사용하세요.
+파일로 올리는 방법도 남아 있습니다 (JSON/CSV, 컬럼: `category_code, category_name, parent_category_code, depth, category_url`):
+`POST /api/categories/import/file` 또는 `python -m app.cli import-categories <파일>`.
+부모를 적지 않은 행은 기존 부모 연결을 유지합니다.
 
 ---
 
 ## 테스트
 
 ```bash
-# 백엔드 (pytest 90건)
+# 백엔드 (pytest 91건)
 cd backend && ./.venv/bin/python -m pytest
 
-# 확장 파서 (vitest + jsdom, 107건)
+# 확장 파서 (vitest + jsdom, 112건)
 cd extension && npm test
 
 # 타입/린트/빌드

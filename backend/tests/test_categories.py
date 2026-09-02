@@ -79,3 +79,17 @@ def test_bad_file_reports_reason(client):
     )
     assert res.status_code == 400
     assert "필수 컬럼" in res.json()["detail"]
+
+
+def test_reimport_without_parent_keeps_existing_parent(client):
+    """부모를 명시하지 않은 재등록은 기존 부모 연결을 지우지 않는다."""
+    client.post("/api/categories/import", json={"rows": [
+        {"category_code": "R", "category_name": "루트"},
+        {"category_code": "C", "category_name": "자식", "parent_category_code": "R"},
+    ]})
+    res = client.post("/api/categories/import", json={"rows": [{"category_code": "C", "category_name": "자식(이름 갱신)"}]})
+    assert res.status_code == 200
+    tree = client.get("/api/categories?tree=true").json()
+    root = next(n for n in tree if n["category_code"] == "R")
+    assert [c["category_name"] for c in root["children"]] == ["자식(이름 갱신)"]
+    assert root["children"][0]["depth"] == 2

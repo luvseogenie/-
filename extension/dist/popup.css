@@ -122,3 +122,5 @@ input {
 .row.gap #scan-start { flex: 1; }
 button.danger { color: var(--danger); border-color: rgba(255, 107, 107, 0.4); }
 #scan-progress b { color: var(--primary); }
+#import-categories { margin-top: 8px; margin-bottom: 0; }
+#import-categories-result { margin-top: 6px; color: var(--primary); }

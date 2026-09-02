@@ -25,8 +25,13 @@ import {
   extractReviewEntries,
   type ReviewEntry,
 } from "@/parsers/coupang_review_parser";
+import { parseCategoryTree, type CategoryTreeResult } from "@/parsers/coupang_category_parser";
 import { buildDiagnosticsReport } from "@/parsers/diagnostics";
-import { PRODUCT_ID_URL_PATTERNS } from "@/parsers/selectors";
+import {
+  CATEGORY_MENU_TRIGGER_TEXTS,
+  MIN_CATEGORY_MENU_LINKS,
+  PRODUCT_ID_URL_PATTERNS,
+} from "@/parsers/selectors";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
 
@@ -168,7 +173,46 @@ function trySortReviewsNewest(): boolean {
   return false;
 }
 
+/**
+ * 카테고리 메뉴가 마우스를 올려야 열리는 경우를 위해 "카테고리" 버튼에 hover 이벤트를 보낸다.
+ * 페이지를 이동시키지 않는다(click 은 보내지 않는다).
+ */
+function tryOpenCategoryMenu(): boolean {
+  const triggers = new Set<string>(CATEGORY_MENU_TRIGGER_TEXTS);
+  let fired = false;
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>("button, a, span, div, li"))) {
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (!triggers.has(text) || el.children.length > 2) continue;
+    for (const type of ["mouseover", "mouseenter", "pointerover"]) {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+    fired = true;
+  }
+  return fired;
+}
+
+async function scanCategories(): Promise<CategoryTreeResult> {
+  let result = parseCategoryTree(document, location.href);
+  if (result.rows.length < MIN_CATEGORY_MENU_LINKS && tryOpenCategoryMenu()) {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    result = parseCategoryTree(document, location.href);
+  }
+  log.info("카테고리 트리", {
+    rows: result.rows.length,
+    roots: result.roots,
+    depth: result.maxDepth,
+    container: result.container,
+  });
+  return result;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "SCAN_CATEGORIES") {
+    scanCategories()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    return true;
+  }
   if (message?.type === "SORT_REVIEWS_NEWEST") {
     sendResponse({ ok: true, clicked: trySortReviewsNewest() });
     return true;

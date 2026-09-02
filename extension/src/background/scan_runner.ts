@@ -15,6 +15,9 @@
 import { api, getAutoCollect, type ScanTarget } from "@/lib/api";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
+import type { CategoryTreeResult } from "@/parsers/coupang_category_parser";
+
+import { openBackgroundTab, sendWhenReady, sleep, waitForLoad } from "./tab_utils";
 
 /** 대상 사이 대기(ms). 너무 빠르면 차단 위험이 커진다. */
 const DELAY_BETWEEN_TARGETS_MS = 2500;
@@ -53,8 +56,6 @@ export function getRunnerState(): RunnerState {
   return { ...state };
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** 스캔 전용 탭을 확보한다. 없거나 닫혔으면 새로 연다. */
 async function ensureTab(url: string): Promise<number> {
   if (state.tabId !== null) {
@@ -66,80 +67,41 @@ async function ensureTab(url: string): Promise<number> {
       state.tabId = null;
     }
   }
-  // 빈 탭을 먼저 만들고 나서 이동한다. 새 탭 생성과 첫 페이지 로드를 분리하면
-  // 탭이 완전히 준비된 뒤에 페이지가 열려 content script가 빠짐없이 붙는다.
-  const tab = await chrome.tabs.create({ url: "about:blank", active: false });
-  if (!tab.id) throw new Error("탭을 열지 못했습니다.");
-  state.tabId = tab.id;
-  await sleep(300);
-  await chrome.tabs.update(tab.id, { url });
-  return tab.id;
-}
-
-/** 두 주소가 같은 페이지를 가리키는지 (쿼리 차이는 무시) */
-function samePage(a: string, b: string): boolean {
-  try {
-    const ua = new URL(a);
-    const ub = new URL(b);
-    return ua.host === ub.host && ua.pathname === ub.pathname;
-  } catch {
-    return a === b;
-  }
-}
-
-/**
- * 탭이 목표 주소를 다 불러올 때까지 기다린다.
- *
- * onUpdated 이벤트만 믿으면 새 탭의 about:blank 단계에서 'complete'가 먼저 와서
- * 페이지가 뜨기 전에 진행해 버린다. 그래서 탭 상태와 주소를 직접 확인한다.
- */
-async function waitForLoad(tabId: number, expectedUrl: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.status === "complete" && tab.url && samePage(tab.url, expectedUrl)) return;
-    } catch {
-      // 탭이 아직 준비되지 않았다.
-    }
-    await sleep(300);
-  }
-}
-
-/**
- * content script가 없으면 직접 주입한다.
- * 백그라운드로 만든 새 탭에서는 선언된 content script가 아직 없을 수 있다.
- */
-async function injectContentScript(tabId: number): Promise<void> {
-  try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-    log.info("content script 직접 주입", tabId);
-  } catch (e) {
-    log.warn("content script 주입 실패", e);
-  }
+  state.tabId = await openBackgroundTab(url);
+  return state.tabId;
 }
 
 /** content script가 응답할 때까지 SCAN을 재시도한다. */
 async function scanWhenReady(tabId: number): Promise<ParseResult> {
-  const deadline = Date.now() + CONTENT_READY_TIMEOUT_MS;
-  let lastError = "";
-  let injected = false;
-  while (Date.now() < deadline) {
-    try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "SCAN" });
-      if (response?.ok) return response.result as ParseResult;
-      lastError = response?.error ?? "파싱 실패";
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e);
-      // 수신자가 없다 = content script가 이 탭에 없다 → 한 번 직접 넣어본다.
-      if (!injected && /Receiving end does not exist/i.test(lastError)) {
-        injected = true;
-        await injectContentScript(tabId);
-      }
-    }
-    await sleep(700);
+  const res = await sendWhenReady<{ ok: boolean; result?: ParseResult; error?: string }>(
+    tabId,
+    { type: "SCAN" },
+    CONTENT_READY_TIMEOUT_MS,
+  );
+  if (!res.result) throw new Error("파싱 결과가 없습니다.");
+  return res.result;
+}
+
+/**
+ * 목록 페이지 좌측 메뉴에 보이는 하위 카테고리를 트리에 등록한다.
+ * 화면에 있는 것만 등록하고, 계층을 알 수 없는 링크(부모 없음)는 다른 행의 부모로
+ * 쓰이는 경우에만 포함한다 — 트리를 어지럽히지 않기 위해서다.
+ */
+async function registerDiscoveredCategories(tabId: number): Promise<void> {
+  try {
+    const res = (await chrome.tabs.sendMessage(tabId, { type: "SCAN_CATEGORIES" })) as
+      | { ok: boolean; result?: CategoryTreeResult }
+      | undefined;
+    if (!res?.ok || !res.result) return;
+    const withParent = res.result.rows.filter((r) => r.parent_category_code);
+    const referenced = new Set(withParent.map((r) => r.parent_category_code));
+    const rows = res.result.rows.filter((r) => r.parent_category_code || referenced.has(r.category_code));
+    if (rows.length === 0) return;
+    const out = await api.importCategories(rows);
+    if (out.created > 0) log.info("하위 카테고리 등록", out.created);
+  } catch (e) {
+    log.warn("하위 카테고리 등록 실패", e);
   }
-  throw new Error(`페이지 준비 안 됨: ${lastError}`);
 }
 
 /** 상세 페이지에서 리뷰 작성일까지 읽는다 (최신순 정렬 시도 포함). */
@@ -188,6 +150,9 @@ async function processTarget(target: ScanTarget): Promise<number> {
     skipped: parsed.skipped,
     parse_errors: parsed.errors.slice(0, 20),
   });
+
+  // 목록 페이지면 좌측 메뉴의 하위 카테고리를 트리에 채워 둔다.
+  if (target.kind === "list") await registerDiscoveredCategories(tabId);
 
   // 상세 페이지면 최근 30일 리뷰수도 함께 확보한다.
   if (target.kind === "detail" && parsed.pageType === "product") {

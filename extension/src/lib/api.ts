@@ -123,8 +123,28 @@ export type ScanStatus = {
   current_label: string | null;
 };
 
+export type CategoryImportRow = {
+  category_code: string;
+  category_name: string;
+  parent_category_code: string | null;
+  category_url: string | null;
+};
+
+export type CategoryImportResult = {
+  received: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+};
+
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
+  importCategories: (rows: CategoryImportRow[]) =>
+    request<CategoryImportResult>("/api/categories/import", {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
   activeJob: () => request<{ id: number } | null>("/api/collection-jobs/active"),
   collect: (payload: CollectPayload) =>
     request<CollectResponse>("/api/products/collect", {
