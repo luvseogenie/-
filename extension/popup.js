@@ -29,7 +29,7 @@ async function readActive(kind) {
   let best = null, tables = [];
   for (const frameId of ids) {
     try {
-      const r = await chrome.tabs.sendMessage(tab.id, { type: 'read', kind }, { frameId });
+      const r = await chrome.tabs.sendMessage(tab.id, { type: kind === 'ads' ? 'readAll' : 'read', kind }, { frameId });
       if (r) { tables = tables.concat(r.tables || []); if (r.ok && (!best || r.records.length > best.records.length)) best = r; }
     } catch { /* 이 프레임엔 content script 가 없음 */ }
   }
@@ -81,7 +81,10 @@ async function saveKind(kind) {
   if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name });
   await S.save(d);
   const missing = kind === 'sales' ? S.unmappedOptionIds(d).length : 0;
-  msg(`${date} ${label} 데이터 ${n}건 저장 완료` + (missing ? ` · 캠페인/마진이 비어 있는 옵션 ${missing}개 → '장부 보기' 에서 채워 주세요` : ''), 'ok');
+  const pageNote = best.pages > 1 ? ` (${best.pages}페이지 합침)` : ''; const extra = best.notes?.length ? ` · ${best.notes.join(', ')}` : '';
+  const zero = kind === 'ads' ? rows.filter((r) => !r.impressions && !r.clicks).length : 0;
+  msg(`${date} ${label} 데이터 ${n}건 저장 완료${pageNote}` + (missing ? ` · 캠페인/마진이 비어 있는 옵션 ${missing}개 → '장부 보기' 에서 채워 주세요` : '') + (zero === rows.length && rows.length ? ' · 노출수·클릭수가 비어 있습니다. 광고센터 "지표 설정" 에서 노출수/클릭수/클릭률/전환율/판매수를 켜 주세요' : '') + extra, 'ok');
+  $('#detail').textContent = `읽은 머리글: ${(best.headers || []).join(' | ')}\n` + $('#detail').textContent;
   if (kind === 'sales' && rows.some((r) => r.date === date)) chrome.runtime.sendMessage({ type: 'syncServer', kind, date, records: best.records }).catch(() => {});
   if (kind === 'ads') chrome.runtime.sendMessage({ type: 'syncServer', kind, date, records: best.records }).catch(() => {});
 }

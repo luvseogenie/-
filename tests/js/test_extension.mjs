@@ -108,3 +108,21 @@ console.log('extension logic: all checks passed');
   const r2 = await importAnyFile(adsCsv, 'ads.csv', '2025-06-21'); assert.equal(r2.kind, 'ads'); assert.equal(r2.saved, 1);
   console.log('paste/any-file import: all checks passed');
 }
+
+// 광고센터 목록 형태: '?' 아이콘 섞인 머리글, '305.19% 목표 350%' 칸, '⚠ 10,000원', 행별 날짜
+{
+  const { parseNumber, firstMatch, normHeader } = await import('../../extension/lib/parse.js');
+  assert.equal(parseNumber('⚠ 10,000원'), 10000); assert.equal(parseNumber('2,859원'), 2859); assert.equal(parseNumber('305.19% 목표 350%'), 3.0519);
+  const hs = ['캠페인 이름 ↕', 'ON/OFF', '주간 예산 점수 ? (오늘 제외)', '예산 ?', '광고비 효율성 ? 광고수익률', '오늘 누적광고비', '집행 광고비', '주요 결과 ? 광고 전환 매출 ?', '클릭률', '클릭수'].map(normHeader);
+  assert.equal(firstMatch(hs, ['광고예산', '일 예산', '예산'], ['점수', '주간']), 3);
+  assert.equal(firstMatch(hs, ['집행 광고비', '광고비'], ['오늘', '누적', '효율', '수익률']), 6);
+  assert.equal(firstMatch(hs, ['광고전환 매출', '광고 전환 매출'], []), 7);
+  assert.equal(firstMatch(hs, ['클릭수', '클릭'], ['률']), 9);
+  const rec = { '캠페인 이름 ↕': 'AI 스마트광고 0. 소량 재고', 'ON/OFF': 'ON', '주간 예산 점수 ? (오늘 제외)': '100점', '예산 ?': '⚠ 10,000원', '광고비 효율성 ? 광고수익률': '305.19% 목표 350%', '오늘 누적광고비': '202원', '집행 광고비': '30,964원', '주요 결과 ? 광고 전환 매출 ?': '94,500원', '전환율': '7.8%', '노출수': '51,328', '클릭수': '153', '클릭률': '0.30%', '광고 전환 판매 수': '12' };
+  const [r] = normalizeAds([rec], '2026-09-01');
+  assert.equal(r.campaign, '0. 소량 재고'); assert.equal(r.target_roas, 3.5); assert.equal(r.budget, 10000); assert.equal(r.spend, 30964); assert.equal(r.ad_revenue, 94500);
+  assert.equal(r.conversion, 0.078); assert.equal(r.impressions, 51328); assert.equal(r.clicks, 153); assert.equal(r.ctr, 0.003); assert.equal(r.ad_orders, 12);
+  const [r2] = normalizeAds([{ '날짜': '2026-08-30', '캠페인': 'X', '광고비': '1,000' }], '2026-09-01'); assert.equal(r2.date, '2026-08-30');
+  const [s2] = normalizeSales([{ '일자': '2026.08.30', '옵션ID': '123', '매출': '10', '판매량': '1' }], '2026-09-01'); assert.equal(s2.date, '2026-08-30');
+  console.log('ad-center parsing: all checks passed');
+}

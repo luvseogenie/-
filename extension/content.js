@@ -78,31 +78,43 @@
   }
   const HEADER_WORDS = ['캠페인', '광고비', '노출', '클릭', '전환', '예산', '매출', '수익률', 'ROAS', '옵션', '판매', '주문', '방문자', '조회', '장바구니'];
   const headerScore = (texts) => texts.reduce((n, t) => n + (HEADER_WORDS.some((w) => t.toLowerCase().includes(w.toLowerCase())) ? 1 : 0), 0);
+  // 줄 요소 → 칸 글자 목록. 자식 요소가 여럿이면 자식 하나가 한 칸, 아니면 말단 글자 하나가 한 칸.
+  function cellTexts(rowEl) {
+    const kids = [...rowEl.children].filter((c) => !['SCRIPT', 'STYLE'].includes(c.tagName));
+    if (kids.length >= 4) return kids.map((c) => leafTexts(c).join(' '));
+    // 자식이 하나뿐인 래퍼(예: <a><div>…</div></a>)면 한 단계 내려간다
+    if (kids.length === 1 && kids[0].children.length >= 4) return cellTexts(kids[0]);
+    return leafTexts(rowEl);
+  }
   // 같은 모양의 자식이 3개 이상 반복되는 요소를 '줄 목록'으로 보고, 근처의 머리글 줄과 짝지어 표로 만든다.
   function readDivGrids() {
     const out = [];
     const seen = new Set();
     for (const parent of deepAll('*')) {
       if (parent.children.length < 3 || seen.has(parent)) continue;
-      if (['TABLE', 'TBODY', 'THEAD', 'TR', 'UL', 'OL', 'SELECT', 'SCRIPT', 'STYLE'].includes(parent.tagName) && parent.tagName !== 'UL' && parent.tagName !== 'OL') continue;
+      if (['TABLE', 'TBODY', 'THEAD', 'TR', 'SELECT', 'SCRIPT', 'STYLE'].includes(parent.tagName)) continue;
       if (parent.closest('table, .ag-root, [role="grid"]')) continue;
       const groups = {};
       for (const c of parent.children) { const k = c.tagName + '|' + c.className; (groups[k] ||= []).push(c); }
       for (const members of Object.values(groups)) {
         if (members.length < 3) continue;
-        const rows = members.map(leafTexts).filter((r) => r.length >= 4 && r.some((t) => /\d/.test(t)));
+        const rows = members.map(cellTexts).filter((r) => r.length >= 4 && r.some((t) => /\d/.test(t)));
         if (rows.length < 3) continue;
         const counts = rows.map((r) => r.length).sort((x, y) => x - y); const med = counts[Math.floor(counts.length / 2)];
         const good = rows.filter((r) => Math.abs(r.length - med) <= Math.max(2, med * 0.5));
         if (good.length < 3) continue;
-        // 머리글 후보: 같은 부모의 다른 자식, 부모의 이전 형제(와 그 자손), 조부모의 이전 형제
+        // 머리글 후보: 같은 부모의 다른 자식, 부모의 이전 형제(와 그 안), 조부모의 이전 형제, 첫 줄
         const cands = [];
         for (const c of parent.children) if (!members.includes(c)) cands.push(c);
-        let sib = parent.previousElementSibling; for (let i = 0; i < 3 && sib; i++, sib = sib.previousElementSibling) cands.push(sib);
-        if (parent.parentElement) { let ps = parent.parentElement.previousElementSibling; for (let i = 0; i < 3 && ps; i++, ps = ps.previousElementSibling) cands.push(ps); for (const c of parent.parentElement.children) if (c !== parent) cands.push(c); }
+        let sib = parent.previousElementSibling; for (let i = 0; i < 3 && sib; i++, sib = sib.previousElementSibling) { cands.push(sib); cands.push(...sib.querySelectorAll('*')); }
+        if (parent.parentElement) { let ps = parent.parentElement.previousElementSibling; for (let i = 0; i < 3 && ps; i++, ps = ps.previousElementSibling) { cands.push(ps); cands.push(...ps.querySelectorAll('*')); } for (const c of parent.parentElement.children) if (c !== parent) cands.push(c); }
         cands.push(members[0]);
         let header = null, best = 1;
-        for (const c of cands) { const t = leafTexts(c); const sc = headerScore(t); if (sc > best && t.length >= 3) { best = sc; header = { el: c, texts: t }; } }
+        for (const c of cands) {
+          const t = cellTexts(c); if (t.length < 3) continue;
+          const sc = headerScore(t) * 2 - Math.abs(t.length - med) * 0.5; // 키워드가 많고 칸 수가 비슷할수록
+          if (sc > best) { best = sc; header = { el: c, texts: t }; }
+        }
         if (!header) continue;
         const body = header.el === members[0] ? good.slice(1) : good;
         if (!body.length) continue;
@@ -111,6 +123,57 @@
       }
     }
     return out;
+  }
+
+  // ---------- 페이지 넘기며 읽기 (광고센터 캠페인 목록: '페이지 1 / 2', '10 개' 선택) ----------
+  function setNativeValue(el, value) {
+    const proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype : el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set; if (setter) setter.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function pageTotal() {
+    const m = clean(document.body.innerText).match(/페이지\s*(\d+)?\s*\/\s*(\d+)/) || clean(document.body.innerText).match(/(\d+)\s*\/\s*(\d+)\s*(페이지|page)/i);
+    return m ? parseInt(m[2], 10) : 1;
+  }
+  function pagerInput() {
+    return [...deepAll('input')].find((i) => (i.type === 'text' || i.type === 'number') && /^\d+$/.test(i.value) && /\/\s*\d+/.test(clean(i.parentElement?.innerText || '') + clean(i.parentElement?.parentElement?.innerText || '')));
+  }
+  async function maximizePageSize() {
+    const sel = [...deepAll('select')].find((s) => [...s.options].filter((o) => /^\s*\d+\s*(개|건|rows|items)?\s*$/i.test(o.textContent)).length >= 2);
+    if (!sel) return null;
+    const best = [...sel.options].reduce((a, o) => (parseInt(o.textContent, 10) || 0) > (parseInt(a.textContent, 10) || 0) ? o : a);
+    if (best.value === sel.value) return null;
+    setNativeValue(sel, best.value); await wait(2000);
+    return clean(best.textContent);
+  }
+  async function gotoPage(n) {
+    const input = pagerInput();
+    if (input) {
+      setNativeValue(input, String(n));
+      for (const t of ['keydown', 'keypress', 'keyup']) input.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      return true;
+    }
+    // 다음 버튼: '/ N' 글자 오른쪽에 있는 첫 버튼
+    const anchor = [...deepAll('*')].find((e) => e.children.length === 0 && /^\/\s*\d+$/.test(clean(e.innerText)));
+    if (!anchor) return false;
+    const ax = anchor.getBoundingClientRect(); const ay = (ax.top + ax.bottom) / 2;
+    const btn = [...deepAll('button, a, [role="button"]')].filter((b) => { const r = b.getBoundingClientRect(); return visible(b) && r.left > ax.right && Math.abs((r.top + r.bottom) / 2 - ay) < 30 && r.left - ax.right < 400; }).sort((p, q) => p.getBoundingClientRect().left - q.getBoundingClientRect().left)[0];
+    if (!btn || btn.disabled) return false;
+    fire(btn, CLICK); return true;
+  }
+  async function readAllPages(kind) {
+    const all = []; const seen = new Set(); const notes = [];
+    const size = await maximizePageSize(); if (size) notes.push(`페이지당 ${size}로 변경`);
+    const total0 = pageTotal(); let pages = 0;
+    for (let i = 1; i <= Math.min(total0, 30); i++) {
+      if (i > 1) { if (!(await gotoPage(i))) { notes.push(`${i}페이지로 못 넘어감`); break; } await wait(2000); }
+      const picked = window.__ccPick(kind); if (!picked) { if (i === 1) break; notes.push(`${i}페이지에서 표를 못 읽음`); break; }
+      pages++;
+      for (const r of picked.records) { const key = Object.values(r).slice(0, 1).join('|'); if (!seen.has(key)) { seen.add(key); all.push(r); } }
+      if (pageTotal() <= i) break;
+    }
+    if (pages > 1) { try { await gotoPage(1); } catch { /* 무시 */ } }
+    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), url: location.href, tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length })) };
   }
 
   function allTables() {
@@ -237,7 +300,7 @@
   }
 
   window.__ccReadTables = allTables;
-  window.__ccDetectDate = detectDate; window.__ccDivGrids = readDivGrids; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
+  window.__ccDetectDate = detectDate; window.__ccDivGrids = readDivGrids; window.__ccReadAllPages = readAllPages; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
   window.__ccPick = (kind) => { const t = pickTable(allTables(), kind); return t ? { records: toRecords(t), headers: t.headers, source: t.kind } : null; };
 
   chrome.runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
@@ -249,6 +312,8 @@
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickDownloadReport') {
       clickDownloadReport().then(sendResponse);
+    } else if (msg?.type === 'readAll') {
+      readAllPages(msg.kind).then(sendResponse);
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'pageInfo') {
