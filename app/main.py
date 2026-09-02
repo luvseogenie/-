@@ -17,6 +17,7 @@ from .categories import discover_children, top_categories, tree
 from .coupang_list import diagnose_category, fetch_listing, parse_scope_url
 from .export import build_xlsx
 from .metrics import enrich, summarize
+from . import update as updater
 from .pipeline import job
 
 app = FastAPI(title="쿠팡 소싱 프로그램")
@@ -57,6 +58,7 @@ def bootstrap():
         "checked": db.get_setting("checked", []),
         "run": dict(run) if run else None,
         "status": job.status(),
+        "version": updater.current_version(),
     }
 
 
@@ -416,6 +418,23 @@ async def diag_category(req: Request):
     return {"ok": True, "text": text, "screenshot": data.get("screenshot")}
 
 
+@app.get("/api/update/check")
+def update_check():
+    return {"current": updater.current_version(), "remote": updater.remote_version()}
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 업데이트할 수 없습니다. 완전중단 후 다시 눌러주세요.")
+    try:
+        r = updater.apply_update()
+    except Exception as e:  # noqa: BLE001
+        return _err(f"업데이트 실패: {e}")
+    updater.restart_program()
+    return {"ok": True, "message": f"업데이트 완료 (파일 {r['changed']}개, 버전 {r['version']}). 프로그램을 다시 시작합니다. 10초 뒤 이 페이지를 새로고침 하세요.", **r}
+
+
 @app.get("/api/capture/summary", response_class=PlainTextResponse)
 def capture_summary():
     files = sorted(config.CAPTURE_DIR.glob("*_요약.txt"))
@@ -490,8 +509,23 @@ def _open_dashboard():
         pass
 
 
+def _wait_port_free(timeout=25):
+    import socket
+    end = time.time() + timeout
+    while time.time() < end:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((config.HOST, config.PORT))
+                return True
+            except OSError:
+                time.sleep(0.5)
+    return False
+
+
 def main():
-    print(f"쿠팡 소싱 프로그램: http://{config.HOST}:{config.PORT}/  (이 창을 닫으면 프로그램이 종료됩니다)")
+    print(f"쿠팡 소싱 프로그램 v{updater.current_version()}: http://{config.HOST}:{config.PORT}/  (이 창을 닫으면 프로그램이 종료됩니다)")
+    if not _wait_port_free():
+        print("이미 프로그램이 실행 중인 것 같습니다. 기존 창을 닫고 다시 실행해 주세요.")
     threading.Thread(target=_open_dashboard, daemon=True).start()
     uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
 

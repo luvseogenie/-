@@ -316,6 +316,16 @@
       await api('/api/archive/delete', { ids }); showArchive();
     }));
   }
+  async function runUpdate() {
+    toast('최신 버전 확인 중…');
+    const c = await api('/api/update/check');
+    if (c.remote && c.remote === c.current) { toast(`이미 최신 버전입니다 (${c.current}).`); return; }
+    if (!confirm(`업데이트를 받을까요?\n현재 ${c.current} → 최신 ${c.remote || '(확인 불가, 그래도 시도)'}\n\n받은 뒤 프로그램이 자동으로 다시 시작됩니다.`)) return;
+    toast('업데이트 내려받는 중… (30초~2분)');
+    const r = await api('/api/update/apply', {});
+    openModal('업데이트', `<p>${esc(r.message)}</p><p class="muted small">새 창이 뜨지 않으면 2_run.bat 을 직접 다시 실행해 주세요.</p>`);
+    setTimeout(() => location.reload(), 12000);
+  }
   async function runDiag() {
     const first = state.top.find((t) => state.checked.has(t.id));
     const cid = first ? first.id : 184555;
@@ -412,6 +422,7 @@
     if (el.dataset.action === 'archive') return showArchive();
     if (el.dataset.action === 'capture_summary') return showCaptureSummary();
     if (el.dataset.action === 'diag') return runDiag();
+    if (el.dataset.action === 'update') return runUpdate();
     const tool = el.dataset.tool;
     if (tool === 'clear_run' && !confirm('현재 결과를 모두 비울까요? (보관함은 유지됩니다)')) return;
     toast('실행 중…');
@@ -425,6 +436,7 @@
   async function boot() {
     const b = await api('/api/bootstrap');
     state.top = b.top_categories; state.conditions = b.conditions;
+    $('#menu-update').textContent = `프로그램 업데이트 (현재 ${b.version})`; document.title = `쿠팡 소싱 프로그램 v${b.version}`;
     (b.checked || []).forEach((id) => state.checked.add(Number(id)));
     state.kwScope = (b.scope || []).filter((s) => s.type !== 'category');
     fillConditions();
