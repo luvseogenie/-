@@ -97,7 +97,7 @@
           <div class="card chart-card"><h2>일별 판매 수 <span class="sub">광고 전환 판매와 자연 판매</span></h2><div class="legend"><span><i style="background:#2a78d6"></i>광고 판매</span><span><i style="background:#1baf7a"></i>자연 판매</span></div><div class="chart" id="ch-qty"></div></div>
         </div>
         <div class="card">
-          <h2>캠페인별 성과 <span class="sub" id="camp-sub"></span><span class="grow"></span><label class="chk"><input type="checkbox" id="camp-hide-zero" checked> 광고비 0인 캠페인 숨기기</label></h2>
+          <h2>캠페인별 성과 <span class="sub" id="camp-sub"></span><span class="grow"></span><label class="chk"><input type="checkbox" id="camp-hide-zero" checked> 광고비 0인 캠페인 숨기기</label><label class="chk"><input type="checkbox" id="camp-show-hidden"> 숨긴 캠페인도 표시</label></h2>
           <div class="tablewrap"><table id="camp-table"></table></div>
         </div>
       </div>
@@ -113,6 +113,15 @@
           <label class="chk"><input type="checkbox" id="lg-hide-empty" checked> 데이터 없는 날 숨기기</label>
           <label class="chk"><input type="checkbox" id="lg-action"> ACTION 메모</label>
           <button class="btn sm" id="lg-csv">CSV 내보내기</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <b>캠페인 표시</b><span class="sub" id="vis-summary"></span>
+          <button class="btn sm" id="vis-toggle">캠페인 표시 설정</button>
+          <label class="chk"><input type="checkbox" id="lg-show-hidden"> 숨긴 캠페인도 표시</label>
+        </div>
+        <div id="vis-panel" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:10px">
+          <div class="row" style="margin-bottom:6px"><input type="text" id="vis-search" placeholder="캠페인 검색" style="width:220px"><span class="sub">자동 = 기간에 데이터가 있을 때만 · 항상 = 데이터가 없어도 줄 유지 · 숨김 = 시즌 종료 등으로 안 보이게 (대시보드 표에서도 빠짐)</span><span class="grow"></span><button class="btn sm" id="vis-hide-old">최근 30일 광고비 0인 캠페인 모두 숨김</button><button class="btn sm" id="vis-reset">모두 자동으로</button></div>
+          <div class="tablewrap" style="max-height:340px"><table id="vis-table"><thead><tr><th class="l">캠페인</th><th>마지막 광고일</th><th>최근 30일 광고비</th><th class="l">표시</th></tr></thead><tbody></tbody></table></div>
         </div>
         <div id="lg-warn"></div>
         <div class="pivot"><div class="tablewrap"><table id="lg-table"></table></div></div>

@@ -68,6 +68,7 @@ function renderFoot() {
 
 /* ===== 대시보드 ===== */
 async function renderDash() {
+  await loadCampVis();
   const has = S.dates(DATA).length > 0;
   $('#dash-empty').style.display = has ? 'none' : ''; $('#dash-body').style.display = has ? '' : 'none';
   if (!has) return;
@@ -112,8 +113,10 @@ function renderCampTable(led) {
   const cols = [['campaign', '캠페인', 'l'], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
   let rows = led.campaigns.map((c) => { const t = { ...c.total, campaign: c.campaign, days: c.days }; const lastDay = Object.keys(c.days).sort().pop(); t.target_roas = lastDay ? c.days[lastDay].target_roas : 0; return t; }).filter((t) => t.days && Object.keys(t.days).length);
   if (hideZero) rows = rows.filter((t) => t.spend_vat > 0 || t.ad_orders > 0);
+  const hiddenN = rows.filter((t) => visOf(t.campaign) === 'hidden').length;
+  if (!$('#camp-show-hidden').checked) rows = rows.filter((t) => visOf(t.campaign) !== 'hidden');
   rows.sort((a, b) => { const k = campSort.key; const va = a[k], vb = b[k]; const r = typeof va === 'string' ? va.localeCompare(vb, 'ko') : (va || 0) - (vb || 0); return campSort.dir === 'asc' ? r : -r; });
-  $('#camp-sub').textContent = `${range.start} ~ ${range.end} · ${rows.length}개 캠페인`;
+  $('#camp-sub').textContent = `${range.start} ~ ${range.end} · ${rows.length}개 캠페인` + (hiddenN && !$('#camp-show-hidden').checked ? ` (숨김 ${hiddenN}개 제외, 합계에는 포함)` : '');
   let h = '<thead><tr>' + cols.map(([k, l, f]) => `<th class="${f === 'l' ? 'l ' : ''}${k !== 'trend' ? 'sort' : ''} ${campSort.key === k ? campSort.dir : ''}" data-k="${k}">${l}</th>`).join('') + '</tr></thead><tbody>';
   for (const t of rows) {
     const roasCls = t.target_roas && t.roas ? (t.roas >= t.target_roas ? 'pos' : 'neg') : '';
@@ -131,7 +134,7 @@ function renderCampTable(led) {
   $$('#camp-table th.sort').forEach((th) => th.onclick = () => { const k = th.dataset.k; campSort = { key: k, dir: campSort.key === k && campSort.dir === 'desc' ? 'asc' : 'desc' }; renderCampTable(led); });
   $$('#camp-table td.link').forEach((td) => td.onclick = () => openCampaign(td.dataset.camp, led));
 }
-$('#camp-hide-zero').onchange = () => renderDash();
+$('#camp-hide-zero').onchange = () => renderDash(); $('#camp-show-hidden').onchange = () => renderDash();
 
 /* ===== 캠페인 상세 (드로어) ===== */
 function openCampaign(name, led) {
@@ -152,6 +155,38 @@ function openCampaign(name, led) {
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#backdrop').classList.remove('open'); }
 $('#backdrop').onclick = closeDrawer;
 
+/* ===== 캠페인 표시 설정 (자동 / 항상 / 숨김) ===== */
+let campVis = {}; // { 캠페인: 'always' | 'hidden' } (없으면 자동)
+async function loadCampVis() { const r = await chrome.storage.local.get('campaignVisibility'); campVis = r.campaignVisibility || {}; }
+async function saveCampVis() { await chrome.storage.local.set({ campaignVisibility: campVis }); }
+const visOf = (c) => campVis[c] || 'auto';
+function campaignStats() {
+  const since = addDays(localIso(yday), -29); const last = {}, spend30 = {};
+  for (const [date, day] of Object.entries(DATA.ads)) for (const [c, a] of Object.entries(day)) { if (a.spend > 0 && (!last[c] || date > last[c])) last[c] = date; if (date >= since) spend30[c] = (spend30[c] || 0) + (a.spend || 0); }
+  for (const [date, day] of Object.entries(DATA.legacy || {})) for (const [c, L] of Object.entries(day)) { if (L.spend_vat > 0 && (!last[c] || date > last[c])) last[c] = date; if (date >= since) spend30[c] = (spend30[c] || 0) + (L.spend || 0); }
+  return { last, spend30 };
+}
+function renderVisPanel() {
+  const camps = S.campaigns(DATA); const { last, spend30 } = campaignStats(); const q = ($('#vis-search').value || '').toLowerCase();
+  const n = { always: 0, hidden: 0 }; camps.forEach((c) => { if (campVis[c]) n[campVis[c]]++; });
+  $('#vis-summary').textContent = `전체 ${camps.length}개 · 항상 ${n.always}개 · 숨김 ${n.hidden}개`;
+  const tb = $('#vis-table tbody'); tb.innerHTML = '';
+  for (const c of camps) {
+    if (q && !c.toLowerCase().includes(q)) continue;
+    const tr = document.createElement('tr'); const v = visOf(c);
+    tr.innerHTML = `<td class="l">${esc(c)}</td><td class="num sub">${last[c] || '-'}</td><td class="num">${fmtWon(spend30[c] || 0)}</td><td class="l">` +
+      ['auto', 'always', 'hidden'].map((m) => `<label class="chk" style="margin-right:8px"><input type="radio" name="vis-${esc(c)}" value="${m}" ${v === m ? 'checked' : ''}> ${m === 'auto' ? '자동' : m === 'always' ? '항상' : '숨김'}</label>`).join('') + '</td>';
+    if (v === 'hidden') tr.style.opacity = '.55';
+    tr.querySelectorAll('input[type=radio]').forEach((r) => r.onchange = async () => { if (r.value === 'auto') delete campVis[c]; else campVis[c] = r.value; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
+    tb.appendChild(tr);
+  }
+}
+$('#vis-toggle').onclick = () => { const e = $('#vis-panel'); e.style.display = e.style.display === 'none' ? '' : 'none'; if (e.style.display !== 'none') renderVisPanel(); };
+$('#vis-search').oninput = () => renderVisPanel();
+$('#vis-reset').onclick = async () => { if (confirm('모든 캠페인을 자동 표시로 되돌릴까요?')) { campVis = {}; await saveCampVis(); renderVisPanel(); renderLedgerTable(); } };
+$('#vis-hide-old').onclick = async () => { const { spend30 } = campaignStats(); let k = 0; for (const c of S.campaigns(DATA)) if (!(spend30[c] > 0) && campVis[c] !== 'always') { campVis[c] = 'hidden'; k++; } await saveCampVis(); renderVisPanel(); renderLedgerTable(); msg('#lg-warn', ''); alert(`${k}개 캠페인을 숨겼습니다.`); };
+$('#lg-show-hidden').onchange = () => renderLedgerTable();
+
 /* ===== 광고 장부 (피벗) ===== */
 const DEFAULT_METRICS = ['target_roas', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'actual_qty', 'organic_qty', 'margin_total', 'profit'];
 let shownMetrics = new Set(DEFAULT_METRICS);
@@ -163,7 +198,7 @@ function renderMetricPicker() {
   $('#metric-basic').onclick = () => { shownMetrics = new Set(DEFAULT_METRICS); renderMetricPicker(); renderLedgerTable(); };
 }
 let ledgerCache = null;
-function renderLedger() { renderMetricPicker(); ledgerCache = computeLedger(DATA, range.start, range.end); renderLedgerTable(); }
+async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderLedgerTable(); }
 function renderLedgerTable() {
   const led = ledgerCache; if (!led) return;
   const hideEmpty = $('#lg-hide-empty').checked, showAction = $('#lg-action').checked;
@@ -179,11 +214,16 @@ function renderLedgerTable() {
   let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + (showAction ? '<th class="l">ACTION</th>' : '') + '</tr></thead><tbody>';
   h += '<tr><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
-  for (const c of led.campaigns) {
-    if (!Object.keys(c.days).some((d) => dates.includes(d))) continue;
+  const showHidden = $('#lg-show-hidden').checked;
+  const allCamps = S.campaigns(DATA); const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
+  for (const name of allCamps) {
+    const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
+    if (v === 'hidden' && !showHidden) continue;
+    const hasData = Object.keys(c.days).some((d) => dates.includes(d));
+    if (v !== 'always' && !hasData) continue;
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
-      h += `<tr class="${isProfit ? 'profit' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${metrics.length}">${esc(c.campaign)}</td>` : '') + `<td class="lbl">${mt.label}</td>`;
+      h += `<tr class="${isProfit ? 'profit' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${metrics.length}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';
@@ -199,6 +239,7 @@ function renderLedgerTable() {
     });
   }
   $('#lg-table').innerHTML = h + '</tbody>';
+  $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
 }
 $('#lg-hide-empty').onchange = renderLedgerTable; $('#lg-action').onchange = renderLedgerTable;
 $('#lg-csv').onclick = () => {
