@@ -23,10 +23,15 @@ def current_version() -> str:
 
 
 def remote_version() -> str | None:
+    """GitHub API 로 최신 VERSION 파일 내용을 읽는다 (raw 주소는 저장소 이름 때문에 안 열린다)."""
     try:
-        url = "https://raw.githubusercontent.com/luvseogenie/-/claude/coupang-sourcing-program-2-5tg37d/VERSION"
-        with urllib.request.urlopen(url, timeout=15) as r:
-            return r.read().decode("utf-8").strip()
+        import base64
+        import json as _json
+        url = "https://api.github.com/repos/luvseogenie/-/contents/VERSION?ref=claude/coupang-sourcing-program-2-5tg37d"
+        req = urllib.request.Request(url, headers={"User-Agent": "coupang-sourcing-updater", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = _json.loads(r.read().decode("utf-8"))
+        return base64.b64decode(d["content"]).decode("utf-8").strip()
     except Exception:  # noqa: BLE001
         return None
 
