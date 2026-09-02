@@ -160,3 +160,23 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(S.marginHistory(d, '12340330543').map((m) => [m.effective_from, m.margin]), [['', 5000], ['2025-06-09', 6000]]);
   console.log('legacy sheet4 import: all checks passed');
 }
+
+// 종합소득세 추정
+{
+  const T = await import('../../extension/lib/tax.js');
+  assert.equal(T.earnedIncomeDeduction(120000000), 15150000);
+  assert.equal(T.incomeTax(103350000, 2026), 103350000 * 0.35 - 15440000);
+  const only = T.computeYearTax(2026, 0);
+  assert.equal(only.salaryOnly.base, 103350000); approx(only.salaryOnly.gross, 20732500); approx(only.salaryOnly.earnedCredit, 500000); approx(only.salaryOnly.all, 20232500 * 1.1);
+  assert.equal(only.bizTax, 0); assert.equal(only.netAfterTax, 0);
+  const r = T.computeYearTax(2026, 50000000);
+  assert.equal(r.withBiz.base, 153350000); approx(r.withBiz.gross, 38333000); approx(r.withBiz.relief, 38333000 * (50000000 / 154850000) * 0.5, 1);
+  approx(r.withBiz.all, (38333000 - 500000 - 6188731) * 1.1, 100); approx(r.bizTax, r.withBiz.all - only.salaryOnly.all); assert.ok(r.effectiveRate > 0.2 && r.effectiveRate < 0.3);
+  approx(r.marginalEffective, 0.38 * 0.5 * 1.1, 1e-9); assert.ok(T.computeYearTax(2026, 50000000, { reliefRate: 100 }).reliefApplied <= 0.65 + 1e-9);
+  const r0 = T.computeYearTax(2026, 50000000, { reliefRate: 0 }); assert.ok(r0.bizTax > r.bizTax);
+  const loss = T.computeYearTax(2026, -3000000); assert.equal(loss.bizTax, 0); assert.equal(loss.netAfterTax, -3000000);
+  const mb = T.monthlyBreakdown(2026, { 1: 10000000, 2: 10000000, 3: 30000000 });
+  approx(mb[0].tax + mb[1].tax + mb[2].tax, r.bizTax, 1); assert.equal(mb[3].empty, true);
+  assert.equal(T.bracketsFor(2022), T.BRACKETS_OLD);
+  console.log('tax estimate: all checks passed');
+}

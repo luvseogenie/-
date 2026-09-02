@@ -11,6 +11,7 @@
   <aside class="sidebar">
     <div class="brand"><div class="logo">₩</div><b>광고계산기</b><span class="ver" id="ver"></span></div>
     <nav class="nav">
+      <button data-page="tax"><span class="ico">₩</span>세후 순마진</button>
       <button data-page="dash" class="active"><span class="ico">▦</span>대시보드</button>
       <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
@@ -31,6 +32,48 @@
     </div>
     <div id="update-banner"></div>
     <div id="notice"></div>
+
+    <!-- ===== 세후 순마진 ===== -->
+    <section id="page-tax" style="display:none">
+      <div class="row" style="margin-bottom:12px">
+        <label class="sub">귀속 연도</label><select id="tax-year"></select>
+        <span class="sub" id="tax-sub"></span><span class="grow"></span>
+        <button class="btn sm" id="tax-settings-toggle">가정 바꾸기 (연봉 · 감면율 · 공제)</button>
+      </div>
+      <div class="card" id="tax-settings" style="display:none;margin-bottom:14px">
+        <h2>계산 가정 <span class="sub">연도별로 따로 저장됩니다</span></h2>
+        <div class="row"><label class="sub" style="width:170px">근로소득 총급여(연)</label><input type="number" id="tx-salary" style="width:160px"><span class="sub">원</span></div>
+        <div class="row" style="margin-top:6px"><label class="sub" style="width:170px">청년창업 세액감면율</label><input type="number" id="tx-reliefRate" class="tiny" min="0" max="100"><span class="sub">% (수도권 과밀억제권역 내 청년 창업 50%, 밖 100%. 창업 후 5년간)</span></div>
+        <div class="row" style="margin-top:6px"><label class="sub" style="width:170px">소득공제 합계</label><input type="number" id="tx-deductions" style="width:160px"><span class="sub">원 (기본공제 본인 150만원 + 부양가족·국민연금·보험료 등)</span></div>
+        <div class="row" style="margin-top:6px"><label class="sub" style="width:170px">기타 세액공제</label><input type="number" id="tx-otherCredits" style="width:160px"><span class="sub">원 (표준세액공제, 연금계좌 등. 근로소득세액공제는 자동 계산)</span></div>
+        <div class="row" style="margin-top:6px"><label class="sub" style="width:170px">장부에 없는 사업 경비(연)</label><input type="number" id="tx-extraExpenses" style="width:160px"><span class="sub">원 (통신비·포장·배송 등 장부의 순이익에서 빠지지 않은 경비)</span></div>
+        <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="tx-localTax"> 지방소득세 10% 포함</label></div>
+        <div class="row" style="margin-top:10px"><button class="btn primary sm" id="tx-save">저장</button><span id="tx-msg" class="msg"></span></div>
+      </div>
+      <div class="kpis" id="tax-kpis"></div>
+      <div class="grid2">
+        <div class="card">
+          <h2>월별 세후 순이익 <span class="sub">세금은 누적 순이익 기준으로 그 달에 늘어난 몫</span></h2>
+          <div class="tablewrap"><table id="tax-month-table"></table></div>
+        </div>
+        <div class="card">
+          <h2>연간 세금 계산 내역 <span class="sub" id="tax-detail-sub"></span></h2>
+          <div class="tablewrap"><table id="tax-detail-table"></table></div>
+          <div class="tablewrap" style="margin-top:10px"><table id="tax-bracket-table"></table></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>계산 방식과 가정</h2>
+        <ul class="sub" style="margin:0;padding-left:18px;line-height:1.8">
+          <li><b>쿠팡 몫 세금 = (근로소득 + 쿠팡 사업소득일 때 세금) − (근로소득만 있을 때 세금)</b>. 연봉이 이미 높은 구간에 있으므로 쿠팡 소득은 그 위 구간 세율로 과세됩니다.</li>
+          <li>사업소득금액 = 장부의 순이익(판매 마진 − 광고비) − 장부에 없는 사업 경비. 종합소득금액 = 근로소득금액(총급여 − 근로소득공제) + 사업소득금액. 과세표준 = 종합소득금액 − 소득공제.</li>
+          <li>세액감면 = 산출세액 × (사업소득금액 ÷ 종합소득금액) × 감면율. 개인 최저한세(사업소득 산출세액의 35%/45%)를 넘지 않도록 제한. 창업중소기업 감면은 농어촌특별세 비과세로 가정.</li>
+          <li>근로소득세액공제는 총급여별 한도로 자동 계산. 결정세액에 지방소득세 10% 가산.</li>
+          <li>사업소득이 손실이면 세금 0 (근로소득과 통산하는 효과는 반영하지 않음). 건강보험 소득월액보험료(보수 외 소득 연 2,000만원 초과 시)는 포함하지 않음.</li>
+          <li>세율표는 2023년 귀속분부터 적용되는 표입니다. 이 화면은 <b>추정치</b>이며 실제 신고는 홈택스·세무사 기준을 따르세요.</li>
+        </ul>
+      </div>
+    </section>
 
     <!-- ===== 대시보드 ===== -->
     <section id="page-dash">

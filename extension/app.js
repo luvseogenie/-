@@ -5,6 +5,7 @@ import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } fr
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
+import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS } from './lib/tax.js';
 
 /* ===== 공통 ===== */
 const $ = (s) => document.querySelector(s);
@@ -44,7 +45,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { dash: '대시보드', ledger: '광고 장부', options: '캠페인 · 옵션', ads: '광고 입력', data: '데이터 · 설정' };
+const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', options: '캠페인 · 옵션', ads: '광고 입력', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -58,7 +59,7 @@ function showPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'dash') renderDash(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
 function renderFoot() {
@@ -380,6 +381,56 @@ async function loadSettings() {
 }
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
+
+/* ===== 세후 순마진 (종합소득세 추정) ===== */
+let taxSettingsAll = {};
+async function loadTaxSettings() { const r = await chrome.storage.sync.get('taxSettings'); taxSettingsAll = r.taxSettings || {}; }
+const taxSettingsFor = (y) => ({ ...DEFAULT_TAX_SETTINGS, ...(taxSettingsAll.default || {}), ...(taxSettingsAll[y] || {}) });
+async function renderTax() {
+  await loadTaxSettings();
+  const years = [...new Set([...S.dates(DATA).map((d) => d.slice(0, 4)), String(today.getFullYear())])].sort().reverse();
+  const sel = $('#tax-year'); const cur = sel.value || String(today.getFullYear());
+  sel.innerHTML = years.map((y) => `<option value="${y}" ${y === cur ? 'selected' : ''}>${y}년</option>`).join('');
+  const y = Number(sel.value); const st = taxSettingsFor(y);
+  for (const k of ['salary', 'reliefRate', 'deductions', 'otherCredits', 'extraExpenses']) $('#tx-' + k).value = st[k];
+  $('#tx-localTax').checked = !!st.localTax;
+  const led = computeLedger(DATA, `${y}-01-01`, `${y}-12-31`);
+  const monthly = {}; for (const [d, v] of Object.entries(led.daily)) { const m = Number(d.slice(5, 7)); monthly[m] = (monthly[m] || 0) + v.profit; }
+  const total = Object.values(monthly).reduce((a, b) => a + b, 0);
+  const r = computeYearTax(y, total, st);
+  const lastDate = S.dates(DATA).filter((d) => d.startsWith(String(y))).pop();
+  $('#tax-sub').textContent = lastDate ? `${y}-01-01 ~ ${lastDate} 장부 기준` : '이 연도의 데이터가 없습니다';
+  const kpis = [
+    { k: '연 누적 순이익 (세전)', v: fmtWon(total) + '원', color: '#4a3aa7' },
+    { k: '쿠팡 몫 세금 (지방세 포함)', v: fmtWon(r.bizTax) + '원', d: `실효세율 ${(r.effectiveRate * 100).toFixed(1)}%`, color: '#eb6834' },
+    { k: '세후 순마진', v: fmtWon(r.netAfterTax) + '원', bad: r.netAfterTax < 0, d: `순이익의 ${total ? Math.round(r.netAfterTax / total * 100) : 0}%`, color: '#1baf7a' },
+    { k: '한계세율 (다음 1원에 붙는 세율)', v: (r.marginalEffective * 100).toFixed(2) + '%', d: `${Math.round(r.withBiz.marginal * 100)}% 구간 × (1 − 감면 ${Math.round(r.reliefApplied * 100)}%)${st.localTax ? ' × 지방세 1.1' : ''}${r.reliefApplied < st.reliefRate / 100 - 1e-9 ? ' · 최저한세로 감면 제한' : ''}`, color: '#2a78d6' },
+    { k: '근로소득', v: fmtWon(st.salary) + '원', d: `근로소득금액 ${fmtWon(r.earned)}원`, color: '#17202a' },
+  ];
+  $('#tax-kpis').innerHTML = kpis.map((x) => `<div class="kpi"><div class="k"><span class="dot" style="background:${x.color}"></span>${x.k}</div><div class="v num ${x.bad ? 'bad' : ''}">${x.v}</div><div class="d">${x.d || ''}</div></div>`).join('');
+  // 월별
+  const mb = monthlyBreakdown(y, monthly, st);
+  let h = '<thead><tr><th class="l">월</th><th>순이익</th><th>누적</th><th>세금</th><th>세후 순이익</th><th>세율</th></tr></thead><tbody>';
+  for (const m of mb) { if (m.empty) { h += `<tr><td class="l">${m.month}월</td><td class="sub" colspan="5" style="text-align:left">데이터 없음</td></tr>`; continue; } h += `<tr><td class="l">${m.month}월</td><td class="num ${m.profit < 0 ? 'neg' : ''}">${fmtWon(m.profit)}</td><td class="num">${fmtWon(m.cum)}</td><td class="num">${fmtWon(m.tax)}</td><td class="num ${m.net < 0 ? 'neg' : 'pos'}">${fmtWon(m.net)}</td><td class="num">${m.profit > 0 ? (m.rate * 100).toFixed(1) + '%' : ''}</td></tr>`; }
+  h += `</tbody><tfoot><tr><td class="l">합계</td><td class="num">${fmtWon(total)}</td><td></td><td class="num">${fmtWon(r.bizTax)}</td><td class="num ${r.netAfterTax < 0 ? 'neg' : 'pos'}">${fmtWon(r.netAfterTax)}</td><td class="num">${(r.effectiveRate * 100).toFixed(1)}%</td></tr></tfoot>`;
+  $('#tax-month-table').innerHTML = h;
+  // 계산 내역
+  const W = r.withBiz, O = r.salaryOnly;
+  const rows = [['근로소득금액', r.earned, r.earned], ['사업소득금액 (쿠팡)', W.total - r.earned, 0], ['종합소득금액', W.total, O.total], ['− 소득공제', st.deductions, st.deductions], ['과세표준', W.base, O.base],
+    ['산출세액', W.gross, O.gross], ['− 근로소득세액공제', W.earnedCredit, O.earnedCredit], ['− 청년창업 세액감면', W.relief, O.relief], ['− 기타 세액공제', st.otherCredits, st.otherCredits], ['결정세액', W.determined, O.determined], ['+ 지방소득세', W.local, O.local], ['총 세금', W.all, O.all]];
+  $('#tax-detail-sub').textContent = `${y}년 귀속`;
+  $('#tax-detail-table').innerHTML = '<thead><tr><th class="l">항목</th><th>근로 + 쿠팡</th><th>근로만</th><th>차이 (쿠팡 몫)</th></tr></thead><tbody>' + rows.map(([l, a, b]) => `<tr class="${/총 세금|과세표준|결정세액/.test(l) ? 'profit' : ''}"><td class="l">${l}</td><td class="num">${fmtWon(a)}</td><td class="num">${fmtWon(b)}</td><td class="num">${fmtWon(a - b)}</td></tr>`).join('') + '</tbody>';
+  const br = bracketsFor(y); let lo = 0;
+  $('#tax-bracket-table').innerHTML = '<thead><tr><th class="l">과세표준 구간</th><th>세율</th><th>누진공제</th></tr></thead><tbody>' + br.map(([cap, rate, ded]) => { const hit = W.base > lo && W.base <= cap; const row = `<tr style="${hit ? 'background:var(--accent-soft);font-weight:700' : ''}"><td class="l">${lo ? fmtWon(lo) + ' 초과 ' : ''}${cap === Infinity ? '' : fmtWon(cap) + ' 이하'}${hit ? ' ← 현재 구간' : ''}</td><td class="num">${Math.round(rate * 100)}%</td><td class="num">${fmtWon(ded)}</td></tr>`; lo = cap; return row; }).join('') + '</tbody>';
+}
+$('#tax-year').onchange = () => renderTax();
+$('#tax-settings-toggle').onclick = () => { const e = $('#tax-settings'); e.style.display = e.style.display === 'none' ? '' : 'none'; };
+$('#tx-save').onclick = async () => {
+  const y = $('#tax-year').value; await loadTaxSettings();
+  taxSettingsAll[y] = { salary: Number($('#tx-salary').value), reliefRate: Number($('#tx-reliefRate').value), deductions: Number($('#tx-deductions').value), otherCredits: Number($('#tx-otherCredits').value), extraExpenses: Number($('#tx-extraExpenses').value), localTax: $('#tx-localTax').checked };
+  taxSettingsAll.default = taxSettingsAll[y]; // 새 연도 기본값으로도 사용
+  await chrome.storage.sync.set({ taxSettings: taxSettingsAll }); msg('#tx-msg', '저장됨', 'ok'); renderTax();
+};
 
 /* ===== 업데이트 ===== */
 async function renderUpdate(force = false) {
