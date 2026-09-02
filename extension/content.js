@@ -85,7 +85,19 @@
   }
 
   // ---------- 날짜 찾기 ----------
+  function dateFromUrl(url) {
+    // 판매분석: ...sales-analysis?start_date=2026-09-01&end_date=2026-09-01 → 시작=끝이면 그 날짜
+    try {
+      const u = new URL(url); const q = u.searchParams;
+      const pick = (keys) => { for (const k of keys) { const v = q.get(k); if (v && /^20\d{2}-?\d{2}-?\d{2}$/.test(v)) return v.length === 8 ? `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6)}` : v; } return null; };
+      const s = pick(['start_date', 'startDate', 'from', 'startDt', 'beginDate']), e = pick(['end_date', 'endDate', 'to', 'endDt']);
+      if (s && (!e || s === e)) return s;
+      const single = pick(['date', 'targetDate', 'reportDate']); if (single) return single;
+    } catch { /* 무시 */ }
+    return null;
+  }
   function detectDate() {
+    const fromUrl = dateFromUrl(location.href); if (fromUrl) return fromUrl;
     const re = /(20\d{2})[.\-/]\s?(\d{1,2})[.\-/]\s?(\d{1,2})/g;
     const cands = [];
     document.querySelectorAll('input').forEach((i) => { if (i.value) cands.push(i.value); });
@@ -139,7 +151,7 @@
   }
 
   window.__ccReadTables = allTables;
-  window.__ccDetectDate = detectDate; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
+  window.__ccDetectDate = detectDate; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
   window.__ccPick = (kind) => { const t = pickTable(allTables(), kind); return t ? { records: toRecords(t), headers: t.headers, source: t.kind } : null; };
 
   chrome.runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {

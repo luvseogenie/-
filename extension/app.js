@@ -192,7 +192,7 @@ $('#ads-csv').onclick = async () => {
   for (const date of Object.keys(d.ads).sort()) for (const r of Object.values(d.ads[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(','));
   download('광고데이터.csv', lines.join('\n'));
 };
-const SETTINGS = { salesUrl: 'https://wing.coupang.com/', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
+const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
 async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
@@ -225,5 +225,6 @@ $('#import-ads').onchange = async (ev) => {
 $('#import-date').value = localIso(yday);
 
 /* ---- 초기화 ---- */
+$('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
 $('#ads-date').value = localIso(yday);
 loadSummary().then(loadLedger);

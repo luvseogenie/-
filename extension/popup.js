@@ -6,6 +6,21 @@ const msg = (t, cls = '') => { $('#msg').textContent = t; $('#msg').className = 
 
 async function activeTab() { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); return t; }
 
+// 확장 프로그램을 새로고침하면 이미 열려 있던 탭에는 읽기 스크립트가 없다 → 응답이 없으면 직접 주입한다.
+async function ensureContentScript(tab) {
+  try { const r = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); if (r) return true; } catch { /* 주입 필요 */ }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['content.js'] });
+    await new Promise((r) => setTimeout(r, 300));
+    const r = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); return !!r;
+  } catch (e) { console.warn('content script inject failed', e); return false; }
+}
+function dateFromUrl(url) {
+  try { const q = new URL(url).searchParams; const s = q.get('start_date') || q.get('startDate'), e = q.get('end_date') || q.get('endDate');
+    if (s && /^20\d{2}-\d{2}-\d{2}$/.test(s) && (!e || s === e)) return s; } catch { /* 무시 */ }
+  return null;
+}
+
 async function readActive(kind) {
   const tab = await activeTab();
   let ids = [0];
@@ -23,6 +38,9 @@ async function readActive(kind) {
 async function saveKind(kind) {
   const label = kind === 'sales' ? '판매' : '광고';
   msg('표를 읽는 중…');
+  const tab0 = await activeTab();
+  if (!tab0?.url?.includes('coupang.com')) { msg('쿠팡 판매자센터/광고센터 화면에서 눌러 주세요. (현재: ' + (tab0?.url || '') + ')', 'err'); return; }
+  if (!(await ensureContentScript(tab0))) { msg('이 탭을 새로고침(F5)한 뒤 다시 눌러 주세요.', 'err'); return; }
   const { best, tables, tab } = await readActive(kind);
   $('#detail').textContent = tables.length ? tables.map((t) => `[${t.kind}] ${t.rows}행: ${t.headers.join(' | ')}`).join('\n') : '표를 찾지 못했습니다. 쿠팡 페이지에서 눌러 주세요.\n' + (tab?.url || '');
   if (!tab?.url?.includes('coupang.com')) { msg('쿠팡 판매자센터/광고센터 화면에서 눌러 주세요.', 'err'); return; }
@@ -31,7 +49,7 @@ async function saveKind(kind) {
     let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch { /* 무시 */ }
     if (info?.hasExcelDownload) {
       msg('엑셀 다운로드 → 상품별 판매 리포트 를 누르는 중…');
-      await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || null });
+      await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || dateFromUrl(tab.url) || null });
       let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }); } catch { /* 무시 */ }
       if (r?.ok) { msg('리포트를 다운로드했습니다. 잠시 후 자동으로 저장됩니다. 자동 저장 알림이 안 오면 "장부 보기 → 리포트 파일 올리기" 로 방금 받은 파일을 올려 주세요.', 'ok'); }
       else { msg((r?.reason || '다운로드 버튼을 찾지 못했습니다') + '. 직접 엑셀 다운로드 → 상품별 판매 리포트 를 받은 뒤 "장부 보기 → 리포트 파일 올리기" 로 올려 주세요.', 'err'); }
@@ -39,7 +57,7 @@ async function saveKind(kind) {
     }
   }
   if (!best) { msg(`${label} 표를 찾지 못했습니다. 표가 보이는 화면인지 확인하세요. (아래 '찾은 표 보기')`, 'err'); return; }
-  const date = $('#date').value || best.date || yesterdayIso();
+  const date = $('#date').value || best.date || dateFromUrl(tab.url) || yesterdayIso();
   const rows = kind === 'sales' ? normalizeSales(best.records, date) : normalizeAds(best.records, date);
   if (!rows.length) { msg(`${label} 표는 찾았지만 인식된 행이 없습니다. 아래 '찾은 표 보기' 의 헤더를 알려주세요.`, 'err'); return; }
   const d = await S.load();
@@ -58,6 +76,7 @@ $('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('
 $('#open-import').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#import') });
 
 (async () => {
+  $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
   const d = await S.load(); const ds = S.dates(d);
   if (!ds.length) msg('아직 저장된 데이터가 없습니다. ①, ② 를 눌러 시작하세요.');
   else msg(`저장된 데이터: ${ds[0]} ~ ${ds[ds.length - 1]} (${ds.length}일)`);

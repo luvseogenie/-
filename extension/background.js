@@ -3,7 +3,8 @@ import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importSalesFile } from './lib/importer.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
+let expectUntil = 0, expectDate = null;
 const getSettings = async () => ({ ...DEFAULTS, ...(await chrome.storage.sync.get(DEFAULTS)) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,12 +56,23 @@ async function readFromTab(tabId, kind) {
 
 async function collectKind(kind, dateOverride) {
   const s = await getSettings();
-  const url = kind === 'sales' ? s.salesUrl : s.adsUrl;
+  const target = dateOverride || yesterdayIso();
+  const url = (kind === 'sales' ? s.salesUrl : s.adsUrl).replace(/\{date\}/g, target);
   const tab = await chrome.tabs.create({ url, active: false });
   try {
     await sleep(s.waitSeconds * 1000);
-    try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ }
-    const r = await readFromTab(tab.id, kind);
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['content.js'] }); } catch { /* 이미 있음 */ }
+    if (!url.includes('{date}') && !url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
+    let r = await readFromTab(tab.id, kind);
+    if (!r && kind === 'sales') {
+      // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
+      expectUntil = Date.now() + 120000; expectDate = target;
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
+      if (!c?.ok) throw new Error(c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다');
+      await sleep(15000); // 다운로드 완료 대기 (onChanged 에서 저장)
+      await log(`[자동] 판매 리포트 다운로드 요청 (${target})`);
+      return { ok: true, saved: '다운로드', date: target };
+    }
     if (!r) throw new Error(`${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 로그인이 풀렸거나 주소가 다를 수 있습니다 (${url})`);
     const date = dateOverride || r.date || yesterdayIso();
     const n = await saveLocal(kind, date, r.records);
@@ -96,14 +108,15 @@ chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); flushQueue(); });
 chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
-let expectUntil = 0, expectDate = null; const handled = new Set();
+const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
 chrome.downloads.onChanged.addListener(async (delta) => {
   if (delta.state?.current !== 'complete' || handled.has(delta.id)) return;
   const [item] = await chrome.downloads.search({ id: delta.id }); if (!item) return;
   const ext = (item.filename || '').toLowerCase().match(/\.(xlsx|xls|csv)$/)?.[1];
   const fromCoupang = /coupang\.com/.test(item.finalUrl || item.url || '') || /coupang\.com/.test(item.referrer || '');
-  if (!ext || !(fromCoupang || Date.now() < expectUntil) || !looksLikeReport(item)) return;
+  const expected = Date.now() < expectUntil; // ① 을 누른 직후 2분 안의 엑셀은 이름과 상관없이 리포트로 본다
+  if (!ext || !(expected || (fromCoupang && looksLikeReport(item)))) return;
   handled.add(delta.id);
   const url = item.finalUrl || item.url;
   if (!/^https?:/.test(url)) { await log(`[다운로드] 파일을 자동으로 읽을 수 없는 방식(blob)입니다. 장부 보기 → 리포트 파일 올리기 로 올려 주세요: ${item.filename}`); notify('리포트를 자동으로 읽지 못했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.'); return; }

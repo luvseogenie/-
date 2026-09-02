@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <h1>쿠팡 광고계산기</h1>
+  <h1>쿠팡 광고계산기 <span id="ver" class="mini"></span></h1>
   <nav>
     <button data-tab="ledger" class="active">광고 장부</button>
     <button data-tab="ads">일별 광고 입력</button>
@@ -123,7 +123,7 @@
   </div>
   <div class="card">
     <b>매일 자동 수집</b>
-    <p class="mini">크롬이 켜져 있으면 정해진 시각에 두 화면을 백그라운드에서 열어 '어제' 데이터를 저장합니다. 판매분석·광고 관리 화면에서 '어제' 를 누른 뒤 주소창의 주소를 복사해 넣으세요.</p>
+    <p class="mini">크롬이 켜져 있으면 정해진 시각에 두 화면을 백그라운드에서 열어 '어제' 데이터를 저장합니다. 주소의 <code>{date}</code> 자리에 어제 날짜가 자동으로 들어갑니다. 광고 관리 화면은 '어제' 를 누른 뒤 주소창의 주소를 복사해 넣으세요.</p>
     <div class="row"><label style="width:150px">판매분석 주소</label><input id="set-salesUrl" style="width:520px"></div>
     <div class="row"><label style="width:150px">광고 관리 주소</label><input id="set-adsUrl" style="width:520px"></div>
     <div class="row"><label style="width:150px">시각</label><input type="time" id="set-autoTime"> <label><input type="checkbox" id="set-autoEnabled"> 자동 수집 켜기</label>
