@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쿠팡 소싱 프로그램</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  <!-- ================= 왼쪽 패널 ================= -->
+  <aside class="side">
+    <section class="card" id="card-scope">
+      <div class="card-head">
+        <span class="step">1</span><h2>무엇을 찾을지</h2>
+        <span class="pill-red" id="scope-count">0/15개 선택</span>
+      </div>
+      <div class="segmented">
+        <button class="seg active" data-mode="category">카테고리로 찾기</button>
+        <button class="seg" data-mode="keyword">키워드 · 링크로 찾기</button>
+      </div>
+      <div id="mode-category">
+        <input class="input search" id="cat-search" placeholder="카테고리 이름 검색">
+        <div class="row-between label-row">
+          <span class="label">1차 카테고리 <span class="muted">여러 개 선택 가능</span></span>
+          <span class="links"><a id="top-all">전체</a> <a id="top-none">해제</a></span>
+        </div>
+        <div class="grid2" id="top-list"></div>
+        <div class="row-between label-row">
+          <span class="label">2차 카테고리 <span class="muted" id="sub-hint">2차 0개 지정</span></span>
+        </div>
+        <div id="sub-tree" class="sub-tree"></div>
+        <div class="label label-row">지금 조사할 범위</div>
+        <div id="scope-chips" class="chips"><span class="muted">아직 없음</span></div>
+      </div>
+      <div id="mode-keyword" hidden>
+        <p class="muted small">키워드나 쿠팡 링크(카테고리·검색·상품)를 한 줄에 하나씩 넣고 [범위에 추가]를 누르세요.</p>
+        <textarea class="input" id="kw-input" rows="5" placeholder="예)&#10;무타공 후크&#10;https://www.coupang.com/np/categories/184555"></textarea>
+        <button class="btn" id="kw-add">범위에 추가</button>
+        <div class="label label-row">지금 조사할 범위</div>
+        <div id="scope-chips-kw" class="chips"></div>
+      </div>
+    </section>
+
+    <section class="card" id="card-cond">
+      <div class="card-head">
+        <span class="step">2</span><h2>상품 조건</h2>
+        <button class="btn small ghost" id="cond-apply">즉시 적용</button>
+      </div>
+      <div class="cond-row"><span>판매가격</span><input id="c-price_min" type="number"><em>~</em><input id="c-price_max" type="number"><u>원</u></div>
+      <div class="cond-row"><span>리뷰 수</span><input id="c-review_min" type="number"><em>~</em><input id="c-review_max" type="number"><u>개</u></div>
+      <div class="cond-row"><span>28일 판매량</span><input id="c-sales_min" type="number"><em>~</em><input id="c-sales_max" type="number"><u>개</u></div>
+      <div class="cond-row"><span>최소 전환율</span><input id="c-conv_min" type="number" step="0.1"><em></em><span class="spacer"></span><u>%</u></div>
+      <p class="muted small">빈칸이나 0은 "제한 없음"입니다. 전환율 = 28일 판매량 ÷ 28일 조회수.</p>
+      <label class="check-row"><input type="checkbox" id="c-exclude_restricted"> 못 파는 물건(전기용품·화장품·어린이제품) 빼기</label>
+      <label class="check-row"><input type="checkbox" id="c-hide_ads"> 광고 상품 숨기기</label>
+      <div class="row-between label-row">
+        <span class="label">검색어마다 조사할 페이지</span>
+        <span class="muted small">120개씩 · 판매량순</span>
+      </div>
+      <div class="slider-row">
+        <input type="range" id="c-pages" min="1" max="10" value="1">
+        <span class="slider-val" id="pages-val">1페이지</span>
+      </div>
+    </section>
+
+    <section class="card" id="card-run">
+      <div class="card-head">
+        <span class="step">3</span><h2>실행</h2>
+        <span class="status-pill" id="run-pill"><i></i><b>대기</b></span>
+      </div>
+      <p class="muted small" id="run-summary">범위를 선택하면 요약이 표시됩니다.</p>
+      <button class="btn primary big" id="btn-start">▶ 소싱 시작</button>
+      <div class="row gap" id="run-ctrls" hidden>
+        <button class="btn" id="btn-pause2">일시정지</button>
+        <button class="btn" id="btn-resume2">재개</button>
+        <button class="btn danger" id="btn-stop2">완전중단</button>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ================= 오른쪽 ================= -->
+  <main class="main">
+    <div class="stats">
+      <div class="stat hi"><b id="s-passed">0</b><span>조건 통과 상품</span></div>
+      <div class="stat"><b id="s-unique">0</b><span>중복 제외 상품 수</span></div>
+      <div class="stat"><b id="s-analyzed">0</b><span>판매량 확인 완료</span></div>
+      <div class="stat"><b id="s-cats">0</b><span>조사한 카테고리</span></div>
+      <div class="stat"><b id="s-seen">0</b><span>훑어본 상품 수</span></div>
+      <div class="stat"><b id="s-revenue" class="purple">0원</b><span>통과 상품 28일 매출</span></div>
+    </div>
+
+    <section class="card results">
+      <div class="results-head">
+        <div>
+          <h2>상품 결과</h2>
+          <p class="muted small" id="results-sub">아직 결과가 없습니다.</p>
+        </div>
+        <div class="row gap">
+          <button class="btn icon" id="btn-refresh" title="새로고침">⟳</button>
+          <button class="btn" id="btn-archive">보관함에 저장</button>
+          <button class="btn primary" id="btn-export">⤓ 파일로 내려받기</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="btn-group">
+          <button class="btn" id="btn-analyze">28일 판매량 분석</button>
+          <button class="btn" id="btn-continue">시작 / 이어하기</button>
+          <button class="btn" id="btn-pause">일시정지</button>
+          <button class="btn" id="btn-resume">재개</button>
+          <button class="btn danger-outline" id="btn-stop">완전중단</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn" id="btn-retry">미매칭 다시 분석</button>
+          <button class="btn" id="btn-verify">🔒 실제가격 확인</button>
+          <label class="check-inline"><input type="checkbox" id="c-auto_continue"> 손 놓으면 자동</label>
+        </div>
+        <div class="dropdown" id="tools-dd">
+          <button class="btn" id="btn-tools">도구 ▾</button>
+          <div class="menu" hidden>
+            <a data-tool="open_browser">브라우저 창 열기</a>
+            <a data-tool="test_coupang">쿠팡 연결 테스트</a>
+            <a data-tool="wing_login">윙 로그인 창 열기</a>
+            <a data-tool="capture_start">윙 캡처 모드 시작</a>
+            <a data-tool="capture_stop">윙 캡처 모드 종료</a>
+            <a data-action="capture_summary">윙 캡처 요약 보기</a>
+            <hr>
+            <a data-action="archive">보관함 보기</a>
+            <a data-action="logs">로그 보기</a>
+            <a data-tool="demo">데모 데이터 넣기</a>
+            <a data-tool="reset_categories">카테고리 다시 불러오기</a>
+            <a data-tool="clear_run" class="warn">현재 결과 비우기</a>
+          </div>
+        </div>
+      </div>
+      <div class="progress-line" id="progress-line">대기 중</div>
+      <div class="notice" id="notice" hidden></div>
+
+      <div class="filters-row">
+        <div class="search-wrap"><span>⌕</span><input class="input" id="q" placeholder="상품명 · 상품ID · 카테고리 검색"></div>
+        <div class="select-wrap">
+          <label>최하위 카테고리</label>
+          <select id="leaf"><option value="">전체</option></select>
+        </div>
+        <div class="select-wrap">
+          <label>정렬</label>
+          <select id="sort">
+            <option value="sales">28일 판매량 많은순</option>
+            <option value="revenue">28일 매출 많은순</option>
+            <option value="conversion">전환율 높은순</option>
+            <option value="views">28일 조회 많은순</option>
+            <option value="reviews">리뷰 적은순</option>
+            <option value="price">가격 낮은순</option>
+            <option value="rank">추천순(목록 순서)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="chips filter-chips" id="filter-chips">
+        <button class="chip active" data-f="all">전체 <b>0</b></button>
+        <button class="chip" data-f="pass">조건 통과 <b>0</b></button>
+        <button class="chip" data-f="below">판매량 미달 <b>0</b></button>
+        <button class="chip" data-f="excluded">가격·리뷰 조건 제외 <b>0</b></button>
+        <button class="chip" data-f="pending">분석 대기 <b>0</b></button>
+        <button class="chip" data-f="unmatched">미매칭 <b>0</b></button>
+        <button class="chip" data-f="coupon">쿠폰 미반영 가격 <b>0</b></button>
+        <button class="chip" data-f="restricted">못 파는 물건 <b>0</b></button>
+        <button class="chip" data-f="hidden">숨긴 상품 <b>0</b></button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="grid" id="grid">
+          <thead>
+            <tr>
+              <th class="chk"><input type="checkbox" id="chk-all"></th>
+              <th class="left">상품 · 카테고리</th>
+              <th>28일 판매</th>
+              <th>전환율</th>
+              <th>리뷰</th>
+              <th>판매가격</th>
+              <th>28일 조회</th>
+              <th>28일 매출</th>
+            </tr>
+          </thead>
+          <tbody id="grid-body"></tbody>
+        </table>
+        <div class="table-foot">
+          <span class="muted small" id="sel-info"></span>
+          <div class="row gap">
+            <button class="btn small ghost" id="btn-hide-sel">선택 숨기기</button>
+            <button class="btn small ghost" id="btn-more" hidden>더 보기</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 모달 -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="btn icon" id="modal-close">✕</button></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

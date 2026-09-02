@@ -1,0 +1,472 @@
+"""웹 서버. 대시보드 화면과 API를 제공한다."""
+import json
+import random
+import threading
+import time
+import webbrowser
+from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import config, db, log, wing
+from .browser import browser
+from .categories import discover_children, top_categories, tree
+from .coupang_list import fetch_listing, parse_scope_url
+from .export import build_xlsx
+from .metrics import enrich, summarize
+from .pipeline import job
+
+app = FastAPI(title="쿠팡 소싱 프로그램")
+STATIC = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+
+
+@app.on_event("startup")
+def _startup():
+    db.init_db()
+    db.ensure_top_categories()
+    log.info("서버 시작")
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (STATIC / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return PlainTextResponse("", status_code=204)
+
+
+def _err(e):
+    return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+# ---------- 기본 정보 ----------
+@app.get("/api/bootstrap")
+def bootstrap():
+    run = db.latest_run()
+    return {
+        "top_categories": top_categories(),
+        "conditions": db.get_conditions(),
+        "scope": db.get_setting("scope", []),
+        "checked": db.get_setting("checked", []),
+        "run": dict(run) if run else None,
+        "status": job.status(),
+    }
+
+
+@app.get("/api/categories/{cid}/tree")
+def category_tree(cid: int):
+    return tree(cid, 3)
+
+
+@app.post("/api/categories/{cid}/discover")
+def category_discover(cid: int, force: bool = False):
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 카테고리를 불러올 수 없습니다.")
+    try:
+        browser.call(lambda bt: discover_children(bt, cid, force), "하위 카테고리 찾기", timeout=120)
+        return {"ok": True, "tree": tree(cid, 3)}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+@app.get("/api/conditions")
+def get_conditions():
+    return db.get_conditions()
+
+
+@app.post("/api/conditions")
+async def set_conditions(req: Request):
+    body = await req.json()
+    cond = db.get_conditions()
+    for k in config.DEFAULT_CONDITIONS:
+        if k in body:
+            v = body[k]
+            if k in ("exclude_restricted", "hide_ads", "auto_continue"):
+                cond[k] = bool(v)
+            elif k == "conv_min":
+                cond[k] = float(v or 0)
+            else:
+                cond[k] = int(v or 0)
+    db.set_setting("conditions", cond)
+    return cond
+
+
+@app.post("/api/scope")
+async def save_scope(req: Request):
+    body = await req.json()
+    db.set_setting("scope", body.get("scope", []))
+    db.set_setting("checked", body.get("checked", []))
+    return {"ok": True}
+
+
+@app.post("/api/scope/parse")
+async def parse_scope(req: Request):
+    body = await req.json()
+    out = []
+    for line in (body.get("text") or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("http"):
+            item = parse_scope_url(s)
+            if item:
+                out.append(item)
+        else:
+            out.append({"type": "keyword", "q": s})
+    return {"items": out}
+
+
+# ---------- 실행 제어 ----------
+@app.post("/api/run/start")
+async def run_start(req: Request):
+    body = await req.json()
+    scope = body.get("scope") or []
+    if not scope:
+        return _err("조사할 범위를 먼저 선택해 주세요.")
+    cond = db.get_conditions()
+    try:
+        run_id = job.start_sourcing(scope, cond)
+        return {"ok": True, "run_id": run_id}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+def _current_run_id():
+    run = db.latest_run()
+    if not run:
+        raise HTTPException(400, "아직 실행한 소싱이 없습니다.")
+    return run["id"]
+
+
+@app.post("/api/run/analyze")
+async def run_analyze(req: Request):
+    body = await req.json() if req.headers.get("content-length") not in (None, "0") else {}
+    try:
+        job.start_analyze(_current_run_id(), bool(body.get("include_excluded")))
+        return {"ok": True}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+@app.post("/api/run/pause")
+def run_pause():
+    job.pause()
+    return {"ok": True}
+
+
+@app.post("/api/run/resume")
+def run_resume():
+    job.resume()
+    return {"ok": True}
+
+
+@app.post("/api/run/stop")
+def run_stop():
+    job.stop()
+    return {"ok": True}
+
+
+@app.post("/api/run/retry_unmatched")
+def run_retry():
+    try:
+        n = job.retry_unmatched(_current_run_id())
+        return {"ok": True, "count": n}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+@app.post("/api/run/verify")
+async def run_verify(req: Request):
+    body = await req.json()
+    ids = [int(x) for x in body.get("product_ids") or []]
+    run_id = _current_run_id()
+    if not ids:
+        cond = db.get_conditions()
+        rows = [enrich(p, cond) for p in db.products(run_id)]
+        ids = [r["product_id"] for r in rows if r["verdict"] == "pass" and not r.get("verified_price")]
+    if not ids:
+        return _err("확인할 상품이 없습니다. 조건 통과 상품이 있거나 상품을 체크한 뒤 눌러주세요.")
+    try:
+        job.start_verify(run_id, ids)
+        return {"ok": True, "count": len(ids)}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------- 상태 ----------
+def _rows(run_id, cond):
+    return [enrich(p, cond) for p in db.products(run_id)]
+
+
+@app.get("/api/status")
+def status():
+    run = db.latest_run()
+    st = job.status()
+    stats = None
+    restricted = {}
+    if run:
+        cond = db.get_conditions()
+        rows = _rows(run["id"], cond)
+        seen = db.get_setting(f"seen_total_{run['id']}", 0) or sum(r.get("seen_count") or 1 for r in rows)
+        for r in rows:
+            if r.get("restricted"):
+                restricted[r["restricted"]] = restricted.get(r["restricted"], 0) + 1
+        # 못 파는 물건 빼기가 켜져 있으면 통계에서도 뺀다 (화면 표와 숫자를 맞추기 위해)
+        if cond.get("exclude_restricted"):
+            rows = [r for r in rows if not r.get("restricted")]
+        if cond.get("hide_ads"):
+            rows = [r for r in rows if not r.get("is_ad")]
+        stats = summarize(rows, db.run_categories(run["id"]), seen)
+    return {"status": st, "run": dict(run) if run else None, "stats": stats, "restricted": restricted,
+            "logs": log.recent(60)}
+
+
+def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
+    if cond.get("exclude_restricted"):
+        rows = [r for r in rows if not r.get("restricted")]
+    if cond.get("hide_ads"):
+        rows = [r for r in rows if not r.get("is_ad")]
+    if flt == "hidden":
+        rows = [r for r in rows if r.get("hidden")]
+    else:
+        rows = [r for r in rows if not r.get("hidden")]
+        if flt in ("pass", "below", "excluded", "unmatched", "pending"):
+            rows = [r for r in rows if r["verdict"] == flt]
+        elif flt == "coupon":
+            rows = [r for r in rows if r.get("coupon_flag")]
+        elif flt == "restricted":
+            rows = [r for r in rows if r.get("restricted")]
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r.get("name") or "").lower() or ql in str(r.get("product_id"))
+                or ql in (r.get("category_path") or "").lower()]
+    if leaf:
+        rows = [r for r in rows if str(r.get("category_id")) == str(leaf) or r.get("category_path") == leaf]
+    keymap = {
+        "sales": lambda r: r.get("sales_28") or -1,
+        "conversion": lambda r: r.get("conversion") or -1,
+        "reviews": lambda r: r.get("review_count") or 0,
+        "price": lambda r: r.get("effective_price") or 0,
+        "views": lambda r: r.get("views_28") or -1,
+        "revenue": lambda r: r.get("revenue_28") or -1,
+        "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
+    }
+    key = keymap.get(sort or "sales", keymap["sales"])
+    reverse = (direction or "desc") == "desc"
+    if sort == "rank":
+        reverse = False
+    rows.sort(key=key, reverse=reverse)
+    return rows
+
+
+@app.get("/api/products")
+def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc",
+             page: int = 1, size: int = 100):
+    run = db.latest_run()
+    if not run:
+        return {"rows": [], "total": 0, "all": 0}
+    cond = db.get_conditions()
+    all_rows = _rows(run["id"], cond)
+    rows = _apply_filters(all_rows, cond, filter, q, leaf, sort, dir)
+    start = (page - 1) * size
+    return {"rows": rows[start:start + size], "total": len(rows), "all": len(all_rows), "page": page, "size": size}
+
+
+@app.get("/api/leaves")
+def leaves():
+    run = db.latest_run()
+    if not run:
+        return []
+    counts = {}
+    for p in db.products(run["id"]):
+        key = (p.get("category_id"), p.get("category_path"))
+        counts[key] = counts.get(key, 0) + 1
+    out = [{"id": k[0], "path": k[1], "count": v} for k, v in counts.items()]
+    out.sort(key=lambda x: x["path"] or "")
+    return out
+
+
+@app.post("/api/products/hide")
+async def hide_products(req: Request):
+    body = await req.json()
+    db.set_hidden(_current_run_id(), [int(x) for x in body.get("product_ids", [])], bool(body.get("hidden", True)))
+    return {"ok": True}
+
+
+# ---------- 보관함 / 내려받기 ----------
+@app.post("/api/archive")
+async def archive_add(req: Request):
+    body = await req.json()
+    run_id = _current_run_id()
+    cond = db.get_conditions()
+    rows = _rows(run_id, cond)
+    ids = set(int(x) for x in body.get("product_ids") or [])
+    if not ids:
+        rows = [r for r in rows if r["verdict"] == "pass"]
+    else:
+        rows = [r for r in rows if r["product_id"] in ids]
+    n = db.archive_add(run_id, rows)
+    return {"ok": True, "added": n, "total": len(db.archive_list())}
+
+
+@app.get("/api/archive")
+def archive_list():
+    return db.archive_list()
+
+
+@app.post("/api/archive/delete")
+async def archive_delete(req: Request):
+    body = await req.json()
+    db.archive_delete([int(x) for x in body.get("ids", [])])
+    return {"ok": True}
+
+
+@app.get("/api/export")
+def export(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc", source: str = "results"):
+    if source == "archive":
+        rows = db.archive_list()
+    else:
+        run = db.latest_run()
+        if not run:
+            raise HTTPException(400, "내려받을 결과가 없습니다.")
+        cond = db.get_conditions()
+        rows = _apply_filters(_rows(run["id"], cond), cond, filter, q, leaf, sort, dir)
+    path = build_xlsx(rows)
+    return FileResponse(path, filename=Path(path).name,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# ---------- 도구 ----------
+@app.post("/api/tools/{name}")
+def tools(name: str):
+    try:
+        if name == "open_browser":
+            browser.call(lambda bt: bt.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000), "브라우저 열기", timeout=90)
+            return {"ok": True, "message": "브라우저 창을 열었습니다."}
+        if name == "test_coupang":
+            def t(bt):
+                data = fetch_listing(bt.page(), "category", 184555, 1)
+                return {"count": len(data["items"]), "title": data.get("title"), "sample": data["items"][:3]}
+            r = browser.call(t, "쿠팡 연결 테스트", timeout=120)
+            msg = f"홈인테리어 1페이지에서 상품 {r['count']}개를 읽었습니다."
+            if r["count"] == 0:
+                msg += " 하나도 못 읽었습니다. data/debug 폴더의 화면 캡처를 보내주세요."
+            log.info(msg)
+            return {"ok": True, "message": msg, "result": r}
+        if name == "wing_login":
+            browser.call(wing.open_login, "윙 로그인", timeout=90)
+            return {"ok": True, "message": "윙 로그인 창을 열었습니다. 로그인해 주세요."}
+        if name == "capture_start":
+            job.start_capture()
+            return {"ok": True, "message": "윙 캡처 모드를 시작했습니다. 브라우저에서 윙 판매량 화면을 열고 상품을 검색해 주세요."}
+        if name == "capture_stop":
+            job.stop_capture()
+            return {"ok": True, "message": "캡처를 종료합니다. 잠시 후 요약 파일이 만들어집니다."}
+        if name == "demo":
+            rid = make_demo()
+            return {"ok": True, "message": f"데모 데이터를 넣었습니다 (실행 번호 {rid})."}
+        if name == "reset_categories":
+            c = db.conn()
+            c.execute("DELETE FROM categories")
+            c.commit()
+            db.ensure_top_categories()
+            return {"ok": True, "message": "카테고리 목록을 비웠습니다. 다시 선택하면 새로 불러옵니다."}
+        if name == "clear_run":
+            run = db.latest_run()
+            if run and not job.is_running():
+                db.clear_run_products(run["id"])
+                db.set_run_status(run["id"], "cleared")
+            return {"ok": True, "message": "현재 결과를 비웠습니다."}
+        return _err("알 수 없는 도구")
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+@app.get("/api/capture/summary", response_class=PlainTextResponse)
+def capture_summary():
+    files = sorted(config.CAPTURE_DIR.glob("*_요약.txt"))
+    if not files:
+        return "아직 캡처 요약 파일이 없습니다."
+    return files[-1].read_text(encoding="utf-8")
+
+
+@app.get("/api/logs")
+def logs():
+    return log.recent(300)
+
+
+@app.get("/api/paths")
+def paths():
+    return {"data": str(config.DATA_DIR), "debug": str(config.DEBUG_DIR), "capture": str(config.CAPTURE_DIR),
+            "exports": str(config.EXPORT_DIR), "wing_config": str(config.WING_CONFIG_PATH)}
+
+
+# ---------- 데모 데이터 ----------
+DEMO_CATS = [
+    (184555, "홈인테리어 > 카페트/매트 > 러그"), (184556, "홈인테리어 > 침구 > 이불세트"),
+    (185569, "주방용품 > 조리도구 > 채칼/슬라이서"), (178155, "가전디지털 > 계절환경가전 > 선풍기"),
+    (176522, "뷰티 > 스킨케어 > 크림"), (221934, "출산/유아동 > 완구 > 블록"),
+]
+DEMO_WORDS = ["프리미엄", "초강력", "무타공", "접착식", "대용량", "국산", "친환경", "고급형", "휴대용", "다용도"]
+DEMO_NOUNS = ["러그 카페트", "극세사 이불", "채칼 슬라이서", "벽걸이 선풍기", "수분 크림", "블록 세트",
+              "후크 걸이", "발매트", "커튼", "쿠션 방석", "행거", "수납함"]
+
+
+def make_demo() -> int:
+    if job.is_running():
+        raise RuntimeError("작업 중에는 데모 데이터를 넣을 수 없습니다.")
+    cond = db.get_conditions()
+    run_id = db.create_run([{"type": "demo"}], cond)
+    rnd = random.Random(7)
+    seen = 0
+    for cid, path in DEMO_CATS:
+        db.add_run_category(run_id, cid, path.split(" > ")[-1], path)
+        for i in range(15):
+            pid = 1000000 + cid * 10 + i + rnd.randint(0, 9) * 100000
+            price = rnd.choice([3750, 4200, 7090, 9800, 12700, 13900, 14900, 25000, 39900, 46800, 120000])
+            reviews = rnd.choice([12, 33, 38, 60, 70, 132, 226, 253, 377, 853, 2966, 15273])
+            p = {"product_id": pid, "item_id": pid * 3, "vendor_item_id": pid * 7,
+                 "name": f"{rnd.choice(DEMO_WORDS)} {rnd.choice(DEMO_NOUNS)} {rnd.choice(['1개', '2개입', '대형', '40cm', '세트'])}",
+                 "url": config.PRODUCT_URL.format(pid=pid), "price": price, "review_count": reviews,
+                 "rating": rnd.choice([4.2, 4.5, 4.7, 4.8, 5.0]), "delivery": rnd.choice(["WING", "WING", "ROCKET_GROWTH", "ROCKET"]),
+                 "is_ad": rnd.random() < 0.1, "sold_out": False, "category_id": cid, "category_path": path,
+                 "rank": i + 1, "page": 1}
+            from .metrics import restricted_reason
+            db.upsert_product(run_id, p, restricted_reason(p["name"], path))
+            seen += 1
+            if rnd.random() < 0.9:
+                views = rnd.randint(2000, 230000)
+                sales = int(views * rnd.uniform(0.02, 0.18))
+                db.save_analysis(run_id, pid, {"sales_28": sales, "views_28": views, "wing_price": price,
+                                               "seller_count": rnd.choice([None, 1, 3, 9]), "coupon_flag": rnd.random() < 0.5}, None)
+            elif rnd.random() < 0.5:
+                db.save_analysis(run_id, pid, None, "윙에서 찾지 못함")
+        db.update_run_category(run_id, cid, status="done", pages_done=1, products_seen=15)
+    db.set_setting(f"seen_total_{run_id}", seen + 40)
+    db.set_run_status(run_id, "analyzed", "데모")
+    log.info("데모 데이터 생성")
+    return run_id
+
+
+def _open_dashboard():
+    time.sleep(1.5)
+    try:
+        webbrowser.open(f"http://{config.HOST}:{config.PORT}/")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def main():
+    print(f"쿠팡 소싱 프로그램: http://{config.HOST}:{config.PORT}/  (이 창을 닫으면 프로그램이 종료됩니다)")
+    threading.Thread(target=_open_dashboard, daemon=True).start()
+    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
+
+
+if __name__ == "__main__":
+    main()
