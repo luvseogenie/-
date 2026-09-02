@@ -1,12 +1,48 @@
 """카테고리 트리. 1차는 고정 목록, 하위는 쿠팡 페이지에서 찾아 DB에 저장한다."""
 from . import config, db, log
 from .browser import human_delay
-from .coupang_list import fetch_children
+from .coupang_list import fetch_children, fetch_home_tree
+
+OLD_IDS = [185569, 178155, 317678, 183960, 317677, 317679, 305698]   # 예전에 잘못 알고 있던 1차 번호
+
+
+def home_tree_loaded() -> bool:
+    return bool(db.get_setting("home_tree_loaded_at"))
+
+
+def load_home_tree(bt) -> int:
+    """홈 화면 메뉴에서 1차→2차→3차 전체를 읽어 DB에 넣는다. 브라우저 스레드에서 호출."""
+    c = db.conn()
+    for oid in OLD_IDS:
+        c.execute("DELETE FROM categories WHERE id=? OR parent_id=?", (oid, oid))
+    c.commit()
+    data = fetch_home_tree(bt.page())
+    n = 0
+    for top in data["tops"]:
+        db.upsert_category(top["id"], top["name"], None, 1, top["name"], is_leaf=False, children_fetched=True)
+        n += 1
+        for sub in top["children"]:
+            path2 = f"{top['name']} > {sub['name']}"
+            has3 = bool(sub["children"])
+            db.upsert_category(sub["id"], sub["name"], top["id"], 2, path2, is_leaf=False, children_fetched=has3)
+            n += 1
+            for third in sub["children"]:
+                db.upsert_category(third["id"], third["name"], sub["id"], 3, f"{path2} > {third['name']}", is_leaf=None, children_fetched=False)
+                n += 1
+    db.set_setting("home_tree_loaded_at", db.now())
+    log.info(f"홈 메뉴에서 카테고리 {n}개를 읽었습니다 (1차 {len(data['tops'])}개)")
+    return n
 
 
 def top_categories():
     db.ensure_top_categories()
-    return [{"id": cid, "name": name} for cid, name in config.TOP_CATEGORIES]
+    rows = db.conn().execute("SELECT id, name FROM categories WHERE depth=1 AND parent_id IS NULL ORDER BY rowid").fetchall()
+    known = {cid for cid, _ in config.TOP_CATEGORIES}
+    out = [{"id": cid, "name": name} for cid, name in config.TOP_CATEGORIES]
+    for r in rows:
+        if r["id"] not in known and r["id"] not in OLD_IDS:
+            out.append({"id": r["id"], "name": r["name"]})
+    return out
 
 
 def tree(cid: int, depth_limit: int = 3) -> dict:
@@ -33,6 +69,9 @@ def _ancestor_ids(cid) -> list[int]:
 def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
     """브라우저 스레드 안에서 호출. 하위 카테고리를 찾아 저장하고 돌려준다."""
     row = db.get_category(cid)
+    if not home_tree_loaded() or force and row is not None and row["depth"] <= 2:
+        load_home_tree(bt)
+        row = db.get_category(cid)
     if row is not None and row["children_fetched"] and not force:
         return [dict(r) for r in db.get_children(cid)]
     parent_name = row["name"] if row else str(cid)
@@ -46,11 +85,20 @@ def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
     data = fetch_children(page, cid, exclude)
     kids = data["children"]
     how = data.get("how")
+    if data.get("is_leaf"):
+        db.mark_children_fetched(cid, is_leaf=True)
+        log.info(f"[카테고리] {parent_path}: 최하위 (필터에 자기 자신이 있음)")
+        human_delay()
+        return []
     # 사이드바 전체를 긁은 경우엔 신뢰도가 낮다. 형제와 조상을 뺀 뒤에도 남은 것만 하위로 본다.
     if how == "all-side" and not kids:
         db.mark_children_fetched(cid, is_leaf=True)
         log.info(f"[카테고리] {parent_path}: 최하위")
         return []
+    if how == "all-side":
+        # 필터 목록을 못 찾은 경우: 광고성 링크가 섞일 수 있으므로 하위로 인정하지 않는다
+        log.warn(f"[카테고리] {parent_path}: 하위 목록을 찾지 못해 최하위로 봅니다 ({len(kids)}개 링크 무시)")
+        kids = []
     for k in kids:
         db.upsert_category(k["id"], k["name"], cid, depth, f"{parent_path} > {k['name']}")
     db.mark_children_fetched(cid, is_leaf=(len(kids) == 0))

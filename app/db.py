@@ -169,6 +169,10 @@ def mark_children_fetched(cid, is_leaf):
 
 
 def ensure_top_categories():
+    c = conn()
+    for oid in (185569, 178155, 317678, 183960, 317677, 317679, 305698):
+        c.execute("DELETE FROM categories WHERE id=? OR parent_id=?", (oid, oid))
+    c.commit()
     for cid, name in config.TOP_CATEGORIES:
         if get_category(cid) is None:
             upsert_category(cid, name, None, 1, name)

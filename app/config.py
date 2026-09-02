@@ -19,6 +19,7 @@ HOST = os.environ.get("CS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CS_PORT", "8765"))
 
 COUPANG_HOME = "https://www.coupang.com/"
+CATEGORY_PAGE = "https://www.coupang.com/np/categories/{cid}"
 CATEGORY_URL = "https://www.coupang.com/np/categories/{cid}?listSize={size}&sorter=saleCountDesc&page={page}"
 SEARCH_URL = "https://www.coupang.com/np/search?q={q}&listSize=72&sorter=saleCountDesc&page={page}"
 PRODUCT_URL = "https://www.coupang.com/vp/products/{pid}"
@@ -46,23 +47,23 @@ DEFAULT_CONDITIONS = {
     "auto_continue": True,        # 손 놓으면 자동
 }
 
-# 1차 카테고리 (쿠팡 대분류). 이름과 ID는 사이트 메뉴 기준.
+# 1차 카테고리 (쿠팡 대분류). 번호는 2026-09 홈 메뉴에서 확인한 값.
 TOP_CATEGORIES = [
     (564653, "패션의류/잡화"),
     (176522, "뷰티"),
     (221934, "출산/유아동"),
     (194276, "식품"),
-    (185569, "주방용품"),
+    (185669, "주방용품"),
     (115673, "생활용품"),
     (184555, "홈인테리어"),
-    (178155, "가전디지털"),
-    (317678, "스포츠/레저"),
-    (183960, "자동차용품"),
-    (317677, "도서/음반/DVD"),
-    (317679, "완구/취미"),
+    (178255, "가전디지털"),
+    (317778, "스포츠/레저"),
+    (184060, "자동차용품"),
+    (317777, "도서/음반/DVD"),
+    (317779, "완구/취미"),
     (177295, "문구/오피스"),
     (115674, "반려동물용품"),
-    (305698, "헬스/건강식품"),
+    (305798, "헬스/건강식품"),
 ]
 
 # 못 파는 물건 판별용 키워드 (카테고리 경로 또는 상품명에 포함되면 표시)

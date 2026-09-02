@@ -13,8 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, db, log, wing
 from .browser import browser
-from .categories import discover_children, top_categories, tree
-from .coupang_list import diagnose_category, diagnose_site, fetch_listing, parse_scope_url
+from .categories import discover_children, load_home_tree, top_categories, tree
+from .coupang_list import PAGE_INFO_JS, diagnose_category, diagnose_site, fetch_listing, parse_scope_url
 from .export import build_xlsx
 from .metrics import enrich, summarize
 from . import update as updater
@@ -365,14 +365,21 @@ def tools(name: str):
             return {"ok": True, "message": "브라우저 창을 열었습니다."}
         if name == "test_coupang":
             def t(bt):
-                data = fetch_listing(bt.page(), "category", 184555, 1)
-                return {"count": len(data["items"]), "title": data.get("title"), "sample": data["items"][:3]}
+                page = bt.page()
+                data = fetch_listing(page, "category", 184555, 1)
+                info = page.evaluate(PAGE_INFO_JS)
+                return {"count": len(data["items"]), "title": data.get("title"), "sample": data["items"][:5], "info": info,
+                        "redirected_home": data.get("redirected_home", False)}
             r = browser.call(t, "쿠팡 연결 테스트", timeout=120)
             msg = f"홈인테리어 1페이지에서 상품 {r['count']}개를 읽었습니다."
             if r["count"] == 0:
                 msg += " 하나도 못 읽었습니다. data/debug 폴더의 화면 캡처를 보내주세요."
             log.info(msg)
-            return {"ok": True, "message": msg, "result": r}
+            lines = [msg, f"주소: {r['info'].get('url')}", f"제목: {r['title']}", f"상품 카드 요소 수: {r['info'].get('product_units')}",
+                     "정렬 옵션: " + " | ".join(r['info'].get('sorts') or []) , "페이지 링크: " + " | ".join(r['info'].get('pagination') or []), "", "== 읽은 상품 예시 =="]
+            for it in r["sample"]:
+                lines.append(json.dumps(it, ensure_ascii=False))
+            return {"ok": True, "message": msg, "result": r, "text": "\n".join(lines)}
         if name == "wing_login":
             browser.call(wing.open_login, "윙 로그인", timeout=90)
             return {"ok": True, "message": "윙 로그인 창을 열었습니다. 로그인해 주세요."}
@@ -388,9 +395,11 @@ def tools(name: str):
         if name == "reset_categories":
             c = db.conn()
             c.execute("DELETE FROM categories")
+            c.execute("DELETE FROM settings WHERE key='home_tree_loaded_at'")
             c.commit()
             db.ensure_top_categories()
-            return {"ok": True, "message": "카테고리 목록을 비웠습니다. 다시 선택하면 새로 불러옵니다."}
+            n = browser.call(load_home_tree, "카테고리 전체 불러오기", timeout=180)
+            return {"ok": True, "message": f"쿠팡 홈 메뉴에서 카테고리 {n}개를 새로 읽었습니다."}
         if name == "clear_run":
             run = db.latest_run()
             if run and not job.is_running():

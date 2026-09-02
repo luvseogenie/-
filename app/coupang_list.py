@@ -98,6 +98,60 @@ EXTRACT_JS = r"""
 }
 """
 
+# 홈 화면 "카테고리" 메뉴에서 1차→2차→3차 전체 트리를 읽는 스크립트
+HOME_TREE_JS = r"""
+() => {
+  const txt = (el) => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  const idOf = (a) => { const m = (a.getAttribute('href') || '').match(/\/np\/categories\/(\d+)/); return m ? Number(m[1]) : null; };
+  const skip = (name) => !name || /더보기|전체보기/.test(name);
+  const out = [];
+  const tops = document.querySelectorAll('ul.menu.shopping-menu-list > li');
+  for (const li of tops) {
+    const a1 = li.querySelector(':scope > a[href*="/np/categories/"]');
+    if (!a1) continue;
+    const top = { id: idOf(a1), name: txt(a1), children: [] };
+    if (!top.id || skip(top.name)) continue;
+    for (const li2 of li.querySelectorAll(':scope > div.depth > ul.sdl > li, :scope > div.depth ul.sdl > li')) {
+      const a2 = li2.querySelector(':scope > a');
+      if (!a2) continue;
+      const id2 = idOf(a2); const n2 = txt(a2);
+      if (!id2 || skip(n2) || id2 === top.id) continue;
+      const sub = { id: id2, name: n2, children: [] };
+      for (const a3 of li2.querySelectorAll(':scope > ul.tdl > li > a, :scope ul.tdl > li > a')) {
+        const id3 = idOf(a3); const n3 = txt(a3);
+        if (!id3 || skip(n3) || id3 === id2 || id3 === top.id) continue;
+        if (!sub.children.some(c => c.id === id3)) sub.children.push({ id: id3, name: n3 });
+      }
+      if (!top.children.some(c => c.id === id2)) top.children.push(sub);
+    }
+    out.push(top);
+  }
+  return { tops: out, menu_links: document.querySelectorAll('ul.menu.shopping-menu-list a[href*="/np/categories/"]').length };
+}
+"""
+
+
+def fetch_home_tree(page) -> dict:
+    """홈 화면에서 카테고리 메뉴를 열고 전체 트리를 읽는다."""
+    page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(2000)
+    data = page.evaluate(HOME_TREE_JS)
+    if data["menu_links"] < 100:
+        for sel in ("#wa-category", "#wa-pc-category", "text=카테고리"):
+            try:
+                page.locator(sel).first.hover(timeout=4000)
+                page.wait_for_timeout(1500)
+                data = page.evaluate(HOME_TREE_JS)
+                if data["menu_links"] >= 100:
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+    if data["menu_links"] < 100 or not data["tops"]:
+        _dump_debug(page, "home_menu")
+        raise RuntimeError(f"홈 화면 카테고리 메뉴를 읽지 못했습니다 (링크 {data['menu_links']}개)")
+    return data
+
+
 # 카테고리 페이지에서 하위 카테고리 링크를 찾는 스크립트
 CHILDREN_JS = r"""
 (args) => {
@@ -112,12 +166,16 @@ CHILDREN_JS = r"""
   const side = links.filter(x => !inChrome(x.a));
   let kids = [];
   let how = '';
+  // 새 쿠팡 화면: 왼쪽 필터의 "카테고리" 목록
+  const bar = side.filter(x => x.a.closest('li.filter-function-bar-category, [class*="filter-function-bar-category"]'));
+  const hasSelf = bar.some(x => x.id === curId);
+  if (bar.length) { kids = hasSelf ? [] : bar; how = hasSelf ? 'filter-bar-siblings' : 'filter-bar'; }
   const cur = side.find(x => x.id === curId);
-  if (cur) {
+  if (cur && !kids.length && how !== 'filter-bar-siblings') {
     const li = cur.a.closest('li');
     if (li) { kids = side.filter(x => x.a !== cur.a && li.contains(x.a) && x.id !== curId); if (kids.length) how = 'nested'; }
   }
-  if (!kids.length) {
+  if (!kids.length && how !== 'filter-bar-siblings') {
     // 현재 카테고리가 링크가 아닌 글자(선택 상태)로 표시된 경우: 그 요소 뒤에 오는 목록
     const marked = Array.from(document.querySelectorAll('li, div, span, strong, b')).filter(el => !inChrome(el) && /selected|active|current|\bon\b|checked|bold/i.test(el.className || '') && el.querySelector('a[href*="/np/categories/"]') === null && el.textContent.trim().length < 40);
     for (const el of marked) {
@@ -127,10 +185,10 @@ CHILDREN_JS = r"""
       if (inner.length) { kids = inner; how = 'marked'; break; }
     }
   }
-  if (!kids.length) { kids = side.filter(x => x.id !== curId); how = 'all-side'; }
+  if (!kids.length && how !== 'filter-bar-siblings') { kids = side.filter(x => x.id !== curId); how = 'all-side'; }
   const uniq = new Map();
   for (const k of kids) { if (!exclude.has(k.id) && !uniq.has(k.id)) uniq.set(k.id, k.name); }
-  return { children: Array.from(uniq, ([id, name]) => ({ id: Number(id), name })), how, total_links: links.length, side_links: side.length, title: document.title };
+  return { children: Array.from(uniq, ([id, name]) => ({ id: Number(id), name })), how, total_links: links.length, side_links: side.length, title: document.title, is_leaf: how === 'filter-bar-siblings' };
 }
 """
 
@@ -302,6 +360,18 @@ def diagnose_category(page, cid: int) -> dict:
     return data
 
 
+PAGE_INFO_JS = r"""
+() => {
+  const txt = (el) => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  const pag = Array.from(document.querySelectorAll('[class*="Pagination"] a, [class*="pagination"] a')).slice(0, 4).map(a => txt(a) + ' -> ' + (a.getAttribute('href') || ''));
+  const sorts = Array.from(document.querySelectorAll('a, button, label, li')).filter(el => /랭킹순|판매량순|낮은가격순|최신순/.test(txt(el)) && txt(el).length < 12).slice(0, 8)
+    .map(el => txt(el) + (el.getAttribute('href') ? ' -> ' + el.getAttribute('href') : '') + (el.className ? ' [' + String(el.className).slice(0, 40) + ']' : ''));
+  const units = document.querySelectorAll('li[class*="ProductUnit"], li.baby-product, li.search-product').length;
+  return { pagination: pag, sorts, product_units: units, url: location.href };
+}
+"""
+
+
 def _dump_debug(page, tag: str):
     try:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -342,6 +412,9 @@ def fetch_listing(page, kind: str, key, page_no: int) -> dict:
     else:
         url = config.SEARCH_URL.format(q=quote(str(key)), page=page_no)
     _goto(page, url, 'a[href*="/vp/products/"]')
+    if page.url.rstrip("/") == config.COUPANG_HOME.rstrip("/"):
+        log.warn(f"{url} 이(가) 홈으로 되돌아갔습니다 (없는 카테고리?)")
+        return {"items": [], "title": page.title(), "empty": True, "redirected_home": True, "url": url}
     data = page.evaluate(EXTRACT_JS)
     if data.get("blocked"):
         _dump_debug(page, "blocked")
@@ -353,7 +426,7 @@ def fetch_listing(page, kind: str, key, page_no: int) -> dict:
 
 
 def fetch_children(page, cid: int, exclude: list[int]) -> dict:
-    url = config.CATEGORY_URL.format(cid=cid, size=config.CATEGORY_LIST_SIZE, page=1)
+    url = config.CATEGORY_PAGE.format(cid=cid)
     _goto(page, url, 'a[href*="/np/categories/"]')
     data = page.evaluate(CHILDREN_JS, {"cid": cid, "exclude": exclude})
     if not data["children"] and data.get("side_links", 0) == 0:

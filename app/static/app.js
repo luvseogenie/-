@@ -118,7 +118,7 @@
       return `<div class="sub-group"><div class="sg-head"><span>▾</span> ${esc(t.name)} <span class="cnt">${cnt}개 선택</span></div>
         <div class="sg-body">
           <label class="sub-item all"><input type="checkbox" data-all="${t.id}" ${allOn ? 'checked' : ''}> ${esc(t.name)} 전체 조사</label>
-          ${kids.length ? items : '<span class="loading">하위 카테고리가 없습니다. 도구 > 카테고리 다시 불러오기를 눌러 보세요.</span>'}
+          ${kids.length ? items : '<span class="loading">하위 카테고리가 없습니다. 도구 › 카테고리 전체 다시 불러오기를 눌러 보세요.</span>'}
         </div></div>`;
     }).join('');
     $('#sub-hint').textContent = `2차 ${subCount}개 지정`;
@@ -436,6 +436,10 @@
     toast('실행 중…');
     const r = await api(`/api/tools/${tool}`, {});
     toast(r.message || '완료');
+    if (r.text) {
+      openModal('쿠팡 연결 테스트 결과 (전체 복사해서 보내주세요)', `<button class="btn" id="copy-test">전체 복사</button><pre>${esc(r.text)}</pre>`);
+      $('#copy-test').addEventListener('click', () => { navigator.clipboard.writeText(r.text).then(() => toast('복사했습니다.')); });
+    }
     if (tool === 'reset_categories') { state.trees = {}; state.checked.clear(); renderAll(); }
     await refreshAll();
   })));
