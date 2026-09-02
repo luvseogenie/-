@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, db, log, wing
 from .browser import browser
 from .categories import discover_children, top_categories, tree
-from .coupang_list import diagnose_category, fetch_listing, parse_scope_url
+from .coupang_list import diagnose_category, diagnose_site, fetch_listing, parse_scope_url
 from .export import build_xlsx
 from .metrics import enrich, summarize
 from . import update as updater
@@ -444,6 +444,57 @@ def update_apply():
         return _err(f"업데이트 실패: {e}")
     updater.restart_program()
     return {"ok": True, "message": f"업데이트 완료 (파일 {r['changed']}개, 버전 {r['version']}). 프로그램을 다시 시작합니다. 10초 뒤 이 페이지를 새로고침 하세요.", **r}
+
+
+@app.post("/api/diag/site")
+def diag_site():
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 진단할 수 없습니다.")
+    names = [n for _, n in config.TOP_CATEGORIES]
+    try:
+        d = browser.call(lambda bt: diagnose_site(bt.page(), names), "사이트 진단", timeout=240)
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+    L = []
+    L.append("사이트 진단 (카테고리 주소 방식 찾기)")
+    L.append(f"홈 주소: {d.get('home_url')} / 메뉴 열기: {d.get('opened')} / 열고 난 뒤 주소: {d.get('after_url')}")
+    b, a = d.get("before", {}), d.get("after", {})
+    L.append(f"링크 수: 메뉴 열기 전 {b.get('total_links')} → 후 {a.get('total_links')}")
+    L.append("")
+    L.append("== 1차 카테고리 이름과 같은 글자의 링크 ==")
+    for x in a.get("byName", [])[:60]:
+        L.append(f"{x['text']} -> {x['href']}  [{x['chain']}]")
+    L.append("")
+    L.append("== 카테고리처럼 보이는 링크 (최대 200) ==")
+    for x in a.get("catLike", [])[:200]:
+        L.append(f"{x['text']} -> {x['href']}  [{x['chain']}]")
+    L.append("")
+    L.append("== 링크가 5개 이상인 메뉴 덩어리 ==")
+    for r in a.get("roots", []):
+        L.append(f"[{r['links']}개] {r['chain']}")
+        for smp in r["sample"]:
+            L.append(f"     · {smp}")
+    L.append("")
+    L.append(f"== 1차 카테고리 클릭 결과: {d.get('clicked_name')} ==")
+    if d.get("clicked_url"):
+        L.append(f"이동한 주소: {d['clicked_url']} / 상품 링크 {d.get('clicked_products')}개")
+        cp = d.get("clicked_page") or {}
+        L.append(f"제목: {cp.get('title')} / 카테고리 링크 {cp.get('category_links')}개")
+        for l in cp.get("lists", [])[:15]:
+            L.append(f"  [{l['links']}개 링크] {l['chain']}")
+        for c in cp.get("cats", [])[:80]:
+            L.append(f"  {c['id']} | {c['name']} | {c['chain']}")
+    L.append("")
+    L.append("== 주소 직접 접근 결과 ==")
+    for c in d.get("checks", []):
+        L.append(str(c))
+    L.append("")
+    for st in d.get("steps", []):
+        L.append("메모: " + st)
+    L.append(f"브라우저: {browser.channel}")
+    shots = [d.get(k) for k in ("screenshot_menu", "screenshot_cat", "screenshot_search") if d.get(k) and str(d.get(k)).endswith(".png")]
+    log.info("사이트 진단 완료")
+    return {"ok": True, "text": "\n".join(L), "screenshots": shots}
 
 
 @app.get("/api/capture/summary", response_class=PlainTextResponse)

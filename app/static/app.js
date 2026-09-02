@@ -326,6 +326,13 @@
     openModal('업데이트', `<p>${esc(r.message)}</p><p class="muted small">새 창이 뜨지 않으면 2_run.bat 을 직접 다시 실행해 주세요.</p>`);
     setTimeout(() => location.reload(), 12000);
   }
+  async function runDiagSite() {
+    toast('사이트 진단 중… 브라우저 창에서 쿠팡 메뉴를 자동으로 엽니다 (2~3분)');
+    const r = await api('/api/diag/site', {});
+    const imgs = (r.screenshots || []).map((f) => `<img src="/debug-files/${f}" style="max-width:100%;border:1px solid #333;border-radius:8px;margin-bottom:8px">`).join('');
+    openModal('사이트 진단 결과 (전체 복사해서 보내주세요)', `<button class="btn" id="copy-diag">전체 복사</button> <span class="muted small">아래 그림들도 캡처해 주세요</span>${imgs}<pre>${esc(r.text)}</pre>`);
+    $('#copy-diag').addEventListener('click', () => { navigator.clipboard.writeText(r.text).then(() => toast('복사했습니다.')); });
+  }
   async function runDiag() {
     const first = state.top.find((t) => state.checked.has(t.id));
     const cid = first ? first.id : 184555;
@@ -422,6 +429,7 @@
     if (el.dataset.action === 'archive') return showArchive();
     if (el.dataset.action === 'capture_summary') return showCaptureSummary();
     if (el.dataset.action === 'diag') return runDiag();
+    if (el.dataset.action === 'diag_site') return runDiagSite();
     if (el.dataset.action === 'update') return runUpdate();
     const tool = el.dataset.tool;
     if (tool === 'clear_run' && !confirm('현재 결과를 모두 비울까요? (보관함은 유지됩니다)')) return;

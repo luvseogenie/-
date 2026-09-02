@@ -177,6 +177,111 @@ DIAG_JS = r"""
 """
 
 
+# 홈 화면의 전체 카테고리 메뉴 안 링크를 모두 읽는 스크립트
+MENU_JS = r"""
+(names) => {
+  const txt = (el) => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  const chain = (el) => { const parts = []; let cur = el; let n = 0;
+    while (cur && cur !== document.body && n < 7) { let c = cur.tagName.toLowerCase();
+      if (cur.id) c += '#' + cur.id; const cls = (typeof cur.className === 'string') ? cur.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+      if (cls) c += '.' + cls; parts.unshift(c.slice(0, 50)); cur = cur.parentElement; n++; }
+    return parts.join(' > '); };
+  const all = Array.from(document.querySelectorAll('a[href]'));
+  const byName = all.filter(a => names.includes(txt(a))).map(a => ({ text: txt(a), href: a.getAttribute('href'), chain: chain(a) }));
+  const catLike = all.filter(a => /categor|\/np\/|\/c\/|\/vm\/|display/i.test(a.getAttribute('href') || ''))
+    .map(a => ({ text: txt(a).slice(0, 25), href: (a.getAttribute('href') || '').slice(0, 120), chain: chain(a) }));
+  const roots = Array.from(document.querySelectorAll('[class*="categor" i], [id*="categor" i], [class*="gnb" i], [class*="menu" i], nav'))
+    .map(el => ({ chain: chain(el), links: el.querySelectorAll('a[href]').length,
+      sample: Array.from(el.querySelectorAll('a[href]')).slice(0, 6).map(a => txt(a).slice(0, 20) + ' -> ' + (a.getAttribute('href') || '').slice(0, 90)) }))
+    .filter(x => x.links >= 5).slice(0, 25);
+  return { total_links: all.length, byName, catLike, roots };
+}
+"""
+
+
+def diagnose_site(page, names: list[str]) -> dict:
+    """새 쿠팡 화면의 카테고리 주소 방식을 알아내기 위한 진단."""
+    out = {"steps": []}
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    def shot(tag):
+        try:
+            path = config.DEBUG_DIR / f"{stamp}_{tag}.png"
+            page.screenshot(path=str(path), full_page=False)
+            (config.DEBUG_DIR / f"{stamp}_{tag}.html").write_text(page.content(), encoding="utf-8")
+            return path.name
+        except Exception as e:  # noqa: BLE001
+            return f"(캡처 실패: {e})"
+
+    # 1) 홈 화면
+    page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(2500)
+    before = page.evaluate(MENU_JS, names)
+    out["home_url"] = page.url
+    out["before"] = before
+    # 2) 전체카테고리 메뉴 열기 시도 (hover → click)
+    opened = None
+    for label in ("전체카테고리", "카테고리", "전체 카테고리"):
+        try:
+            loc = page.get_by_text(label, exact=False).first
+            if loc.count() == 0:
+                continue
+            loc.hover(timeout=3000)
+            page.wait_for_timeout(1200)
+            after_hover = page.evaluate(MENU_JS, names)
+            if after_hover["total_links"] > before["total_links"] + 5:
+                opened = f"hover:{label}"
+                break
+            loc.click(timeout=3000)
+            page.wait_for_timeout(1500)
+            after_click = page.evaluate(MENU_JS, names)
+            if after_click["total_links"] > before["total_links"] + 5 or page.url != out["home_url"]:
+                opened = f"click:{label}"
+                break
+        except Exception as e:  # noqa: BLE001
+            out["steps"].append(f"{label} 열기 실패: {str(e)[:120]}")
+    out["opened"] = opened
+    out["after"] = page.evaluate(MENU_JS, names)
+    out["after_url"] = page.url
+    out["screenshot_menu"] = shot("diag_menu")
+    # 3) 메뉴에서 1차 카테고리 이름을 실제로 눌러본다
+    try:
+        target = None
+        for n in names:
+            loc = page.get_by_role("link", name=n, exact=True)
+            if loc.count():
+                target = (n, loc.first)
+                break
+        if target:
+            target[1].click(timeout=5000)
+            page.wait_for_timeout(3000)
+            out["clicked_name"] = target[0]
+            out["clicked_url"] = page.url
+            out["clicked_products"] = page.evaluate("() => document.querySelectorAll('a[href*=\"/vp/products/\"]').length")
+            out["clicked_page"] = page.evaluate(DIAG_JS)
+            out["screenshot_cat"] = shot("diag_cat")
+        else:
+            out["clicked_name"] = None
+    except Exception as e:  # noqa: BLE001
+        out["steps"].append(f"1차 클릭 실패: {str(e)[:150]}")
+    # 4) 알려진 주소 방식으로 직접 접근했을 때 어디로 가는지
+    checks = []
+    for url in ("https://www.coupang.com/np/categories/393760",
+                "https://www.coupang.com/np/categories/185569",
+                "https://www.coupang.com/np/search?q=%EB%AC%B4%ED%83%80%EA%B3%B5+%ED%9B%84%ED%81%AC&sorter=saleCountDesc&listSize=72"):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2500)
+            n = page.evaluate("() => document.querySelectorAll('a[href*=\"/vp/products/\"]').length")
+            checks.append({"url": url, "final": page.url, "products": n, "title": page.title()})
+            if n and "search" in url:
+                out["screenshot_search"] = shot("diag_search")
+        except Exception as e:  # noqa: BLE001
+            checks.append({"url": url, "error": str(e)[:150]})
+    out["checks"] = checks
+    return out
+
+
 def diagnose_category(page, cid: int) -> dict:
     url = config.CATEGORY_URL.format(cid=cid, size=config.CATEGORY_LIST_SIZE, page=1)
     status = None
