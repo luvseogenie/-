@@ -15,6 +15,7 @@ b { font-weight: 700; }
 .purple { color: var(--purple) !important; }
 .green { color: var(--green) !important; }
 .amber { color: var(--amber) !important; }
+.blue { color: var(--blue) !important; }
 .row { display: flex; align-items: center; }
 .row.gap { gap: 8px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }

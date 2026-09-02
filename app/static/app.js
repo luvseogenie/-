@@ -267,7 +267,7 @@
   function renderRows() {
     const body = $('#grid-body');
     if (!state.rows.length) {
-      body.innerHTML = `<tr><td colspan="8" class="empty">${state.all ? '이 조건에 맞는 상품이 없습니다.' : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="9" class="empty">${state.all ? '이 조건에 맞는 상품이 없습니다.' : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
       return;
     }
     const maxConv = Math.max(5, ...state.rows.map((r) => r.conversion_min || 0));
@@ -289,13 +289,14 @@
       return `<tr data-id="${r.product_id}">
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.name || ('상품 ' + r.product_id))}</a></div>
-          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}<span class="pill">${esc(deliveryLabel(r.delivery))}</span>${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}</div></td>
+          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}</div></td>
         <td class="num">${salesCell}</td>
         <td class="num">${convCell}</td>
         <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
         <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
         <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? won(r.revenue_min) + ' 최소' : ''}</div></td>
+        <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}</b><div class="sub">${esc(deliveryLabel(r.delivery))}</div></td>
       </tr>`;
     }).join('');
     $$('.rowchk').forEach((el) => el.addEventListener('change', () => { const id = Number(el.dataset.id); if (el.checked) state.selected.add(id); else state.selected.delete(id); renderSel(); }));
