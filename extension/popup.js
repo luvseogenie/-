@@ -60,6 +60,18 @@ async function saveKind(kind) {
       return;
     }
   }
+  if (!best && kind === 'ads') {
+    let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch { /* 무시 */ }
+    $('#detail').textContent = `페이지 정보: ${JSON.stringify(info)}\n` + $('#detail').textContent;
+    if (info?.hasAnyDownload) {
+      msg('캠페인 표를 못 읽어 다운로드 버튼을 눌러 봅니다…');
+      await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || dateFromUrl(tab.url) || null });
+      let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload' }); } catch { /* 무시 */ }
+      if (r?.ok) { msg(`다운로드를 눌렀습니다 (${r.clicked}). 엑셀이 받아지면 자동 저장됩니다. 안 되면 "장부 보기 → 붙여넣기로 저장" 을 써 주세요.`, 'ok'); return; }
+    }
+    msg('광고 캠페인 표를 못 읽었습니다. 화면에서 캠페인 표를 드래그해 복사한 뒤 "장부 보기 → 붙여넣기로 저장" 에 붙여넣어 주세요. 아래 "찾은 표 보기" 내용을 보내 주시면 맞춰 드립니다.', 'err');
+    return;
+  }
   if (!best) { msg(`${label} 표를 찾지 못했습니다. 표가 보이는 화면인지 확인하세요. (아래 '찾은 표 보기')`, 'err'); return; }
   const date = $('#date').value || best.date || dateFromUrl(tab.url) || yesterdayIso();
   const rows = kind === 'sales' ? normalizeSales(best.records, date) : normalizeAds(best.records, date);

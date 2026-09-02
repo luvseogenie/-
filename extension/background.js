@@ -1,7 +1,7 @@
 // 서비스 워커: 매일 정해진 시각의 자동 수집(탭 열기 → '어제' 클릭 → 표 읽기 → 저장), 선택적 서버 전송.
 import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
-import { importSalesFile } from './lib/importer.js';
+import { importAnyFile } from './lib/importer.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, serverSync: false, server: 'http://127.0.0.1:8765' };
 let expectUntil = 0, expectDate = null;
@@ -165,10 +165,11 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const name = item.filename.split(/[\\/]/).pop();
-    const res = await importSalesFile(await r.arrayBuffer(), name, expectDate);
+    const res = await importAnyFile(await r.arrayBuffer(), name, expectDate);
     expectDate = null;
-    await log(`[다운로드] ${name} → ${res.date} 판매 ${res.saved}건 저장`);
-    if (!reportWaiter) notify(`${res.date} 판매 데이터 ${res.saved}건 저장 완료` + (res.unmapped ? ` · 캠페인/마진 미입력 옵션 ${res.unmapped}개` : ''));
+    const label = res.kind === 'ads' ? '광고' : '판매';
+    await log(`[다운로드] ${name} → ${res.date} ${label} ${res.saved}건 저장`);
+    if (!reportWaiter) notify(`${res.date} ${label} 데이터 ${res.saved}건 저장 완료` + (res.unmapped ? ` · 캠페인/마진 미입력 옵션 ${res.unmapped}개` : ''));
     settle({ ok: true, saved: res.saved, date: res.date });
   } catch (e) {
     await log(`[다운로드] 자동 저장 실패: ${e.message}`);

@@ -1,7 +1,8 @@
 import * as S from './lib/store.js';
 import { computeLedger } from './lib/ledger.js';
 import { normalizeAds, parseNumber, localIso } from './lib/parse.js';
-import { importSalesFile, importAdsFile, dateFromReportName } from './lib/importer.js';
+import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
+import { normalizeSales } from './lib/parse.js';
 
 const $ = (s) => document.querySelector(s);
 const fmtInt = (v) => Math.round(v).toLocaleString('ko-KR');
@@ -233,6 +234,19 @@ $('#import-ads').onchange = async (ev) => {
   ev.target.value = ''; loadSummary(); loadLedger();
 };
 $('#import-date').value = localIso(yday);
+
+/* ---- 붙여넣기로 저장 ---- */
+$('#paste-date').value = localIso(yday);
+if (location.hash === '#paste') { document.querySelector('nav button[data-tab="ads"]').click(); $('#paste-details').open = true; }
+$('#paste-go').onclick = async () => {
+  const kind = document.querySelector('input[name=paste-kind]:checked').value; const date = $('#paste-date').value || localIso(yday);
+  const recs = pasteToRecords($('#paste-text').value, kind === 'ads' ? ['캠페인'] : ['옵션', '매출']);
+  if (!recs.length) { msg('#paste-msg', '머리글 줄을 찾지 못했습니다. 캠페인 이름/광고비 같은 머리글부터 복사해 주세요.', 'err'); return; }
+  const rows = kind === 'ads' ? normalizeAds(recs, date) : normalizeSales(recs, date);
+  if (!rows.length) { msg('#paste-msg', `표는 읽었지만 인식된 행이 없습니다 (머리글: ${Object.keys(recs[0]).join(', ')})`, 'err'); return; }
+  const d = await S.load(); const n = kind === 'ads' ? S.upsertAds(d, rows) : S.upsertSales(d, rows); await S.save(d);
+  msg('#paste-msg', `${date} ${kind === 'ads' ? '광고' : '판매'} ${n}건 저장`, 'ok'); loadSummary(); loadLedger(); if (kind === 'ads') loadAds();
+};
 
 /* ---- 지난 날짜 채우기 ---- */
 {

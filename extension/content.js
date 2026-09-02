@@ -10,7 +10,7 @@
   // ---------- 표 읽기 ----------
   function readHtmlTables(root) {
     const out = [];
-    root.querySelectorAll('table').forEach((t) => {
+    deepAll('table', root).forEach((t) => {
       let headerRow = t.querySelector('thead tr:last-child') || t.querySelector('tr');
       if (!headerRow) return;
       const headers = [...headerRow.querySelectorAll('th, td')].map((c) => clean(c.innerText));
@@ -23,7 +23,7 @@
 
   function readAgGrids(root) {
     const out = [];
-    root.querySelectorAll('.ag-root, .ag-root-wrapper').forEach((g) => {
+    deepAll('.ag-root, .ag-root-wrapper', root).forEach((g) => {
       const headers = {};
       g.querySelectorAll('.ag-header-cell[col-id]').forEach((h) => {
         const txt = clean(h.querySelector('.ag-header-cell-text')?.innerText || h.innerText);
@@ -46,7 +46,7 @@
 
   function readAriaGrids(root) {
     const out = [];
-    root.querySelectorAll('[role="grid"], [role="table"], [role="treegrid"]').forEach((g) => {
+    deepAll('[role="grid"], [role="table"], [role="treegrid"]', root).forEach((g) => {
       if (g.closest('.ag-root, .ag-root-wrapper')) return; // ag-grid 는 위에서 처리
       const rows = [...g.querySelectorAll('[role="row"]')];
       if (rows.length < 2) return;
@@ -58,8 +58,63 @@
     return out;
   }
 
+  // shadow DOM 안까지 훑는 querySelectorAll
+  function deepAll(selector, root = document) {
+    const out = [...root.querySelectorAll(selector)];
+    const walk = (n) => { for (const el of n.querySelectorAll('*')) if (el.shadowRoot) { out.push(...el.shadowRoot.querySelectorAll(selector)); walk(el.shadowRoot); } };
+    walk(root); return out;
+  }
+  function leafTexts(el) {
+    const out = [];
+    const walk = (n) => {
+      if (n.nodeType === 3) { const t = clean(n.textContent); if (t) out.push(t); return; }
+      if (n.nodeType !== 1) return;
+      if (['SCRIPT', 'STYLE', 'SVG', 'IMG', 'INPUT', 'BUTTON'].includes(n.tagName)) return;
+      const cs = getComputedStyle(n); if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      for (const c of n.childNodes) walk(c);
+      if (n.shadowRoot) for (const c of n.shadowRoot.childNodes) walk(c);
+    };
+    walk(el); return out;
+  }
+  const HEADER_WORDS = ['캠페인', '광고비', '노출', '클릭', '전환', '예산', '매출', '수익률', 'ROAS', '옵션', '판매', '주문', '방문자', '조회', '장바구니'];
+  const headerScore = (texts) => texts.reduce((n, t) => n + (HEADER_WORDS.some((w) => t.toLowerCase().includes(w.toLowerCase())) ? 1 : 0), 0);
+  // 같은 모양의 자식이 3개 이상 반복되는 요소를 '줄 목록'으로 보고, 근처의 머리글 줄과 짝지어 표로 만든다.
+  function readDivGrids() {
+    const out = [];
+    const seen = new Set();
+    for (const parent of deepAll('*')) {
+      if (parent.children.length < 3 || seen.has(parent)) continue;
+      if (['TABLE', 'TBODY', 'THEAD', 'TR', 'UL', 'OL', 'SELECT', 'SCRIPT', 'STYLE'].includes(parent.tagName) && parent.tagName !== 'UL' && parent.tagName !== 'OL') continue;
+      if (parent.closest('table, .ag-root, [role="grid"]')) continue;
+      const groups = {};
+      for (const c of parent.children) { const k = c.tagName + '|' + c.className; (groups[k] ||= []).push(c); }
+      for (const members of Object.values(groups)) {
+        if (members.length < 3) continue;
+        const rows = members.map(leafTexts).filter((r) => r.length >= 4 && r.some((t) => /\d/.test(t)));
+        if (rows.length < 3) continue;
+        const counts = rows.map((r) => r.length).sort((x, y) => x - y); const med = counts[Math.floor(counts.length / 2)];
+        const good = rows.filter((r) => Math.abs(r.length - med) <= Math.max(2, med * 0.5));
+        if (good.length < 3) continue;
+        // 머리글 후보: 같은 부모의 다른 자식, 부모의 이전 형제(와 그 자손), 조부모의 이전 형제
+        const cands = [];
+        for (const c of parent.children) if (!members.includes(c)) cands.push(c);
+        let sib = parent.previousElementSibling; for (let i = 0; i < 3 && sib; i++, sib = sib.previousElementSibling) cands.push(sib);
+        if (parent.parentElement) { let ps = parent.parentElement.previousElementSibling; for (let i = 0; i < 3 && ps; i++, ps = ps.previousElementSibling) cands.push(ps); for (const c of parent.parentElement.children) if (c !== parent) cands.push(c); }
+        cands.push(members[0]);
+        let header = null, best = 1;
+        for (const c of cands) { const t = leafTexts(c); const sc = headerScore(t); if (sc > best && t.length >= 3) { best = sc; header = { el: c, texts: t }; } }
+        if (!header) continue;
+        const body = header.el === members[0] ? good.slice(1) : good;
+        if (!body.length) continue;
+        seen.add(parent);
+        out.push({ headers: header.texts, rows: body, kind: 'div-grid' });
+      }
+    }
+    return out;
+  }
+
   function allTables() {
-    return [...readAgGrids(document), ...readHtmlTables(document), ...readAriaGrids(document)];
+    return [...readAgGrids(document), ...readHtmlTables(document), ...readAriaGrids(document), ...readDivGrids()];
   }
 
   const KIND_RULES = {
@@ -157,9 +212,21 @@
     fire(item, HOVER); fire(item, CLICK);
     return { ok: true };
   }
+  async function clickAnyDownload() {
+    const labels = ['엑셀 다운로드', '엑셀다운로드', '다운로드', '보고서 다운로드', '리포트 다운로드', '내보내기', 'Excel'];
+    let btn = null;
+    for (const l of labels) { btn = findByText(l)[0] || findByText(l, false)[0]; if (btn) break; }
+    if (!btn) return { ok: false, reason: '다운로드 버튼을 찾지 못했습니다', diag: visibleTexts('다운로드') };
+    fire(btn, HOVER); fire(btn, CLICK);
+    // 하위 메뉴가 열리면 '캠페인' 또는 '엑셀' 이 들어간 항목을 누른다
+    const item = await findItem(['캠페인 보고서', '캠페인', '엑셀', 'Excel', 'xlsx'], 5);
+    if (item && item !== btn) { fire(item, HOVER); fire(item, CLICK); }
+    return { ok: true, clicked: clean(btn.innerText).slice(0, 30) + (item ? ' → ' + clean(item.innerText).slice(0, 30) : '') };
+  }
   function pageInfo() {
     const text = clean(document.body.innerText);
-    return { hasExcelDownload: text.includes('엑셀 다운로드'), hasOptionList: text.includes('옵션목록'), title: document.title, url: location.href };
+    return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
+      hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
 
   // ---------- '어제' 버튼 클릭 (자동 수집용) ----------
@@ -170,7 +237,7 @@
   }
 
   window.__ccReadTables = allTables;
-  window.__ccDetectDate = detectDate; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
+  window.__ccDetectDate = detectDate; window.__ccDivGrids = readDivGrids; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
   window.__ccPick = (kind) => { const t = pickTable(allTables(), kind); return t ? { records: toRecords(t), headers: t.headers, source: t.kind } : null; };
 
   chrome.runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
@@ -182,6 +249,8 @@
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickDownloadReport') {
       clickDownloadReport().then(sendResponse);
+    } else if (msg?.type === 'clickAnyDownload') {
+      clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'pageInfo') {
       sendResponse(pageInfo());
     }

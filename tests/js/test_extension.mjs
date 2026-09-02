@@ -92,3 +92,19 @@ console.log('extension logic: all checks passed');
   await assert.rejects(importSalesFile(new TextEncoder().encode('아무거나').buffer, 'x.csv'), /찾지 못했습니다/);
   console.log('xlsx import: all checks passed');
 }
+
+// 붙여넣기 / 파일 종류 자동 판단
+{
+  const { pasteToRecords, importAnyFile } = await import('../../extension/lib/importer.js');
+  const { readFileSync } = await import('node:fs');
+  const txt = '캠페인 이름\t상태\t광고비\t광고전환 매출\t노출수\t클릭수\n1_버킷햇_240%\t운영중\t67,241\t180,000\t51,328\t153\n합계\t\t67,241\t180,000\t51,328\t153\n';
+  const recs = pasteToRecords(txt, ['캠페인']); assert.equal(recs.length, 2); assert.equal(recs[0]['광고비'], '67,241');
+  const rows = normalizeAds(recs, '2025-06-08'); assert.equal(rows.length, 1); assert.equal(rows[0].spend, 67241);
+  const spaced = '캠페인 이름   광고비   노출수\n1_버킷햇_240%   67,241   51,328\n'; assert.equal(pasteToRecords(spaced, ['캠페인'])[0]['노출수'], '51,328');
+  assert.deepEqual(pasteToRecords('아무 글자', ['캠페인']), []);
+  const buf = readFileSync(new URL('./fixtures/sales_2025-06-08.xlsx', import.meta.url));
+  const r = await importAnyFile(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'x.xlsx', '2025-06-20'); assert.equal(r.kind, 'sales'); assert.equal(r.saved, 7);
+  const adsCsv = new TextEncoder().encode('캠페인 이름,광고비,광고전환 매출\n1_버킷햇_240%,"67,241","180,000"\n').buffer;
+  const r2 = await importAnyFile(adsCsv, 'ads.csv', '2025-06-21'); assert.equal(r2.kind, 'ads'); assert.equal(r2.saved, 1);
+  console.log('paste/any-file import: all checks passed');
+}

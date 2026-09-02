@@ -82,6 +82,15 @@
 </section>
 
 <section id="tab-ads">
+  <div class="card" id="paste-card">
+    <details id="paste-details">
+      <summary><b>📋 붙여넣기로 저장</b> <span class="mini">— 광고센터 캠페인 표를 마우스로 드래그해 복사(Ctrl+C)한 뒤 여기에 붙여넣기(Ctrl+V). 머리글 줄(캠페인 이름, 광고비 …)부터 포함해서 복사하세요.</span></summary>
+      <div class="row" style="margin-top:8px"><label>데이터 날짜</label><input type="date" id="paste-date" class="date">
+        <label><input type="radio" name="paste-kind" value="ads" checked> 광고</label><label><input type="radio" name="paste-kind" value="sales"> 판매</label>
+        <button class="btn primary" id="paste-go">저장</button><span id="paste-msg" class="msg"></span></div>
+      <textarea id="paste-text" style="width:100%;height:120px;margin-top:6px;font-family:monospace;font-size:12px" placeholder="캠페인 이름	광고비	광고전환 매출	노출수	클릭수 …&#10;1_버킷햇_240%	67,241	180,000	51,328	153 …"></textarea>
+    </details>
+  </div>
   <div class="card">
     <div class="row">
       <label>날짜</label><input type="date" id="ads-date" class="date">

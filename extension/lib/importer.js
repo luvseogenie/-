@@ -33,3 +33,23 @@ export async function importAdsFile(buf, filename, date) {
   const d = await S.load(); const n = S.upsertAds(d, rows); await S.save(d);
   return { date, saved: n, records };
 }
+
+// 파일 헤더를 보고 판매 리포트인지 광고 보고서인지 판단해 저장한다.
+export async function importAnyFile(buf, filename, date) {
+  const ads = await fileToRecords(buf, filename, ['캠페인']).catch(() => []);
+  const sales = await fileToRecords(buf, filename, ['옵션', '매출']).catch(() => []);
+  const isAds = ads.length && (!sales.length || Object.keys(ads[0]).some((h) => /광고비|노출|클릭/.test(h)));
+  if (isAds) { const r = await importAdsFile(buf, filename, date); return { ...r, kind: 'ads' }; }
+  const r = await importSalesFile(buf, filename, date); return { ...r, kind: 'sales' };
+}
+
+// 화면에서 드래그 복사한 텍스트(탭/여러 칸 공백 구분) → records
+export function pasteToRecords(text, mustHave) {
+  const lines = text.replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const split = (l) => (l.includes('\t') ? l.split('\t') : l.split(/\s{2,}|\s\|\s/)).map((c) => c.trim());
+  const rows = lines.map(split);
+  const h = rows.findIndex((r) => mustHave.every((k) => r.join('|').replace(/\s/g, '').includes(k)));
+  if (h < 0) return [];
+  const headers = rows[h];
+  return rows.slice(h + 1).filter((r) => r.length >= 2).map((r) => { const o = {}; headers.forEach((k, i) => { if (k) o[k] = r[i] ?? ''; }); return o; });
+}
