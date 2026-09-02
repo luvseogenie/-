@@ -33,9 +33,20 @@ def _startup():
     log.info("서버 시작")
 
 
+@app.middleware("http")
+async def no_cache(request: Request, call_next):
+    """브라우저가 예전 화면 파일을 캐시에서 꺼내 쓰지 않도록 한다."""
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (STATIC / "index.html").read_text(encoding="utf-8")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    v = updater.current_version()
+    return html.replace("/static/app.js", f"/static/app.js?v={v}").replace("/static/style.css", f"/static/style.css?v={v}")
 
 
 @app.get("/favicon.ico")
