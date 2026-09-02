@@ -26,6 +26,18 @@ async function saveKind(kind) {
   const { best, tables, tab } = await readActive(kind);
   $('#detail').textContent = tables.length ? tables.map((t) => `[${t.kind}] ${t.rows}행: ${t.headers.join(' | ')}`).join('\n') : '표를 찾지 못했습니다. 쿠팡 페이지에서 눌러 주세요.\n' + (tab?.url || '');
   if (!tab?.url?.includes('coupang.com')) { msg('쿠팡 판매자센터/광고센터 화면에서 눌러 주세요.', 'err'); return; }
+  if (!best && kind === 'sales') {
+    // 판매분석 옵션목록은 표가 아니라 카드 형태 → '엑셀 다운로드 → 상품별 판매 리포트' 를 대신 눌러 준다.
+    let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch { /* 무시 */ }
+    if (info?.hasExcelDownload) {
+      msg('엑셀 다운로드 → 상품별 판매 리포트 를 누르는 중…');
+      await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || null });
+      let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }); } catch { /* 무시 */ }
+      if (r?.ok) { msg('리포트를 다운로드했습니다. 잠시 후 자동으로 저장됩니다. 자동 저장 알림이 안 오면 "장부 보기 → 리포트 파일 올리기" 로 방금 받은 파일을 올려 주세요.', 'ok'); }
+      else { msg((r?.reason || '다운로드 버튼을 찾지 못했습니다') + '. 직접 엑셀 다운로드 → 상품별 판매 리포트 를 받은 뒤 "장부 보기 → 리포트 파일 올리기" 로 올려 주세요.', 'err'); }
+      return;
+    }
+  }
   if (!best) { msg(`${label} 표를 찾지 못했습니다. 표가 보이는 화면인지 확인하세요. (아래 '찾은 표 보기')`, 'err'); return; }
   const date = $('#date').value || best.date || yesterdayIso();
   const rows = kind === 'sales' ? normalizeSales(best.records, date) : normalizeAds(best.records, date);
@@ -43,6 +55,7 @@ async function saveKind(kind) {
 $('#send-sales').onclick = () => saveKind('sales');
 $('#send-ads').onclick = () => saveKind('ads');
 $('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
+$('#open-import').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#import') });
 
 (async () => {
   const d = await S.load(); const ds = S.dates(d);

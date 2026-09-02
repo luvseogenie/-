@@ -12,6 +12,8 @@
 - `lib/parse.js` — 숫자·퍼센트·헤더 정규화 (파이썬 `coupang_calc` 와 같은 규칙)
 - `lib/store.js` — `chrome.storage.local` 저장소 (옵션, 마진 이력, 일별 판매·광고)
 - `lib/ledger.js` — 장부 계산 (마진 이력 적용, 월 합계)
+- `lib/xlsx.js` — 라이브러리 없이 .xlsx/.csv 읽기 (zip + XML, DecompressionStream)
+- `lib/importer.js` — 판매 리포트/광고 파일 → 저장
 
 ## 검사
 ```bash
@@ -20,6 +22,7 @@ node tests/js/test_extension.mjs   # 원본 엑셀 2025-06-08 값과 대조
 
 ## 표를 못 찾을 때
 팝업의 "찾은 표 보기" 에 페이지에서 인식한 표와 헤더가 나옵니다.
-- 판매 표: 헤더에 `옵션` 과 `매출`(또는 `판매`) 이 있어야 합니다.
+- 판매분석 옵션목록은 카드 형태라 표로 읽지 않고, '엑셀 다운로드 → 상품별 판매 리포트' 파일을 읽습니다 (① 버튼이 대신 누르고 `chrome.downloads` 로 감지해 다시 받아 읽음; blob 방식이면 수동 업로드).
+- 판매 리포트: 헤더에 `옵션` 과 `매출` 이 있는 행을 헤더로 봅니다.
 - 광고 표: 헤더에 `캠페인` 과 `광고비`/`노출`/`예산`/`클릭` 중 하나가 있어야 합니다.
 열 이름 별칭은 `lib/parse.js` 의 `SALES_FIELDS`, `ADS_FIELDS` 에 추가합니다.

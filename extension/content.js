@@ -94,7 +94,41 @@
       const found = [...c.matchAll(re)].map((m) => `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`);
       if (found.length) return found[0];
     }
+    // '09.01 (화)' 처럼 연도 없는 표기 (판매분석 옵션목록 제목) → 올해, 미래면 작년
+    const m = clean(document.body.innerText).match(/(\d{1,2})\.(\d{1,2})\s*\((월|화|수|목|금|토|일)\)/);
+    if (m) {
+      const now = new Date(); let y = now.getFullYear();
+      let d = new Date(y, +m[1] - 1, +m[2]); if (d > now) { y -= 1; d = new Date(y, +m[1] - 1, +m[2]); }
+      return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+    }
     return null;
+  }
+
+  // ---------- '엑셀 다운로드' → '상품별 판매 리포트' 클릭 (판매분석) ----------
+  const visible = (e) => e.offsetParent !== null || e.getClientRects().length > 0;
+  function findByText(text, exact = true) {
+    // 같은 글자를 가진 요소 중 가장 안쪽(자손이 적은) 것을 앞에 둔다. 버튼/링크 우선.
+    return [...document.querySelectorAll('button, a, li, span, div, label')].filter((e) => {
+      const t = clean(e.innerText); return visible(e) && (exact ? t === text : t.includes(text));
+    }).sort((x, y) => {
+      const px = x.tagName === 'BUTTON' || x.tagName === 'A' ? 0 : 1, py = y.tagName === 'BUTTON' || y.tagName === 'A' ? 0 : 1;
+      return px - py || x.querySelectorAll('*').length - y.querySelectorAll('*').length;
+    });
+  }
+  async function clickDownloadReport() {
+    const btn = findByText('엑셀 다운로드')[0] || findByText('엑셀 다운로드', false)[0];
+    if (!btn) return { ok: false, reason: '엑셀 다운로드 버튼을 찾지 못했습니다' };
+    btn.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 150));
+      const item = findByText('상품별 판매 리포트')[0] || findByText('상품별 판매 리포트', false)[0];
+      if (item) { item.click(); return { ok: true }; }
+    }
+    return { ok: false, reason: "'상품별 판매 리포트' 메뉴를 찾지 못했습니다" };
+  }
+  function pageInfo() {
+    const text = clean(document.body.innerText);
+    return { hasExcelDownload: text.includes('엑셀 다운로드'), hasOptionList: text.includes('옵션목록'), title: document.title, url: location.href };
   }
 
   // ---------- '어제' 버튼 클릭 (자동 수집용) ----------
@@ -105,6 +139,7 @@
   }
 
   window.__ccReadTables = allTables;
+  window.__ccDetectDate = detectDate; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
   window.__ccPick = (kind) => { const t = pickTable(allTables(), kind); return t ? { records: toRecords(t), headers: t.headers, source: t.kind } : null; };
 
   chrome.runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
@@ -114,6 +149,10 @@
         tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 12), rows: t.rows.length })) });
     } else if (msg?.type === 'clickYesterday') {
       sendResponse({ clicked: clickYesterday() });
+    } else if (msg?.type === 'clickDownloadReport') {
+      clickDownloadReport().then(sendResponse);
+    } else if (msg?.type === 'pageInfo') {
+      sendResponse(pageInfo());
     }
     return true;
   });

@@ -21,6 +21,19 @@
 <main>
 
 <section id="tab-ledger" class="active">
+  <div class="card" id="import-card">
+    <div class="row">
+      <b>📂 판매 리포트 파일 올리기</b>
+      <span class="mini">판매분석 → 어제 → 엑셀 다운로드 → <b>상품별 판매 리포트</b> 로 받은 파일을 올리면 저장됩니다. 파일 여러 개를 한 번에 올려도 됩니다.</span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>데이터 날짜</label><input type="date" id="import-date" class="date">
+      <span class="mini">(기본은 어제. 파일명에 '20250901~20250901' 같은 기간이 있으면 그 날짜를 씁니다)</span>
+      <label class="btn primary">파일 선택 <input type="file" id="import-sales" accept=".xlsx,.xls,.csv" multiple style="display:none"></label>
+      <span class="mini">광고 CSV/XLSX:</span><label class="btn">파일 선택 <input type="file" id="import-ads" accept=".xlsx,.csv" style="display:none"></label>
+      <span id="import-msg" class="msg"></span>
+    </div>
+  </div>
   <div class="card row">
     <label>기간</label>
     <input type="date" id="ledger-start" class="date"> ~ <input type="date" id="ledger-end" class="date">

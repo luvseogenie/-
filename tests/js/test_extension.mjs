@@ -70,3 +70,25 @@ S.deleteMargin(d, '12340330543', '2025-06-10'); assert.equal(S.marginLookup(d)('
 // 광고 ACTION 메모는 새 값이 비면 유지
 S.upsertAds(d, [{ ...ads[0], action: '메모' }]); S.upsertAds(d, [{ ...ads[0], action: '' }]); assert.equal(d.ads[D]['1_버킷햇_240%'].action, '메모');
 console.log('extension logic: all checks passed');
+
+// xlsx 리더 + 리포트 가져오기
+{
+  const { readFileSync } = await import('node:fs');
+  const { importSalesFile } = await import('../../extension/lib/importer.js');
+  const { fileToRecords, parseCsv } = await import('../../extension/lib/xlsx.js');
+  const buf = readFileSync(new URL('./fixtures/sales_2025-06-08.xlsx', import.meta.url));
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const recs = await fileToRecords(ab, 'sales_2025-06-08.xlsx');
+  assert.equal(recs.length, 7); assert.equal(recs[0]['옵션ID'], 12340330543); assert.equal(recs[0]['매출'], 90000);
+  const before = await S.load(); delete before.sales['2025-06-08']; await S.save(before);
+  const r = await importSalesFile(ab, '상품별 판매 리포트_20250608.xlsx', null);
+  assert.equal(r.date, '2025-06-08'); assert.equal(r.saved, 7);
+  const r2 = await importSalesFile(ab, 'report.xlsx', '2025-07-01'); assert.equal(r2.date, '2025-07-01');
+  const r3 = await importSalesFile(ab, '판매분석_20250902_130501.xlsx', '2025-09-01'); assert.equal(r3.date, '2025-09-01'); // 다운로드 시각보다 고른 날짜 우선
+  const r4 = await importSalesFile(ab, '상품별 판매 리포트_20250901~20250901.xlsx', '2025-09-05'); assert.equal(r4.date, '2025-09-01'); // 기간 표기는 최우선
+  const csv = '﻿옵션ID,옵션명,매출,판매량\n"1,234",테스트,"10,000",3\n';
+  const crecs = await fileToRecords(new TextEncoder().encode(csv).buffer, 'a.csv'); assert.equal(crecs.length, 1); assert.equal(crecs[0]['옵션명'], '테스트');
+  assert.deepEqual(parseCsv('a,"b,c"\n1,2'), [['a', 'b,c'], ['1', '2']]);
+  await assert.rejects(importSalesFile(new TextEncoder().encode('아무거나').buffer, 'x.csv'), /찾지 못했습니다/);
+  console.log('xlsx import: all checks passed');
+}

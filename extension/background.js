@@ -1,6 +1,7 @@
 // 서비스 워커: 매일 정해진 시각의 자동 수집(탭 열기 → '어제' 클릭 → 표 읽기 → 저장), 선택적 서버 전송.
 import * as S from './lib/store.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
+import { importSalesFile } from './lib/importer.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/', adsUrl: 'https://advertising.coupang.com/', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, serverSync: false, server: 'http://127.0.0.1:8765' };
 const getSettings = async () => ({ ...DEFAULTS, ...(await chrome.storage.sync.get(DEFAULTS)) });
@@ -94,9 +95,36 @@ chrome.runtime.onInstalled.addListener((d) => { scheduleAlarm(); if (d.reason ==
 chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); flushQueue(); });
 chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); });
+// ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
+let expectUntil = 0, expectDate = null; const handled = new Set();
+const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
+chrome.downloads.onChanged.addListener(async (delta) => {
+  if (delta.state?.current !== 'complete' || handled.has(delta.id)) return;
+  const [item] = await chrome.downloads.search({ id: delta.id }); if (!item) return;
+  const ext = (item.filename || '').toLowerCase().match(/\.(xlsx|xls|csv)$/)?.[1];
+  const fromCoupang = /coupang\.com/.test(item.finalUrl || item.url || '') || /coupang\.com/.test(item.referrer || '');
+  if (!ext || !(fromCoupang || Date.now() < expectUntil) || !looksLikeReport(item)) return;
+  handled.add(delta.id);
+  const url = item.finalUrl || item.url;
+  if (!/^https?:/.test(url)) { await log(`[다운로드] 파일을 자동으로 읽을 수 없는 방식(blob)입니다. 장부 보기 → 리포트 파일 올리기 로 올려 주세요: ${item.filename}`); notify('리포트를 자동으로 읽지 못했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.'); return; }
+  try {
+    const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const name = item.filename.split(/[\\/]/).pop();
+    const res = await importSalesFile(await r.arrayBuffer(), name, expectDate);
+    expectDate = null;
+    await log(`[다운로드] ${name} → ${res.date} 판매 ${res.saved}건 저장`);
+    notify(`${res.date} 판매 데이터 ${res.saved}건 저장 완료` + (res.unmapped ? ` · 캠페인/마진 미입력 옵션 ${res.unmapped}개` : ''));
+  } catch (e) {
+    await log(`[다운로드] 자동 저장 실패: ${e.message}`);
+    notify('리포트 자동 저장에 실패했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.');
+  }
+});
+function notify(message) { try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message }); } catch { /* 무시 */ } }
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
+    if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
+    else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
     else sendResponse({ ok: false });
   })();

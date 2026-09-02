@@ -1,6 +1,7 @@
 import * as S from './lib/store.js';
 import { computeLedger } from './lib/ledger.js';
 import { normalizeAds, parseNumber, localIso } from './lib/parse.js';
+import { importSalesFile, importAdsFile } from './lib/importer.js';
 
 const $ = (s) => document.querySelector(s);
 const fmtInt = (v) => Math.round(v).toLocaleString('ko-KR');
@@ -18,7 +19,8 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('active', s.id === 'tab-' + b.dataset.tab));
   if (b.dataset.tab === 'ads') loadAds(); if (b.dataset.tab === 'options') loadOptions(); if (b.dataset.tab === 'data') loadSettings();
 });
-if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
+if (location.hash === '#import') document.getElementById('import-card').scrollIntoView();
+else if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
 
 /* ---- 요약 ---- */
 async function loadSummary() {
@@ -202,6 +204,25 @@ $('#set-save').onclick = async () => {
   await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok');
 };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 30초쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); loadSummary(); loadLedger(); };
+
+/* ---- 리포트 파일 올리기 ---- */
+$('#import-sales').onchange = async (ev) => {
+  const files = [...ev.target.files]; if (!files.length) return;
+  const results = [];
+  for (const f of files) {
+    try { const r = await importSalesFile(await f.arrayBuffer(), f.name, $('#import-date').value || null); results.push(`${f.name} → ${r.date} 판매 ${r.saved}건 저장` + (r.unmapped ? ` (캠페인/마진 미입력 옵션 ${r.unmapped}개 → 옵션 · 마진 관리)` : '')); }
+    catch (e) { results.push(`${f.name}: ${e.message}`); }
+  }
+  msg('#import-msg', results.join(' / '), results.some((r) => /실패|못|않/.test(r)) ? 'err' : 'ok');
+  ev.target.value = ''; loadSummary(); loadLedger();
+};
+$('#import-ads').onchange = async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  try { const r = await importAdsFile(await f.arrayBuffer(), f.name, $('#import-date').value || null); msg('#import-msg', `${f.name} → ${r.date} 광고 ${r.saved}건 저장`, 'ok'); }
+  catch (e) { msg('#import-msg', e.message, 'err'); }
+  ev.target.value = ''; loadSummary(); loadLedger();
+};
+$('#import-date').value = localIso(yday);
 
 /* ---- 초기화 ---- */
 $('#ads-date').value = localIso(yday);
