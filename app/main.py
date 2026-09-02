@@ -101,7 +101,7 @@ async def set_conditions(req: Request):
     for k in config.DEFAULT_CONDITIONS:
         if k in body:
             v = body[k]
-            if k in ("exclude_restricted", "hide_ads", "auto_continue"):
+            if k in ("exclude_restricted", "hide_ads", "auto_continue", "only_mergeable", "fetch_rank"):
                 cond[k] = bool(v)
             elif k == "conv_min":
                 cond[k] = float(v or 0)

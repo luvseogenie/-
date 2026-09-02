@@ -320,18 +320,92 @@ def _parse_item(it: dict) -> dict:
     }
 
 
-def _trends_search(page, query: str, limit: int = 100) -> list:
-    body = {"searchCondition": {"start": 0, "limit": limit, "query": query, "sort": ["BEST_SELLING"], "filter": {},
+def _trends_body(query: str, limit: int = 100) -> dict:
+    return {"searchCondition": {"start": 0, "limit": limit, "query": query, "sort": ["BEST_SELLING"], "filter": {},
             "context": {"bundleId": 62, "ip": "127.0.0.1", "viewType": "WEB", "sourcePage": "Srp", "pcid": "unknown",
                         "channel": "unknown", "userNo": 0, "uuid": "", "osType": "PC", "appVersion": "1.0.0",
                         "abTests": None, "engineParams": {}, "filteredAbTests": None, "swapSet": None}}}
-    data = _fetch_json(page, TRENDS_URL, "POST", body)
-    return (data or {}).get("searchItems") or []
+
+
+def _trends_via_request(page, query: str, limit: int = 100) -> list:
+    """브라우저 컨텍스트의 요청 기능으로 호출 (쿠키 공유)."""
+    resp = page.request.post(TRENDS_URL, data=json.dumps(_trends_body(query, limit), ensure_ascii=False).encode("utf-8"),
+                             headers={"content-type": "application/json", "accept": "application/json, text/plain, */*",
+                                      "x-requested-with": "XMLHttpRequest"}, timeout=30000, max_redirects=0)
+    if resp.status in (301, 302, 303, 307, 308):
+        loc = resp.headers.get("location", "")
+        if _is_login_url(loc):
+            raise WingLoginRequired()
+        raise RuntimeError(f"HTTP {resp.status} → {loc[:120]}")
+    ctype = (resp.headers.get("content-type") or "").lower()
+    text = resp.text()
+    if resp.status == 401 or 'name="username"' in text:
+        raise WingLoginRequired()
+    if resp.status >= 400 or "json" not in ctype:
+        raise RuntimeError(f"HTTP {resp.status} {ctype[:40]} {text[:160]!r}")
+    return (json.loads(text) or {}).get("searchItems") or []
+
+
+def _trends_via_ui(page, query: str) -> list:
+    """실제 인기상품검색 화면의 검색창에 입력해서 화면이 받는 응답을 읽는다 (느리지만 확실)."""
+    if "coupang-trends" not in page.url:
+        page.goto(TRENDS_PAGE_URL, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2000)
+        if _is_login_url(page.url):
+            raise WingLoginRequired()
+    box = None
+    for sel in ('input[placeholder*="검색"]', 'input[type="search"]', 'input[type="text"]', 'input:not([type])'):
+        loc = page.locator(sel)
+        for i in range(min(loc.count(), 5)):
+            cand = loc.nth(i)
+            try:
+                if cand.is_visible():
+                    box = cand
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if box is not None:
+            break
+    if box is None:
+        raise RuntimeError("검색창을 찾지 못했습니다")
+    with page.expect_response(lambda r: "trends/search" in r.url, timeout=20000) as ri:
+        box.fill("")
+        box.fill(query)
+        box.press("Enter")
+    resp = ri.value
+    if resp.status >= 400:
+        raise RuntimeError(f"화면 검색 응답 HTTP {resp.status}")
+    return (resp.json() or {}).get("searchItems") or []
+
+
+def _trends_search(page, query: str, limit: int = 100) -> list:
+    errors = []
+    try:
+        data = _fetch_json(page, TRENDS_URL, "POST", _trends_body(query, limit))
+        return (data or {}).get("searchItems") or []
+    except WingLoginRequired:
+        raise
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"fetch: {e}")
+    try:
+        return _trends_via_request(page, query, limit)
+    except WingLoginRequired:
+        raise
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"request: {e}")
+    if _state.get("ui_rank"):
+        try:
+            return _trends_via_ui(page, query)
+        except WingLoginRequired:
+            raise
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"ui: {e}")
+    raise RuntimeError(" / ".join(errors))
 
 
 PREMATCH_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/productmatch/prematch/product-items"
 TRENDS_PAGE_URL = "https://wing.coupang.com/tenants/rfm-ss/coupang-trends/popularity-search"
-_state = {"trends_disabled": False, "trends_fail": 0, "warmed": False}
+_state = {"trends_disabled": False, "trends_fail": 0, "warmed": False, "ui_rank": False}
 
 
 def warmup(bt):
@@ -362,6 +436,10 @@ def reset_caches():
     _trends_cache.clear()
     _category_cache.clear()
     _state.update({"trends_disabled": False, "trends_fail": 0, "warmed": False})
+
+
+def set_ui_rank(enabled: bool):
+    _state["ui_rank"] = bool(enabled)
 
 
 def _coupang_page(bt):
@@ -534,6 +612,11 @@ def test_connection(bt) -> dict:
     try:
         warmup(bt)
         page = wing_page(bt)
+    except WingLoginRequired:
+        out["trends_error"] = "로그인 필요"
+    prev = _state.get("ui_rank")
+    _state["ui_rank"] = True
+    try:
         items = _trends_search(page, "코멧 분리수거 비닐봉투")
         out["trends_count"] = len(items)
         out["trends_first"] = {k: items[0].get(k) for k in ("productId", "productName", "lowerPvLast28d", "upperPvLast28d", "pvLast28dRank")} if items else None
@@ -541,6 +624,8 @@ def test_connection(bt) -> dict:
         out["trends_error"] = "로그인 필요"
     except Exception as e:  # noqa: BLE001
         out["trends_error"] = str(e)
+    finally:
+        _state["ui_rank"] = prev
     out["page_url_after"] = page.url
     return out
 

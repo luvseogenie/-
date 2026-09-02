@@ -45,6 +45,7 @@ DEFAULT_CONDITIONS = {
     "conv_min": 0,
     "buyers_min": 0,
     "only_mergeable": False,
+    "fetch_rank": False,          # 판매 순위도 조회 (인기상품검색 화면 이용, 느림)
     "pages": 1,
     "exclude_restricted": True,   # 못 파는 물건(전기용품·화장품·어린이제품) 빼기
     "hide_ads": False,

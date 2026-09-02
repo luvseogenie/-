@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'sales_min', 'sales_max', 'conv_min', 'buyers_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'only_mergeable'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'sales_min', 'sales_max', 'conv_min', 'buyers_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'only_mergeable', 'fetch_rank'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -382,6 +382,7 @@
   $('#c-auto_continue').addEventListener('change', saveConditions);
   $('#c-exclude_restricted').addEventListener('change', saveConditions);
   $('#c-only_mergeable') && $('#c-only_mergeable').addEventListener('change', saveConditions);
+  $('#c-fetch_rank') && $('#c-fetch_rank').addEventListener('change', saveConditions);
   $('#c-hide_ads').addEventListener('change', saveConditions);
 
   $('#btn-start').addEventListener('click', guard(async () => {

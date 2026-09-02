@@ -212,6 +212,7 @@ class JobController:
         done = set()
         fails = 0
         wing.reset_caches()
+        wing.set_ui_rank(cond.get("fetch_rank"))
         try:
             wing.warmup(bt)
         except wing.WingLoginRequired:
