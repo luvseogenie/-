@@ -167,7 +167,7 @@ def load_config() -> dict | None:
 
 
 def is_configured() -> bool:
-    return load_config() is not None
+    return True   # 윙 인기상품검색 API 를 직접 쓰므로 로그인만 되어 있으면 된다
 
 
 def _dig(obj, path: str):
@@ -199,8 +199,101 @@ def _to_int(v):
     return int(m.group(0).replace(",", "")) if m else None
 
 
-def lookup(bt, product: dict) -> dict:
-    """wing_config.json 에 적힌 방식으로 상품 하나를 조회한다.
+TRENDS_URL = "https://wing.coupang.com/tenants/rfm-ss/api/trends/search"
+
+
+def _clean_query(name: str) -> str:
+    n = (name or "").split(",")[0].strip()
+    return n[:40] if n else (name or "")[:40]
+
+
+def _gmean(lo, hi):
+    lo = lo or 0
+    hi = hi or 0
+    if lo and hi:
+        return int(round((lo * hi) ** 0.5))
+    return hi or lo or None
+
+
+def _parse_item(it: dict) -> dict:
+    sp = it.get("salesPrice") or {}
+    cats = it.get("displayCategoryInfos") or []
+    hierarchy = ""
+    if cats and isinstance(cats, list):
+        hierarchy = cats[0].get("categoryHierarchy") or ""
+    lo = _to_int(it.get("lowerPvLast28d"))
+    hi = _to_int(it.get("upperPvLast28d"))
+    return {
+        "sales_28": None,                       # 윙은 판매량 절대값을 주지 않는다 (조회수만)
+        "views_28": _gmean(lo, hi),
+        "pv_low": lo, "pv_high": hi,
+        "pv_rank": _to_int(it.get("pvLast28dRank")),
+        "wing_price": _to_int(sp.get("amount")),
+        "wing_name": it.get("productName"),
+        "wing_rating": it.get("rating"),
+        "wing_review": _to_int(it.get("ratingCount")),
+        "wing_category": hierarchy,
+        "mergeable": it.get("mergeableStatus"),
+        "eligibility": it.get("listingEligibility"),
+    }
+
+
+def _trends_search(ctx, query: str, limit: int = 100) -> list:
+    body = {"searchCondition": {"start": 0, "limit": limit, "query": query, "sort": ["BEST_SELLING"], "filter": {},
+            "context": {"bundleId": 62, "ip": "127.0.0.1", "viewType": "WEB", "sourcePage": "Srp", "pcid": "unknown",
+                        "channel": "unknown", "userNo": 0, "uuid": "", "osType": "PC", "appVersion": "1.0.0",
+                        "abTests": None, "engineParams": {}, "filteredAbTests": None, "swapSet": None}}}
+    resp = ctx.request.post(TRENDS_URL, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                            headers={"content-type": "application/json", "accept": "application/json",
+                                     "referer": "https://wing.coupang.com/tenants/rfm-ss/", "origin": "https://wing.coupang.com"},
+                            timeout=30000)
+    if resp.status in (401, 403) or "login" in resp.url:
+        raise WingLoginRequired()
+    if resp.status >= 400:
+        raise RuntimeError(f"윙 응답 오류 HTTP {resp.status}")
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError("윙 응답을 해석하지 못했습니다 (로그인이 풀렸을 수 있습니다)")
+    return data.get("searchItems") or []
+
+
+def lookup(bt, product: dict):
+    """상품 이름으로 윙 인기상품검색을 호출해 조회수·순위·매칭여부를 가져온다.
+
+    반환: (self_fields | None, others: {product_id: fields})
+    한 번 검색하면 비슷한 상품 최대 100개가 오므로, 같은 실행에서 아직 분석 안 한
+    상품이 그 안에 있으면 함께 채워 호출 수를 줄인다.
+    """
+    ctx = bt.ensure_context()
+    want = product.get("product_id")
+    queries = [_clean_query(product.get("name"))]
+    # 브랜드+대표명이 너무 길면 앞 두 단어로도 한 번 더 시도
+    short = " ".join((product.get("name") or "").split()[:3])
+    if short and short not in queries:
+        queries.append(short)
+    others = {}
+    self_fields = None
+    for q in queries:
+        if not q:
+            continue
+        items = _trends_search(ctx, q)
+        for it in items:
+            pid = _to_int(it.get("productId"))
+            if pid is None:
+                continue
+            f = _parse_item(it)
+            others[pid] = f
+            if pid == want:
+                self_fields = f
+        if self_fields is not None:
+            break
+    others.pop(want, None)
+    return self_fields, others
+
+
+def lookup_generic(bt, product: dict) -> dict:
+    """(예비) wing_config.json 에 적힌 방식으로 상품 하나를 조회한다.
 
     설정 예시:
     {

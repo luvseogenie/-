@@ -104,6 +104,14 @@ def conn() -> sqlite3.Connection:
 def init_db():
     c = conn()
     c.executescript(SCHEMA)
+    # 윙 인기상품검색에서 얻는 값들 (예전 DB에도 컬럼을 더한다)
+    extra = [("pv_low", "INTEGER"), ("pv_high", "INTEGER"), ("pv_rank", "INTEGER"),
+             ("mergeable", "TEXT"), ("eligibility", "TEXT"), ("wing_category", "TEXT"),
+             ("wing_rating", "REAL"), ("wing_review", "INTEGER")]
+    have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
+    for col, typ in extra:
+        if col not in have:
+            c.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     c.commit()
 
 
@@ -287,9 +295,12 @@ def save_analysis(run_id, product_id, result: dict | None, error: str | None):
     c = conn()
     if result:
         c.execute(
-            """UPDATE products SET analyzed=1, matched=1, sales_28=?, views_28=?, wing_price=?, wing_name=?,
+            """UPDATE products SET analyzed=1, matched=1, sales_28=?, views_28=?, pv_low=?, pv_high=?, pv_rank=?,
+               wing_price=?, wing_name=?, wing_rating=?, wing_review=?, wing_category=?, mergeable=?, eligibility=?,
                seller_count=?, coupon_flag=?, analysis_error=NULL, analyzed_at=? WHERE run_id=? AND product_id=?""",
-            (result.get("sales_28"), result.get("views_28"), result.get("wing_price"), result.get("wing_name"),
+            (result.get("sales_28"), result.get("views_28"), result.get("pv_low"), result.get("pv_high"),
+             result.get("pv_rank"), result.get("wing_price"), result.get("wing_name"), result.get("wing_rating"),
+             result.get("wing_review"), result.get("wing_category"), result.get("mergeable"), result.get("eligibility"),
              result.get("seller_count"), int(bool(result.get("coupon_flag"))), now(), run_id, product_id),
         )
     else:

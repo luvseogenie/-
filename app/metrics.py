@@ -10,6 +10,32 @@ VERDICT_LABEL = {
 }
 
 
+def _fmt_range(lo, hi):
+    def man(n):
+        if n is None:
+            return None
+        if n >= 10000:
+            v = n / 10000
+            return (f"{v:.0f}만" if v == int(v) else f"{v:.1f}만")
+        return f"{n:,}"
+    a, b = man(lo), man(hi)
+    if a and b:
+        return f"{a}~{b}"
+    return a or b or None
+
+
+def _mergeable_label(status, eligibility) -> str | None:
+    s = (status or "").upper()
+    e = (eligibility or "").upper()
+    if s in ("MERGEABLE", "APPROVE", "OK", "AVAILABLE") or e in ("VALID", "MERGEABLE"):
+        return "매칭 가능"
+    if s in ("DECLINE", "NOT_MERGEABLE", "REJECT") or "NOT_MERGEABLE" in e or "INVALID" in e:
+        return "매칭 불가"
+    if status or eligibility:
+        return "확인 필요"
+    return None
+
+
 def restricted_reason(name: str, category_path: str) -> str | None:
     text = f"{category_path or ''} {name or ''}"
     for label, words in config.RESTRICTED_RULES.items():
@@ -39,6 +65,11 @@ def enrich(p: dict, cond: dict) -> dict:
     out["revenue_28"] = sales * price if sales is not None else None
     out["sales_per_review"] = round(sales / reviews, 1) if sales is not None and reviews else (float(sales) if sales else None)
     out["coupon_flag"] = bool(p.get("coupon_flag")) or (bool(p.get("wing_price")) and not p.get("verified_price"))
+    out["views_range"] = _fmt_range(p.get("pv_low"), p.get("pv_high"))
+    out["mergeable_label"] = _mergeable_label(p.get("mergeable"), p.get("eligibility"))
+    out["mergeable_ok"] = out["mergeable_label"] == "매칭 가능"
+    # 조회 대비 리뷰 비율(관심도) - 판매량 대용 지표
+    out["review_per_view"] = round(reviews / views * 1000, 2) if views else None
 
     if not db.price_review_ok(p, cond):
         v = "excluded"
@@ -48,11 +79,15 @@ def enrich(p: dict, cond: dict) -> dict:
         v = "unmatched"
     else:
         v = "pass"
+        if cond.get("views_min") and (views or 0) < cond["views_min"]:
+            v = "below"
+        if cond.get("views_max") and (views or 0) > cond["views_max"]:
+            v = "below"
         if cond.get("sales_min") and (sales or 0) < cond["sales_min"]:
             v = "below"
-        if cond.get("sales_max") and (sales or 0) > cond["sales_max"]:
-            v = "below"
         if cond.get("conv_min") and (out["conversion"] or 0) < cond["conv_min"]:
+            v = "below"
+        if cond.get("only_mergeable") and not out["mergeable_ok"]:
             v = "below"
     out["verdict"] = v
     out["verdict_label"] = VERDICT_LABEL[v]
@@ -68,6 +103,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
         "categories": len(run_cats),
         "seen": seen_total,
         "passed_revenue": sum((r.get("revenue_28") or 0) for r in passed),
+        "passed_views": sum((r.get("views_28") or 0) for r in passed),
         "counts": {
             "all": len(rows),
             "pass": len(passed),

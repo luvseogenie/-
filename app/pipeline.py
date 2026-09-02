@@ -150,7 +150,7 @@ class JobController:
             if cond.get("auto_continue") and wing.is_configured():
                 self._analyze(bt, run_id, cond)
             elif cond.get("auto_continue"):
-                self.message = "수집 완료. 윙 조회 방식이 아직 설정되지 않아 판매량 분석은 건너뜁니다."
+                self.message = "수집 완료. [28일 판매량 분석]을 누르면 윙 조회수 분석을 시작합니다."
             self._finish()
         except Stopped:
             db.set_run_status(run_id, "stopped")
@@ -204,23 +204,40 @@ class JobController:
     def _analyze(self, bt, run_id, cond, include_excluded=False):
         pending = db.pending_products(run_id, include_excluded, cond)
         already = sum(1 for p in db.products(run_id) if p["analyzed"])
-        self._set("analyzing", "판매량 분석 수집 중", len(pending) + already)
+        self._set("analyzing", "윙 조회수 분석 중", len(pending) + already)
         self.progress["done"] = already
         db.set_run_status(run_id, "analyzing")
-        log.info(f"판매량 분석 시작: {len(pending)}개")
+        log.info(f"윙 조회수 분석 시작: {len(pending)}개")
+        pend_ids = {p["product_id"] for p in pending}
+        done = set()
         fails = 0
         for p in pending:
             self._check()
+            pid = p["product_id"]
+            if pid in done:
+                self.progress["done"] += 1
+                continue
+            self.progress["label"] = (p.get("name") or str(pid))[:38]
             try:
-                result = wing.lookup(bt, p)
-                if result:
-                    db.save_analysis(run_id, p["product_id"], result, None)
-                    fails = 0
+                self_fields, others = wing.lookup(bt, p)
+                if self_fields:
+                    db.save_analysis(run_id, pid, self_fields, None)
                 else:
-                    db.save_analysis(run_id, p["product_id"], None, "윙에서 찾지 못함")
+                    db.save_analysis(run_id, pid, None, "윙 인기상품검색에서 못 찾음")
+                done.add(pid)
+                # 같은 검색 결과에 들어있는 다른 상품도 함께 채운다 (호출 절약)
+                filled = 0
+                for opid, f in others.items():
+                    if opid in pend_ids and opid not in done:
+                        db.save_analysis(run_id, opid, f, None)
+                        done.add(opid)
+                        filled += 1
+                if filled:
+                    log.info(f"'{self.progress['label']}' 검색으로 {filled}개 함께 채움")
+                fails = 0
             except wing.WingLoginRequired:
                 self.paused = True
-                self.message = "윙 로그인이 필요합니다. 브라우저 창에서 로그인한 뒤 [재개]를 눌러주세요."
+                self.message = "윙 로그인이 필요합니다. 열린 브라우저 창에서 윙에 로그인한 뒤 [재개]를 눌러주세요."
                 log.warn(self.message)
                 try:
                     wing.open_login(bt)
@@ -230,16 +247,17 @@ class JobController:
                 continue
             except Exception as e:  # noqa: BLE001
                 fails += 1
-                db.save_analysis(run_id, p["product_id"], None, str(e)[:200])
-                log.warn(f"조회 실패 {p['product_id']}: {e}")
+                db.save_analysis(run_id, pid, None, str(e)[:200])
+                done.add(pid)
+                log.warn(f"조회 실패 {pid}: {e}")
                 if fails >= 8:
                     self.message = "연속 실패가 많아 60초 쉽니다."
                     self._sleep_checked(60)
                     fails = 0
-            self.progress["done"] += 1
-            human_delay(0.4, 1.2)
+            self.progress["done"] = already + len(done)
+            human_delay(0.8, 1.8)
         db.set_run_status(run_id, "analyzed")
-        log.info("판매량 분석 완료")
+        log.info("윙 조회수 분석 완료")
 
     def retry_unmatched(self, run_id):
         n = db.reset_unmatched(run_id)

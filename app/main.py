@@ -269,9 +269,10 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
         "price": lambda r: r.get("effective_price") or 0,
         "views": lambda r: r.get("views_28") or -1,
         "revenue": lambda r: r.get("revenue_28") or -1,
+        "rankpv": lambda r: -(r.get("pv_rank") or 9999),
         "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
     }
-    key = keymap.get(sort or "sales", keymap["sales"])
+    key = keymap.get(sort or "views", keymap["views"])
     reverse = (direction or "desc") == "desc"
     if sort == "rank":
         reverse = False
@@ -280,7 +281,7 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
 
 
 @app.get("/api/products")
-def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc",
+def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "views", dir: str = "desc",
              page: int = 1, size: int = 100):
     run = db.latest_run()
     if not run:
@@ -564,10 +565,14 @@ def make_demo() -> int:
             db.upsert_product(run_id, p, restricted_reason(p["name"], path))
             seen += 1
             if rnd.random() < 0.9:
-                views = rnd.randint(2000, 230000)
-                sales = int(views * rnd.uniform(0.02, 0.18))
-                db.save_analysis(run_id, pid, {"sales_28": sales, "views_28": views, "wing_price": price,
-                                               "seller_count": rnd.choice([None, 1, 3, 9]), "coupon_flag": rnd.random() < 0.5}, None)
+                lo = rnd.choice([1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 400000])
+                hi = lo * 2
+                db.save_analysis(run_id, pid, {"sales_28": None, "views_28": int((lo * hi) ** 0.5), "pv_low": lo, "pv_high": hi,
+                                               "pv_rank": i + 1, "wing_price": price, "wing_rating": 4.7, "wing_review": reviews,
+                                               "wing_category": path.replace(" > ", ">"),
+                                               "mergeable": rnd.choice(["MERGEABLE", "MERGEABLE", "DECLINE"]),
+                                               "eligibility": "VALID", "seller_count": rnd.choice([None, 1, 3, 9]),
+                                               "coupon_flag": rnd.random() < 0.5}, None)
             elif rnd.random() < 0.5:
                 db.save_analysis(run_id, pid, None, "윙에서 찾지 못함")
         db.update_run_category(run_id, cid, status="done", pages_done=1, products_seen=15)
