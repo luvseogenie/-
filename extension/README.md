@@ -4,6 +4,7 @@
 사용법은 **`docs/초보자_가이드.md`** 를 보세요.
 
 ## 파일 구성
+- `업데이트.bat` / `update.ps1` / `업데이트.command` — 이 폴더를 GitHub 최신 버전으로 교체하는 스크립트 (크롬은 이 파일들을 무시함)
 - `manifest.json` — MV3 설정
 - `content.js` — 쿠팡 페이지에서 표(table / ag-grid / ARIA grid)를 읽고 날짜를 찾는다
 - `popup.html/js` — ① 판매 데이터 저장, ② 광고 데이터 저장, 장부 열기
