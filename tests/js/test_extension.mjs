@@ -126,3 +126,22 @@ console.log('extension logic: all checks passed');
   const [s2] = normalizeSales([{ '일자': '2026.08.30', '옵션ID': '123', '매출': '10', '판매량': '1' }], '2026-09-01'); assert.equal(s2.date, '2026-08-30');
   console.log('ad-center parsing: all checks passed');
 }
+
+// 예전 엑셀 장부 가져오기 + 자연매출 지표
+{
+  const { readFileSync } = await import('node:fs');
+  const { importLegacyWorkbook } = await import('../../extension/lib/legacy.js');
+  await S.replaceAll({});
+  const buf = readFileSync(new URL('./fixtures/legacy_small.xlsx', import.meta.url));
+  const r = await importLegacyWorkbook(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  assert.deepEqual([r.options, r.margins, r.ads, r.sales, r.from, r.to], [3, 3, 2, 3, '2025-06-08', '2025-06-08']);
+  const d = await S.load();
+  assert.equal(d.ads['2025-06-08']['2_조거팬츠_238%'].action, '메모'); assert.equal(d.sales['2025-06-08']['12340330543'].revenue, 90000);
+  assert.equal(d.options.length, 4); // 매핑에 없는 판매 옵션도 이름만 등록
+  const led = computeLedger(d, '2025-06-08', '2025-06-08');
+  const b = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
+  assert.equal(b.revenue, 135000); assert.equal(b.organic_qty, 0); assert.equal(b.organic_revenue, 0); // 광고판매 12 = 실제판매 12
+  const g = led.grand; assert.equal(g.revenue, 135000); assert.equal(g.ad_orders, 35); approx(g.profit, -1965.1 + (0 - 77360.8), 0.01); // 조거는 판매 데이터 없음 → 마진 0
+  assert.ok(led.daily['2025-06-08'].spend_vat > 0);
+  console.log('legacy import + organic metrics: all checks passed');
+}

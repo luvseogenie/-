@@ -7,169 +7,161 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header>
-  <h1>쿠팡 광고계산기 <span id="ver" class="mini"></span></h1>
-  <nav>
-    <button data-tab="ledger" class="active">광고 장부</button>
-    <button data-tab="ads">일별 광고 입력</button>
-    <button data-tab="options">옵션 · 마진 관리</button>
-    <button data-tab="data">백업 · 설정</button>
-  </nav>
-  <span class="grow"></span>
-  <span id="summary" class="mini"></span>
-</header>
-<main>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">₩</div><b>광고계산기</b><span class="ver" id="ver"></span></div>
+    <nav class="nav">
+      <button data-page="dash" class="active"><span class="ico">▦</span>대시보드</button>
+      <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
+      <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
+      <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
+      <button data-page="data"><span class="ico">⇅</span>데이터 · 설정</button>
+    </nav>
+    <div class="foot" id="foot"></div>
+  </aside>
 
-<section id="tab-ledger" class="active">
-  <div class="card" id="import-card">
-    <div class="row">
-      <b>📂 판매 리포트 파일 올리기</b>
-      <span class="mini">판매분석 → 어제 → 엑셀 다운로드 → <b>상품별 판매 리포트</b> 로 받은 파일을 올리면 저장됩니다. 파일 여러 개를 한 번에 올려도 됩니다.</span>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <label>데이터 날짜</label><input type="date" id="import-date" class="date">
-      <span class="mini">(기본은 어제. 파일명에 '20250901~20250901' 같은 기간이 있으면 그 날짜를 씁니다)</span>
-      <label class="btn primary">파일 선택 <input type="file" id="import-sales" accept=".xlsx,.xls,.csv" multiple style="display:none"></label>
-      <span class="mini">광고 CSV/XLSX:</span><label class="btn">파일 선택 <input type="file" id="import-ads" accept=".xlsx,.csv" style="display:none"></label>
-      <span id="import-msg" class="msg"></span>
-    </div>
-    <div id="import-list" style="display:none;margin-top:8px">
-      <table class="form-table"><thead><tr><th>파일</th><th>데이터 날짜</th><th>결과</th></tr></thead><tbody id="import-rows"></tbody></table>
-      <div class="row" style="margin-top:6px"><button class="btn primary" id="import-go">이 날짜로 가져오기</button><button class="btn" id="import-clear">취소</button><span class="mini">파일마다 날짜를 확인하세요. 파일명에 기간이 있으면 자동으로 채워집니다.</span></div>
-    </div>
-  </div>
-  <div class="card" id="range-card">
-    <details id="range-details">
-      <summary><b>📅 지난 날짜 채우기</b> <span class="mini">— 며칠 못 했을 때 기간을 정해 자동으로 가져옵니다 (판매분석 화면을 날짜별로 열어 리포트를 받음)</span></summary>
-      <div class="row" style="margin-top:8px">
-        <label>기간</label><input type="date" id="range-start" class="date"> ~ <input type="date" id="range-end" class="date">
-        <label><input type="checkbox" id="range-sales" checked> 판매</label>
-        <label><input type="checkbox" id="range-ads" checked> 광고</label>
-        <label><input type="checkbox" id="range-missing" checked> 이미 있는 날은 건너뛰기</label>
-        <button class="btn" id="range-check">빠진 날 확인</button>
-        <button class="btn primary" id="range-go">자동으로 가져오기</button>
-        <button class="btn" id="range-stop" style="display:none">중단</button>
+  <main class="main">
+    <div class="topbar">
+      <h1 id="page-title">대시보드</h1>
+      <div class="range" id="range">
+        <button data-r="yday">어제</button><button data-r="7">최근 7일</button><button data-r="30" class="active">최근 30일</button>
+        <button data-r="month">이번 달</button><button data-r="prev">지난 달</button><button data-r="all">전체</button>
+        <input type="date" id="r-start"> <span class="sub">~</span> <input type="date" id="r-end"> <button data-r="custom">적용</button>
       </div>
-      <div id="range-missing-list" class="mini" style="margin-top:6px"></div>
-      <div class="mini" style="margin-top:6px">광고는 광고 관리 주소에 <code>{date}</code> 가 있어야 자동으로 열 수 있습니다(백업 · 설정). 없으면 광고센터에서 날짜를 고르고 팝업의 날짜를 맞춘 뒤 ② 를 누르세요. 크롬이 로그인된 상태여야 하며, 실행 중 탭이 열렸다 닫힙니다.</div>
-      <pre class="log" id="range-log" style="display:none"></pre>
-    </details>
-  </div>
-  <div class="card row">
-    <label>기간</label>
-    <input type="date" id="ledger-start" class="date"> ~ <input type="date" id="ledger-end" class="date">
-    <button class="btn" data-range="month">이번 달</button>
-    <button class="btn" data-range="prev">지난 달</button>
-    <button class="btn" data-range="30">최근 30일</button>
-    <button class="btn" data-range="all">전체</button>
-    <button class="btn primary" id="ledger-load">조회</button>
-    <label><input type="checkbox" id="ledger-hide-empty" checked> 데이터 없는 날 숨기기</label>
-    <label><input type="checkbox" id="ledger-show-action"> ACTION 메모 표시</label>
-    <span class="grow"></span>
-    <button class="btn" id="ledger-csv">CSV 내보내기</button>
-  </div>
-  <div id="ledger-warn"></div>
-  <div id="ledger-empty" class="card" style="display:none">
-    <b>아직 데이터가 없습니다.</b>
-    <ol class="mini" style="line-height:1.8">
-      <li>쿠팡 판매자센터 → 비즈니스 인사이트 → 판매분석 → <b>어제</b> 를 누른 화면에서, 오른쪽 위 확장 프로그램 아이콘(파란 네모) → <b>① 판매 데이터 저장</b></li>
-      <li>광고센터 → 광고 관리 → 매출 성장 → <b>어제</b> 화면에서, 확장 프로그램 아이콘 → <b>② 광고 데이터 저장</b></li>
-      <li>'옵션 · 마진 관리' 에서 옵션마다 광고 캠페인 이름과 마진을 넣으면 장부가 계산됩니다.</li>
-    </ol>
-  </div>
-  <div class="tablewrap"><table id="ledger-table"></table></div>
-  <p class="mini">순이익 = 광고 마진(Σ 판매량 × 그 날짜에 적용되는 옵션 마진) − 집행 광고비×1.1(부가세). 월 합계 열의 광고수익률·CPC·클릭률·전환율은 월 누계 기준으로 다시 계산한 값입니다. 붉은 배경은 마진이 등록되지 않은 옵션의 판매가 포함된 날입니다.</p>
-</section>
+    </div>
+    <div id="notice"></div>
 
-<section id="tab-ads">
-  <div class="card" id="paste-card">
-    <details id="paste-details">
-      <summary><b>📋 붙여넣기로 저장</b> <span class="mini">— 광고센터 캠페인 표를 마우스로 드래그해 복사(Ctrl+C)한 뒤 여기에 붙여넣기(Ctrl+V). 머리글 줄(캠페인 이름, 광고비 …)부터 포함해서 복사하세요.</span></summary>
-      <div class="row" style="margin-top:8px"><label>데이터 날짜</label><input type="date" id="paste-date" class="date">
-        <label><input type="radio" name="paste-kind" value="ads" checked> 광고</label><label><input type="radio" name="paste-kind" value="sales"> 판매</label>
-        <button class="btn primary" id="paste-go">저장</button><span id="paste-msg" class="msg"></span></div>
-      <textarea id="paste-text" style="width:100%;height:120px;margin-top:6px;font-family:monospace;font-size:12px" placeholder="캠페인 이름	광고비	광고전환 매출	노출수	클릭수 …&#10;1_버킷햇_240%	67,241	180,000	51,328	153 …"></textarea>
-    </details>
-  </div>
-  <div class="card">
-    <div class="row">
-      <label>날짜</label><input type="date" id="ads-date" class="date">
-      <button class="btn" id="ads-prev">◀ 전날</button>
-      <button class="btn" id="ads-next">다음날 ▶</button>
-      <span class="mini">확장 프로그램으로 저장한 광고 데이터를 확인·수정하거나 직접 입력합니다. 퍼센트 항목(목표효율·전환율·클릭률)은 화면에 보이는 % 단위 숫자 그대로 (예: 400, 7.8, 0.15).</span>
-      <span class="grow"></span>
-      <button class="btn" id="ads-add">캠페인 행 추가</button>
-      <button class="btn primary" id="ads-save">저장</button>
-      <span id="ads-msg" class="msg"></span>
-    </div>
-    <div class="tablewrap" style="max-height:none;margin-top:10px">
-      <table class="form-table" id="ads-table">
-        <thead><tr>
-          <th>캠페인 이름</th><th>목표효율</th><th>광고예산</th><th>집행 광고비</th><th>광고전환 매출</th>
-          <th>전환율</th><th>클릭률</th><th>노출수</th><th>클릭수</th><th>광고전환 판매수</th><th>ACTION 메모</th><th></th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-</section>
+    <!-- ===== 대시보드 ===== -->
+    <section id="page-dash">
+      <div id="dash-empty" class="card empty" style="display:none">
+        <b>아직 데이터가 없습니다</b>
+        <div class="steps">
+          1. 판매자센터 → 비즈니스 인사이트 → 판매분석 → <b>어제</b> → 확장 아이콘 → <b>① 판매 데이터 저장</b><br>
+          2. 광고센터 → 광고 관리 → 매출 성장 → <b>어제</b> → 확장 아이콘 → <b>② 광고 데이터 저장</b><br>
+          3. 예전 엑셀 장부가 있으면 <a href="#data">데이터 · 설정</a> 에서 <b>엑셀 장부 가져오기</b><br>
+          4. <a href="#options">캠페인 · 옵션</a> 에서 옵션마다 캠페인 이름과 마진 입력
+        </div>
+      </div>
+      <div id="dash-body">
+        <div class="kpis" id="kpis"></div>
+        <div class="charts">
+          <div class="card chart-card"><h2>일별 순이익 <span class="sub">판매 마진 − 광고비(부가세 포함)</span></h2><div class="chart" id="ch-profit"></div></div>
+          <div class="card chart-card"><h2>일별 매출 구성 <span class="sub">광고로 판 매출과 자연 매출</span></h2><div class="legend"><span><i style="background:#2a78d6"></i>광고 매출</span><span><i style="background:#1baf7a"></i>자연 매출</span></div><div class="chart" id="ch-rev"></div></div>
+          <div class="card chart-card"><h2>광고비와 광고 매출 <span class="sub">광고비는 부가세 포함</span></h2><div class="legend"><span><i style="background:#eb6834"></i>광고비</span><span><i style="background:#2a78d6"></i>광고 매출</span></div><div class="chart" id="ch-cost"></div></div>
+          <div class="card chart-card"><h2>일별 판매 수 <span class="sub">광고 전환 판매와 자연 판매</span></h2><div class="legend"><span><i style="background:#2a78d6"></i>광고 판매</span><span><i style="background:#1baf7a"></i>자연 판매</span></div><div class="chart" id="ch-qty"></div></div>
+        </div>
+        <div class="card">
+          <h2>캠페인별 성과 <span class="sub" id="camp-sub"></span><span class="grow"></span><label class="chk"><input type="checkbox" id="camp-hide-zero" checked> 광고비 0인 캠페인 숨기기</label></h2>
+          <div class="tablewrap"><table id="camp-table"></table></div>
+        </div>
+      </div>
+    </section>
 
-<section id="tab-options">
-  <div class="card">
-    <div class="row">
-      <b>옵션 · 캠페인 · 마진</b>
-      <span class="mini">판매 데이터를 저장하면 옵션이 자동으로 이 목록에 들어옵니다. 각 옵션에 <b>광고 캠페인 이름</b>(광고센터의 캠페인명과 똑같이)과 <b>마진</b>을 넣으세요. 마진이 바뀌면 '마진 변경' 에 새 마진과 <b>적용 시작일</b>을 넣으면 그 날부터만 적용됩니다.</span>
-      <span class="grow"></span>
-      <button class="btn" id="opt-new-toggle">옵션 직접 추가</button>
-    </div>
-    <div id="new-option" class="row" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:6px">
-      <input id="no-id" class="short" placeholder="옵션ID">
-      <input id="no-name" style="width:280px" placeholder="상품명 (옵션명 포함)">
-      <input id="no-camp" style="width:180px" placeholder="광고 캠페인 이름">
-      <input id="no-margin" class="num" type="number" placeholder="옵션마진">
-      <button class="btn primary" id="opt-new-save">추가</button>
-    </div>
-    <div class="row" style="margin-top:6px"><span id="opt-msg" class="msg"></span></div>
-    <div class="tablewrap" style="max-height:none;margin-top:6px">
-      <table class="form-table" id="options-table">
-        <thead><tr><th>옵션ID</th><th>상품명</th><th>광고 캠페인</th><th>현재 마진</th><th>마진 이력</th><th>마진 변경</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-</section>
+    <!-- ===== 광고 장부 (피벗) ===== -->
+    <section id="page-ledger" style="display:none">
+      <div class="card">
+        <div class="row">
+          <b>표시 항목</b>
+          <div class="metric-picker" id="metric-picker"></div>
+          <span class="grow"></span>
+          <label class="chk"><input type="checkbox" id="lg-hide-empty" checked> 데이터 없는 날 숨기기</label>
+          <label class="chk"><input type="checkbox" id="lg-action"> ACTION 메모</label>
+          <button class="btn sm" id="lg-csv">CSV 내보내기</button>
+        </div>
+        <div id="lg-warn"></div>
+        <div class="pivot"><div class="tablewrap"><table id="lg-table"></table></div></div>
+        <p class="sub" style="margin:8px 0 0">순이익 = 판매 마진(Σ 판매량 × 그 날짜의 옵션 마진) − 집행 광고비 × 1.1. 자연 판매 = 실제 판매 − 광고 전환 판매. 월 합계 열의 비율은 월 누계로 다시 계산. 붉은 칸은 마진 미등록 옵션의 판매가 섞인 날.</p>
+      </div>
+    </section>
 
-<section id="tab-data">
-  <div class="card">
-    <b>백업 · 복원</b>
-    <p class="mini">데이터는 이 크롬 안에만 저장됩니다. 가끔 백업 파일을 받아 두세요. 다른 PC 로 옮길 때는 백업 파일을 복원하면 됩니다.</p>
-    <div class="row">
-      <button class="btn primary" id="backup">백업 파일 받기 (JSON)</button>
-      <label class="btn">복원 <input type="file" id="restore" accept=".json" style="display:none"></label>
-      <button class="btn" id="sales-csv">판매 데이터 CSV</button>
-      <button class="btn" id="ads-csv">광고 데이터 CSV</button>
-      <span id="data-msg" class="msg"></span>
-    </div>
-  </div>
-  <div class="card">
-    <b>매일 자동 수집</b>
-    <p class="mini">크롬이 켜져 있으면 정해진 시각에 두 화면을 백그라운드에서 열어 '어제' 데이터를 저장합니다. 주소의 <code>{date}</code> 자리에 어제 날짜가 자동으로 들어갑니다. 광고 관리 화면은 '어제' 를 누른 뒤 주소창의 주소를 복사해 넣으세요.</p>
-    <div class="row"><label style="width:150px">판매분석 주소</label><input id="set-salesUrl" style="width:520px"></div>
-    <div class="row"><label style="width:150px">광고 관리 주소</label><input id="set-adsUrl" style="width:520px"></div>
-    <div class="row"><label style="width:150px">빠진 날 보충</label>최근 <input type="number" id="set-fillMissingDays" class="num" min="0" max="60"> 일 중 저장 안 된 날도 함께 수집 (0 = 안 함)</div>
-    <div class="row"><label style="width:150px">시각</label><input type="time" id="set-autoTime"> <label><input type="checkbox" id="set-autoEnabled"> 자동 수집 켜기</label>
-      <label style="margin-left:12px">페이지 대기(초)</label><input type="number" id="set-waitSeconds" class="num" min="3" max="120"></div>
-    <div class="row"><button class="btn primary" id="set-save">설정 저장</button><button class="btn" id="run-auto">지금 자동 수집 실행</button><span id="set-msg" class="msg"></span></div>
-    <pre class="log" id="auto-log"></pre>
-  </div>
-  <div class="card">
-    <details><summary>고급: 파이썬 서버로도 보내기</summary>
-      <p class="mini">저장소의 파이썬 프로그램(coupang_calc)을 함께 쓰는 경우에만 켜세요. 일반 사용자는 필요 없습니다.</p>
-      <div class="row"><label><input type="checkbox" id="set-serverSync"> 서버로도 전송</label><input id="set-server" style="width:260px" placeholder="http://127.0.0.1:8765"></div>
-    </details>
-  </div>
-</section>
-</main>
+    <!-- ===== 캠페인 · 옵션 ===== -->
+    <section id="page-options" style="display:none">
+      <div class="card">
+        <h2>옵션 · 캠페인 · 마진 <span class="sub">옵션마다 광고 캠페인 이름(광고센터와 똑같이)과 마진을 넣으면 장부가 계산됩니다. 광고를 안 하는 옵션은 캠페인을 비워 두면 '자연 판매'로만 집계됩니다.</span></h2>
+        <div class="row" style="margin-bottom:10px">
+          <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:280px">
+          <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option></select>
+          <span class="sub" id="opt-count"></span>
+          <span class="grow"></span>
+          <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>
+        </div>
+        <div id="new-option" class="row" style="display:none;margin-bottom:10px;padding:10px;background:var(--surface-2);border-radius:10px">
+          <input id="no-id" class="short" placeholder="옵션ID"><input id="no-name" style="width:280px" placeholder="상품명 (옵션명 포함)"><input id="no-camp" style="width:180px" placeholder="광고 캠페인 이름"><input id="no-margin" class="tiny" type="number" placeholder="마진">
+          <button class="btn primary sm" id="opt-new-save">추가</button>
+        </div>
+        <div class="msg" id="opt-msg"></div>
+        <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l">마진 변경 (새 마진 · 적용 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ===== 광고 입력 ===== -->
+    <section id="page-ads" style="display:none">
+      <div class="card">
+        <h2>일별 광고 입력 <span class="sub">확장 프로그램으로 저장한 광고 숫자를 확인·수정하거나 직접 입력합니다. 퍼센트 항목은 화면의 % 단위 숫자 그대로 (예: 400, 7.8, 0.15).</span></h2>
+        <div class="row" style="margin-bottom:10px">
+          <label class="sub">날짜</label><input type="date" id="ads-date"><button class="btn sm" id="ads-prev">◀</button><button class="btn sm" id="ads-next">▶</button>
+          <span class="grow"></span><button class="btn sm" id="ads-add">캠페인 행 추가</button><button class="btn primary sm" id="ads-save">저장</button><span id="ads-msg" class="msg"></span>
+        </div>
+        <div class="tablewrap"><table class="form-table" id="ads-table"><thead><tr><th class="l">캠페인 이름</th><th>목표효율</th><th>광고예산</th><th>집행 광고비</th><th>광고전환 매출</th><th>전환율</th><th>클릭률</th><th>노출수</th><th>클릭수</th><th>광고전환 판매수</th><th class="l">ACTION 메모</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <details id="paste-details"><summary>📋 붙여넣기로 저장 — 광고센터 캠페인 표를 머리글부터 드래그 복사해서 붙여넣기</summary>
+          <div class="row" style="margin-top:8px"><label class="sub">데이터 날짜</label><input type="date" id="paste-date"><label class="chk"><input type="radio" name="paste-kind" value="ads" checked> 광고</label><label class="chk"><input type="radio" name="paste-kind" value="sales"> 판매</label><button class="btn primary sm" id="paste-go">저장</button><span id="paste-msg" class="msg"></span></div>
+          <textarea id="paste-text" style="width:100%;height:110px;margin-top:6px;font-family:monospace;font-size:12px" placeholder="캠페인 이름	광고비	광고전환 매출	노출수	클릭수 …"></textarea>
+        </details>
+      </div>
+    </section>
+
+    <!-- ===== 데이터 · 설정 ===== -->
+    <section id="page-data" style="display:none">
+      <div class="grid2">
+        <div class="card" id="import-card">
+          <h2>📂 판매 리포트 파일 올리기</h2>
+          <p class="sub" style="margin:0 0 8px">판매분석 → 어제 → 엑셀 다운로드 → <b>상품별 판매 리포트</b> 파일. 여러 개를 한 번에 올려도 됩니다.</p>
+          <div class="row"><label class="sub">기본 날짜</label><input type="date" id="import-date"><label class="btn primary">파일 선택 <input type="file" id="import-sales" accept=".xlsx,.xls,.csv" multiple style="display:none"></label><span class="sub">광고 CSV/XLSX:</span><label class="btn">파일 선택 <input type="file" id="import-ads" accept=".xlsx,.csv" style="display:none"></label></div>
+          <div class="msg" id="import-msg"></div>
+          <div id="import-list" style="display:none;margin-top:8px"><table class="form-table"><thead><tr><th class="l">파일</th><th class="l">데이터 날짜</th><th class="l">결과</th></tr></thead><tbody id="import-rows"></tbody></table>
+            <div class="row" style="margin-top:6px"><button class="btn primary sm" id="import-go">이 날짜로 가져오기</button><button class="btn sm" id="import-clear">취소</button></div></div>
+        </div>
+        <div class="card">
+          <h2>📗 예전 엑셀 장부 가져오기</h2>
+          <p class="sub" style="margin:0 0 8px">작년부터 쓰던 <b>광고계산기 엑셀</b>(1. 매핑 / 2. 광고 실적 / 3. 매출 실적 시트)을 그대로 올리면 옵션·마진·광고·판매를 모두 가져옵니다. 같은 날짜는 덮어씁니다.</p>
+          <div class="row"><label class="btn primary">엑셀 파일 선택 <input type="file" id="import-legacy" accept=".xlsx" style="display:none"></label><span id="legacy-msg" class="msg"></span></div>
+        </div>
+      </div>
+      <div class="card" id="range-card">
+        <h2>📅 지난 날짜 채우기 <span class="sub">며칠 못 했을 때 기간을 정해 자동으로 가져옵니다 (날짜별로 판매분석을 열어 리포트를 받음)</span></h2>
+        <div class="row">
+          <input type="date" id="range-start"> <span class="sub">~</span> <input type="date" id="range-end">
+          <label class="chk"><input type="checkbox" id="range-sales" checked> 판매</label><label class="chk"><input type="checkbox" id="range-ads" checked> 광고</label><label class="chk"><input type="checkbox" id="range-missing" checked> 이미 있는 날은 건너뛰기</label>
+          <button class="btn sm" id="range-check">빠진 날 확인</button><button class="btn primary sm" id="range-go">자동으로 가져오기</button><button class="btn sm" id="range-stop" style="display:none">중단</button>
+        </div>
+        <div id="range-missing-list" class="sub" style="margin-top:6px"></div>
+        <pre class="log" id="range-log" style="display:none;margin-top:8px"></pre>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>💾 백업 · 내보내기</h2>
+          <p class="sub" style="margin:0 0 8px">데이터는 이 크롬 안에만 저장됩니다. 가끔 백업 파일을 받아 두세요. 다른 PC 에서는 복원하면 됩니다.</p>
+          <div class="row"><button class="btn primary sm" id="backup">백업 파일 받기 (JSON)</button><label class="btn sm">복원 <input type="file" id="restore" accept=".json" style="display:none"></label><button class="btn sm" id="sales-csv">판매 데이터 CSV</button><button class="btn sm" id="ads-csv">광고 데이터 CSV</button><span id="data-msg" class="msg"></span></div>
+        </div>
+        <div class="card">
+          <h2>⏰ 매일 자동 수집</h2>
+          <div class="row"><label class="sub" style="width:120px">판매분석 주소</label><input id="set-salesUrl" style="flex:1"></div>
+          <div class="row" style="margin-top:6px"><label class="sub" style="width:120px">광고 관리 주소</label><input id="set-adsUrl" style="flex:1"></div>
+          <div class="row" style="margin-top:6px"><label class="sub" style="width:120px">시각</label><input type="time" id="set-autoTime"><label class="chk"><input type="checkbox" id="set-autoEnabled"> 자동 수집 켜기</label><label class="sub">대기(초)</label><input type="number" id="set-waitSeconds" class="tiny" min="3" max="120"><label class="sub">빠진 날 보충</label><input type="number" id="set-fillMissingDays" class="tiny" min="0" max="60"><span class="sub">일</span></div>
+          <p class="sub" style="margin:6px 0">주소의 <code>{date}</code> 자리에 어제 날짜가 들어갑니다. 크롬이 켜져 있어야 합니다.</p>
+          <div class="row"><button class="btn primary sm" id="set-save">설정 저장</button><button class="btn sm" id="run-auto">지금 자동 수집 실행</button><span id="set-msg" class="msg"></span></div>
+          <details style="margin-top:8px"><summary>고급: 파이썬 서버로도 보내기</summary><div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="set-serverSync"> 서버로도 전송</label><input id="set-server" style="width:240px" placeholder="http://127.0.0.1:8765"></div></details>
+          <pre class="log" id="auto-log" style="margin-top:8px"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<div class="drawer" id="drawer"></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

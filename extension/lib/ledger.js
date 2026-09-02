@@ -6,11 +6,28 @@ export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['roas', '광고수익률', 'ratio'], ['budget', '광고예산', 'won'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
   ['ctr', '클릭률', 'pct2'], ['conversion', '전환율', 'pct1'], ['ad_orders', '광고 전환 판매 수', 'int'],
-  ['actual_qty', '실제 판매 수', 'int'], ['margin_total', '광고 마진', 'won'], ['profit', '순이익 (광고비제외)', 'won'],
+  ['actual_qty', '실제 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['ad_share', '광고 판매 비중', 'pct0'],
+  ['revenue', '총 매출', 'won'], ['ad_revenue', '광고 매출', 'won'], ['organic_revenue', '자연 매출', 'won'],
+  ['margin_total', '판매 마진', 'won'], ['profit', '순이익 (광고비제외)', 'won'],
 ];
-const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'margin_total', 'profit'];
+// 합계로 더하는 항목. 비율(roas, cpc, ctr, conversion, ad_share)은 합계에서 다시 계산한다.
+const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'organic_qty', 'revenue', 'organic_revenue', 'margin_total', 'profit', 'visitors', 'views'];
 const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0, ad_revenue: 0, cpc: 0, impressions: 0, clicks: 0, ctr: 0,
-  conversion: 0, ad_orders: 0, actual_qty: 0, margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, unmapped_qty: 0 });
+  conversion: 0, ad_orders: 0, actual_qty: 0, organic_qty: 0, ad_share: 0, revenue: 0, organic_revenue: 0, visitors: 0, views: 0,
+  margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, unmapped_qty: 0 });
+export function finalizeCell(c) {
+  c.profit = c.margin_total - c.spend_vat;
+  c.organic_qty = Math.max(0, c.actual_qty - c.ad_orders);
+  c.organic_revenue = Math.max(0, c.revenue - c.ad_revenue);
+  c.ad_share = c.actual_qty ? Math.min(1, c.ad_orders / c.actual_qty) : 0;
+  return c;
+}
+export function finalizeSum(ma) {
+  ma.roas = ma.spend ? ma.ad_revenue / ma.spend : 0; ma.cpc = ma.clicks ? ma.spend / ma.clicks : 0;
+  ma.ctr = ma.impressions ? ma.clicks / ma.impressions : 0; ma.conversion = ma.clicks ? ma.ad_orders / ma.clicks : 0;
+  ma.ad_share = ma.actual_qty ? Math.min(1, ma.ad_orders / ma.actual_qty) : 0;
+  return ma;
+}
 
 function dateRange(start, end) {
   const out = []; const d = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00');
@@ -48,7 +65,7 @@ export function computeLedger(d, start, end) {
       if (!camp) { unmapped.add(s.option_id); continue; }
       const c = get(camp, date); c.has_sales = true;
       const m = margin(s.option_id, date);
-      c.actual_qty += s.quantity; c.margin_total += s.quantity * m;
+      c.actual_qty += s.quantity; c.margin_total += s.quantity * m; c.revenue += s.revenue || 0; c.visitors += s.visitors || 0; c.views += s.views || 0;
       if (m === 0 && s.quantity) c.unmapped_qty += s.quantity;
     }
   }
@@ -59,18 +76,22 @@ export function computeLedger(d, start, end) {
     const days = {}, months = {};
     for (const date of dates) {
       const c = cells[camp]?.[date]; if (!c) continue;
-      c.profit = c.margin_total - c.spend_vat; days[date] = c;
+      finalizeCell(c); days[date] = c;
       total_profit[date] = (total_profit[date] || 0) + c.profit;
       const mk = date.slice(0, 7); month_profit[mk] = (month_profit[mk] || 0) + c.profit;
       const ma = (months[mk] ||= cell());
       for (const k of SUM) ma[k] += c[k];
     }
-    for (const ma of Object.values(months)) {
-      ma.roas = ma.spend ? ma.ad_revenue / ma.spend : 0; ma.cpc = ma.clicks ? ma.spend / ma.clicks : 0;
-      ma.ctr = ma.impressions ? ma.clicks / ma.impressions : 0; ma.conversion = ma.clicks ? ma.ad_orders / ma.clicks : 0;
-    }
-    result.push({ campaign: camp, days, months });
+    for (const ma of Object.values(months)) finalizeSum(ma);
+    const total = cell(); for (const c of Object.values(days)) for (const k of SUM) total[k] += c[k];
+    finalizeSum(total); total.days = Object.keys(days).length;
+    result.push({ campaign: camp, days, months, total });
   }
+  // 날짜별 전체 합계 (대시보드용)
+  const daily = {};
+  for (const c of result) for (const [date, v] of Object.entries(c.days)) { const t = (daily[date] ||= cell()); for (const k of SUM) t[k] += v[k]; }
+  for (const t of Object.values(daily)) finalizeSum(t);
+  const grand = cell(); for (const t of Object.values(daily)) for (const k of SUM) grand[k] += t[k]; finalizeSum(grand);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
-    total_profit, month_profit, unmapped_options: [...unmapped].sort() };
+    total_profit, month_profit, daily, grand, unmapped_options: [...unmapped].sort() };
 }
