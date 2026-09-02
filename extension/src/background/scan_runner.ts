@@ -210,7 +210,7 @@ async function processTarget(target: ScanTarget): Promise<{ count: number; disco
     );
   }
 
-  await api.collect({
+  const saved = await api.collect({
     source_url: parsed.sourceUrl,
     page_type: parsed.pageType,
     category_code: parsed.categoryCode,
@@ -221,6 +221,13 @@ async function processTarget(target: ScanTarget): Promise<{ count: number; disco
     skipped: parsed.skipped,
     parse_errors: parsed.errors.slice(0, 20),
   });
+  // 받기는 했는데 하나도 저장되지 않았다면 성공으로 넘기지 않는다 — 사유를 실패로 남겨 화면에서 보이게 한다.
+  if (saved.received > 0 && saved.saved === 0) {
+    throw new Error(
+      `상품 ${saved.received}개를 읽었지만 저장된 것이 없습니다 (건너뜀 ${saved.skipped}, 중복 ${saved.duplicates}). ` +
+        (saved.errors[0] ?? "사유 없음"),
+    );
+  }
 
   // 목록 페이지면 좌측 메뉴의 하위 카테고리를 트리에 채우고, 직계 하위는 스캔 대상에도 추가되게 한다.
   let discovered: DiscoveredChild[] = [];

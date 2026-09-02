@@ -117,12 +117,15 @@ export function ProductTable({
   loading,
   total,
   hasConditions,
+  onToggleSave,
 }: {
   products: Product[];
   loading: boolean;
   total: number;
   /** 조건이 하나도 설정되지 않았으면 "조건 통과"라고 표시하지 않는다. */
   hasConditions: boolean;
+  /** ☆ 보관함 넣기/빼기 */
+  onToggleSave?: (product: Product) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
@@ -141,19 +144,20 @@ export function ProductTable({
               <TableHead className="w-16 text-right">평점</TableHead>
               <TableHead className="w-28">배송</TableHead>
               <TableHead className="w-20">상품 링크</TableHead>
+              <TableHead className="w-12 text-center" title="보관함에 넣어 두면 검색을 새로 해도 사라지지 않습니다">보관</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={12} className="py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                 </TableCell>
               </TableRow>
             )}
             {!loading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-xs text-muted-foreground">
+                <TableCell colSpan={12} className="py-10 text-center text-xs text-muted-foreground">
                   수집된 상품이 없습니다.
                   <br />
                   왼쪽에서 카테고리를 체크하고 [소싱 시작] → 크롬 확장에서 [자동 수집 시작]을 눌러주세요.
@@ -210,6 +214,17 @@ export function ProductTable({
                       상품보기 <ExternalLink className="h-3 w-3" />
                     </a>
                   </Button>
+                </TableCell>
+                <TableCell className="text-center">
+                  <button
+                    type="button"
+                    className={`text-base leading-none ${p.saved ? "text-[var(--warning)]" : "text-muted-foreground hover:text-foreground"}`}
+                    title={p.saved ? "보관함에서 빼기" : "보관함에 넣기"}
+                    aria-label={p.saved ? "보관함에서 빼기" : "보관함에 넣기"}
+                    onClick={() => onToggleSave?.(p)}
+                  >
+                    {p.saved ? "★" : "☆"}
+                  </button>
                 </TableCell>
               </TableRow>
             ))}

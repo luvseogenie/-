@@ -210,6 +210,27 @@ def prepare_detail_targets(db: Session, job: ScanJob) -> int:
     return created
 
 
+def latest_job_id(db: Session) -> int | None:
+    """가장 최근 검색(자동 스캔) 번호. 진행 중이든 끝났든 마지막 것."""
+    return db.scalar(select(ScanJob.id).order_by(ScanJob.id.desc()).limit(1))
+
+
+def resolve_scan_scope(db: Session, scan: str | None):
+    """?scan=latest|<번호> → products.last_scan_job_id 조건. 검색이 없거나 미지정이면 None(전체)."""
+    if not scan:
+        return None
+    if scan == "latest":
+        job_id = latest_job_id(db)
+    else:
+        try:
+            job_id = int(scan)
+        except ValueError:
+            return None
+    if job_id is None:
+        return None
+    return Product.last_scan_job_id == job_id
+
+
 def active_job(db: Session) -> ScanJob | None:
     stmt = (
         select(ScanJob)

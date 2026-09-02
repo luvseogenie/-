@@ -17,7 +17,9 @@ from app.schemas.product import (
     ReviewDateAnalysisResult,
 )
 from app.services import estimation, monthly_reviews, product_collector
+from app.services import scan_service
 from app.services.filtering import ProductFilter, sort_expression
+from app.models.saved_product import SavedProduct
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -108,6 +110,9 @@ def list_products(
         None,
         description="최근 30일 리뷰수 측정 여부. false면 아직 상세 리뷰를 세지 않은 상품만 (2단계 대기)",
     ),
+    scan: str | None = Query(
+        None, description="검색 범위: latest = 마지막 [소싱 시작]에서 훑은 상품만, 숫자 = 그 검색 번호"
+    ),
     sort: str = Query(
         "monthly_revenue_desc",
         description=(
@@ -139,6 +144,9 @@ def list_products(
         scope.append(Product.monthly_review_count.isnot(None))
     elif measured is False:
         scope.append(Product.monthly_review_count.is_(None))
+    scan_clause = scan_service.resolve_scan_scope(db, scan)
+    if scan_clause is not None:
+        scope.append(scan_clause)
     for clause in scope:
         base = base.where(clause)
 
@@ -164,4 +172,10 @@ def list_products(
         item.condition_passed = filters.passes(product)
         items.append(item)
 
+    # 보관함 여부 (조회 시점에 채운다)
+    saved_ids = set(
+        db.scalars(select(SavedProduct.product_id).where(SavedProduct.product_id.in_([p.id for p in items]))).all()
+    ) if items else set()
+    for item in items:
+        item.saved = item.id in saved_ids
     return ProductListResponse(items=items, total=int(total), page=page, page_size=page_size)

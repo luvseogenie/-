@@ -107,6 +107,9 @@ class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    # 보관함에 있는지 (조회 시점에 채운다)
+    saved: bool = False
+    last_scan_job_id: int | None = None
     product_id: str
     product_name: str
     product_url: str

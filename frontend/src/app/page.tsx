@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, RefreshCw, Search, ShoppingCart } from "lucide-react";
+import { AlertCircle, Bookmark, RefreshCw, Search, ShoppingCart, Star } from "lucide-react";
 
 import { CategoryTree } from "@/components/dashboard/category-tree";
 import { ConditionPanel } from "@/components/dashboard/condition-panel";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { MultiplierPanel } from "@/components/dashboard/multiplier-panel";
 import { ProductTable } from "@/components/dashboard/product-table";
+import { SavedPanel } from "@/components/dashboard/saved-panel";
 import { ScanPanel } from "@/components/dashboard/scan-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ import {
   type Product,
   type ScanStatus,
   type Stats,
+  type SavedProduct,
 } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -64,6 +66,107 @@ export default function DashboardPage() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+
+  /** 결과 범위: 이번 검색([소싱 시작] 마지막 실행)에서 훑은 상품만 / 누적 전체 */
+  const [scope, setScope] = React.useState<"latest" | "all">("latest");
+  /** 오른쪽 화면: 결과 표 / 보관함 */
+  const [mainTab, setMainTab] = React.useState<"results" | "saved">("results");
+  const [savedItems, setSavedItems] = React.useState<SavedProduct[]>([]);
+  const [savedLoading, setSavedLoading] = React.useState(false);
+  const [version, setVersion] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .health()
+      .then((h) => {
+        if (!cancelled && h.version) setVersion(h.version);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadSaved = React.useCallback(async () => {
+    setSavedLoading(true);
+    try {
+      setSavedItems(await api.saved());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "보관함을 불러오지 못했습니다.");
+    } finally {
+      setSavedLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .saved()
+      .then((items) => {
+        if (!cancelled) setSavedItems(items);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** ☆ 보관함 넣기/빼기 */
+  const toggleSave = async (product: Product) => {
+    setError(null);
+    try {
+      if (product.saved) await api.unsaveProduct(product.id);
+      else await api.saveProducts([product.id], scanStatus?.job_id ?? null);
+      setReloadKey((k) => k + 1);
+      void loadSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "보관함 처리에 실패했습니다.");
+    }
+  };
+
+  /** 문제 보고서: 서버 진단 + 스캔 상태 + 브라우저 정보를 글로 복사 */
+  const copyReport = async () => {
+    setError(null);
+    try {
+      const diag = await api.diagnostics();
+      const report = [
+        "=== 쿠팡 소싱 분석 문제 보고서 ===",
+        `시각: ${new Date().toISOString()}`,
+        `확장 연결: ${extensionConnected === null ? "확인 중" : extensionConnected ? "연결됨" : "미감지"}`,
+        `브라우저: ${typeof navigator !== "undefined" ? navigator.userAgent : "-"}`,
+        `조건: ${JSON.stringify(conditions)}`,
+        `선택 카테고리 id: ${JSON.stringify(selectedIds)} · 페이지 ${scanPages} · 상세 ${scanDetailLimit}`,
+        `스캔 상태: ${JSON.stringify(scanStatus)}`,
+        "",
+        JSON.stringify(diag, null, 1),
+      ].join("\n");
+      await navigator.clipboard.writeText(report);
+      setNotice("문제 보고서를 복사했습니다. 채팅창에 붙여넣기(Ctrl+V)해서 보내주세요.");
+    } catch (e) {
+      setError(e instanceof Error ? `보고서 복사 실패: ${e.message}` : "보고서 복사 실패");
+    }
+  };
+
+  /** 지금 표에 보이는 통과 상품을 한 번에 보관 */
+  const savePassed = async () => {
+    setError(null);
+    const passed = products.filter((p) => p.condition_passed);
+    const ids = passed.filter((p) => !p.saved).map((p) => p.id);
+    const already = passed.length - ids.length;
+    if (ids.length === 0) {
+      setNotice(`보관할 새 통과 상품이 없습니다 (이미 보관된 ${already}건).`);
+      return;
+    }
+    try {
+      const res = await api.saveProducts(ids, scanStatus?.job_id ?? null);
+      setNotice(`보관함에 ${res.added}건 추가 (이미 있던 ${res.skipped + already}건 제외) · 보관함 ${res.total}건`);
+      setReloadKey((k) => k + 1);
+      void loadSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "보관함 처리에 실패했습니다.");
+    }
+  };
 
   // 카테고리 트리 + 설정 최초 로드
   const [treeReloadKey, setTreeReloadKey] = React.useState(0);
@@ -143,7 +246,12 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, [keyword]);
 
-  const selectedIds = React.useMemo(() => [...selected], [selected]);
+  const [selectedIds, setSelectedIds] = React.useState<number[]>([]);
+  const [prevSelected, setPrevSelected] = React.useState(selected);
+  if (prevSelected !== selected) {
+    setPrevSelected(selected);
+    setSelectedIds(Array.from(selected));
+  }
 
   /** 조건이 하나라도 입력되어 있는지. 없으면 모든 상품이 통과로 계산되므로 UI에서 구분한다. */
   const hasConditions = React.useMemo(() => {
@@ -184,8 +292,12 @@ export default function DashboardPage() {
         page_size: 200,
         condition_passed: view === "passed" || view === "pending" ? true : view === "failed" ? false : undefined,
         measured: view === "pending" ? false : undefined,
+        scan: scope === "latest" ? "latest" : undefined,
       });
-      const statsQuery = buildQuery(conditions, selectedIds, { q: debouncedKeyword || undefined });
+      const statsQuery = buildQuery(conditions, selectedIds, {
+        q: debouncedKeyword || undefined,
+        scan: scope === "latest" ? "latest" : undefined,
+      });
       try {
         const [list, kpi] = await Promise.all([api.products(listQuery), api.stats(statsQuery)]);
         // 조건을 빠르게 바꾸면 이전 응답이 나중에 도착할 수 있다. 취소된 요청은 버린다.
@@ -204,7 +316,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [conditions, selectedIds, sort, debouncedKeyword, view, reloadKey]);
+  }, [conditions, selectedIds, sort, debouncedKeyword, view, scope, reloadKey]);
 
   const applyMultiplier = async (value: number) => {
     setSavingMultiplier(true);
@@ -311,6 +423,7 @@ export default function DashboardPage() {
       q: debouncedKeyword || undefined,
       condition_passed: true,
       sort,
+      scan: scope === "latest" ? "latest" : undefined,
     });
     window.open(api.exportUrl(query), "_blank", "noopener");
   };
@@ -323,6 +436,28 @@ export default function DashboardPage() {
           <span className="text-[11px] text-muted-foreground">MVP 1단계</span>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="mr-2 flex rounded-md border border-border p-0.5">
+            <Button
+              variant={mainTab === "results" ? "default" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setMainTab("results")}
+            >
+              <Search /> 결과
+            </Button>
+            <Button
+              variant={mainTab === "saved" ? "default" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                setMainTab("saved");
+                void loadSaved();
+              }}
+            >
+              <Bookmark /> 보관함 {savedItems.length > 0 && `(${savedItems.length})`}
+            </Button>
+          </div>
+          {version && <span title="프로그램 버전 — 업데이트 후 바뀝니다">v{version}</span>}
           <span>배수 ×{multiplier}</span>
           <Button variant="ghost" size="sm" className="h-7" onClick={refreshAll}>
             <RefreshCw className={loading ? "animate-spin" : ""} />
@@ -382,6 +517,7 @@ export default function DashboardPage() {
             onStop={() => void scanControl("stop")}
             onExport={exportExcel}
             extensionConnected={extensionConnected}
+            onReport={() => void copyReport()}
             exportCount={stats?.condition_passed_products ?? 0}
           />
 
@@ -418,6 +554,30 @@ export default function DashboardPage() {
         <main className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-3">
           <KpiCards stats={stats} hasConditions={hasConditions} />
 
+          {mainTab === "saved" ? (
+            <SavedPanel
+              items={savedItems}
+              loading={savedLoading}
+              onRefresh={() => void loadSaved()}
+              onRemove={(item) => {
+                void api
+                  .removeSaved(item.id)
+                  .then(() => {
+                    setReloadKey((k) => k + 1);
+                    void loadSaved();
+                  })
+                  .catch((e: unknown) => setError(e instanceof Error ? e.message : "삭제 실패"));
+              }}
+              onMemo={(item, memo) => {
+                void api
+                  .updateSavedMemo(item.id, memo)
+                  .then(() => void loadSaved())
+                  .catch((e: unknown) => setError(e instanceof Error ? e.message : "메모 저장 실패"));
+              }}
+              exportUrl={api.savedExportUrl()}
+            />
+          ) : (
+            <>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <div className="relative min-w-48 flex-1">
               <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -471,6 +631,27 @@ export default function DashboardPage() {
                 )}
               </Button>
             ))}
+
+            <div className="ml-auto flex items-center gap-1">
+              <div className="flex rounded-md border border-border p-0.5" title="이번 검색 = 마지막 [소싱 시작]에서 훑은 상품만">
+                <Button variant={scope === "latest" ? "default" : "ghost"} size="sm" className="h-7 px-2 text-[11px]" onClick={() => setScope("latest")}>
+                  이번 검색
+                </Button>
+                <Button variant={scope === "all" ? "default" : "ghost"} size="sm" className="h-7 px-2 text-[11px]" onClick={() => setScope("all")}>
+                  누적 전체
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={!hasConditions || view !== "passed" || products.length === 0}
+                title="지금 표에 보이는 조건 통과 상품을 모두 보관함에 넣습니다"
+                onClick={() => void savePassed()}
+              >
+                <Star /> 통과 상품 보관
+              </Button>
+            </div>
           </div>
 
           <ProductTable
@@ -478,7 +659,10 @@ export default function DashboardPage() {
             loading={loading}
             total={total}
             hasConditions={hasConditions}
+            onToggleSave={(p) => void toggleSave(p)}
           />
+            </>
+          )}
         </main>
       </div>
     </div>

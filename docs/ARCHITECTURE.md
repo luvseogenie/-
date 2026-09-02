@@ -128,6 +128,15 @@ extension/src/
 |---|---|
 | id / status / started_at / finished_at / total_products / collected_products |
 
+### saved_products — 보관함
+| 컬럼 | 설명 |
+|---|---|
+| product_id FK(UNIQUE) / saved_at / memo / scan_job_id / category_name | 무엇을 언제 어느 검색에서 골랐는지 |
+| price / review_count / monthly_review_count / monthly_estimated_sales / monthly_revenue / monthly_purchase_count / monthly_purchase_text | **저장 시점 스냅샷** — 이후 재측정돼도 유지 |
+
+`products.last_scan_job_id` — 마지막으로 이 상품을 훑은 자동 스캔 번호. `?scan=latest` 가 "이번 검색만" 범위다.
+기존 DB 에는 `init_db._add_missing_columns()` 가 컬럼을 추가한다.
+
 ### scan_jobs — 자동 스캔 작업
 | 컬럼 | 설명 |
 |---|---|
@@ -170,6 +179,12 @@ extension/src/
 | GET | `/api/scan/status` | 진행률 (단계·done/total·실패·현재 대상) |
 | POST | `/api/scan/pause` `/resume` `/stop` | 제어 |
 | GET | `/api/products/export` | 조건 통과 상품 CSV (UTF-8 BOM, 엑셀 호환) |
+| GET/POST | `/api/saved` | 보관함 목록 / 상품 id 목록을 스냅샷과 함께 저장 |
+| PATCH/DELETE | `/api/saved/{id}`, DELETE `/api/saved/by-product/{product_id}` | 메모 / 삭제 |
+| GET | `/api/saved/export` | 보관함 CSV (저장 당시 + 현재 값) |
+| GET | `/api/health` | `version` (루트 VERSION 파일) 포함 |
+
+`/api/products`, `/api/stats`, `/api/products/export` 는 `?scan=latest|<번호>` 로 검색 범위를 제한한다.
 
 ## 5. Chrome → FastAPI 통신 흐름
 

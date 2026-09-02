@@ -33,3 +33,4 @@ __all__ = [
     "TargetStatus",
     "Setting",
 ]
+from app.models.saved_product import SavedProduct  # noqa: E402,F401

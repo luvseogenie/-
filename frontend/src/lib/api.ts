@@ -1,4 +1,5 @@
 import type {
+  SavedProduct,
   CategoryTreeNode,
   CollectionJob,
   Conditions,
@@ -123,6 +124,20 @@ export const api = {
 
   /** 엑셀(CSV) 내려받기 주소 — 브라우저가 직접 열어 저장하게 한다 */
   exportUrl: (query: string) => `${API_BASE}/api/products/export${query}`,
+  health: () => request<{ status: string; app: string; version?: string }>("/api/health"),
+  diagnostics: () => request<Record<string, unknown>>("/api/diagnostics"),
+  saved: () => request<SavedProduct[]>("/api/saved"),
+  saveProducts: (productIds: number[], scanJobId?: number | null) =>
+    request<{ added: number; skipped: number; total: number }>("/api/saved", {
+      method: "POST",
+      body: JSON.stringify({ product_ids: productIds, scan_job_id: scanJobId ?? null }),
+    }),
+  unsaveProduct: (productId: number) =>
+    request<{ removed: number }>(`/api/saved/by-product/${productId}`, { method: "DELETE" }),
+  removeSaved: (savedId: number) => request<{ removed: number }>(`/api/saved/${savedId}`, { method: "DELETE" }),
+  updateSavedMemo: (savedId: number, memo: string) =>
+    request<SavedProduct>(`/api/saved/${savedId}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
+  savedExportUrl: () => `${API_BASE}/api/saved/export`,
   finishJob: (id: number) =>
     request<CollectionJob>(`/api/collection-jobs/${id}/finish`, { method: "POST" }),
 };

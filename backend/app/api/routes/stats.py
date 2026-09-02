@@ -14,6 +14,7 @@ from app.schemas.stats import StatsOut
 from app.services import estimation
 from app.services.filtering import ProductFilter
 from app.services.filtering import MONTHLY_REVENUE
+from app.services import scan_service
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -24,6 +25,7 @@ def get_stats(
         None, description="쿠팡 구매 문구 확보 여부로 범위 제한"
     ),
     measured: bool | None = Query(None, description="최근 30일 리뷰수 측정 여부로 범위 제한"),
+    scan: str | None = Query(None, description="검색 범위: latest = 마지막 검색만, 숫자 = 그 검색 번호"),
     filters: ProductFilter = Depends(product_filter_params),
     db: Session = Depends(get_db),
 ):
@@ -47,6 +49,9 @@ def get_stats(
         scope.append(Product.monthly_review_count.isnot(None))
     elif measured is False:
         scope.append(Product.monthly_review_count.is_(None))
+    scan_clause = scan_service.resolve_scan_scope(db, scan)
+    if scan_clause is not None:
+        scope.append(scan_clause)
     for clause in scope:
         unique_stmt = unique_stmt.where(clause)
     unique_count = db.scalar(unique_stmt) or 0

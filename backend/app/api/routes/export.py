@@ -19,6 +19,7 @@ from app.db.session import get_db
 from app.models.category import Category
 from app.models.product import DeliveryType, MonthlyConfidence, Product
 from app.services.filtering import ProductFilter, sort_expression
+from app.services import scan_service
 
 router = APIRouter(prefix="/api/products", tags=["export"])
 
@@ -47,10 +48,14 @@ COLUMNS = [
 def export_csv(
     condition_passed: bool | None = Query(True, description="기본은 조건 통과 상품만"),
     sort: str = Query("monthly_revenue_desc"),
+    scan: str | None = Query(None, description="검색 범위: latest = 마지막 검색만, 숫자 = 그 검색 번호"),
     filters: ProductFilter = Depends(product_filter_params),
     db: Session = Depends(get_db),
 ):
     base = select(Product)
+    scan_clause = scan_service.resolve_scan_scope(db, scan)
+    if scan_clause is not None:
+        base = base.where(scan_clause)
     if filters.category_ids:
         base = base.where(Product.category_id.in_(filters.category_ids))
     if filters.keyword:

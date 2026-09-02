@@ -28,6 +28,7 @@ from app.schemas.product import (
 )
 from app.services import monthly_reviews
 from app.services.estimation import calculate_estimated_sales, get_multiplier
+from app.services import scan_service
 
 logger = get_logger(__name__)
 
@@ -142,6 +143,12 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
     for message in payload.parse_errors[:50]:
         logger.warning("확장 파싱 실패: %s (url=%s)", message, payload.source_url)
 
+    # 진행 중인 자동 스캔이 있으면 그 번호를 도장 찍는다 (대시보드 '이번 검색만 보기')
+
+    active = scan_service.active_job(db)
+
+    scan_job_id = active.id if active is not None else None
+
     seen_in_payload: set[str] = set()
 
     for item in payload.products:
@@ -161,6 +168,8 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
 
         estimated = calculate_estimated_sales(item.review_count or 0, multiplier)
         existing = db.scalar(select(Product).where(Product.product_id == pid))
+        if existing is not None and scan_job_id is not None:
+            existing.last_scan_job_id = scan_job_id
 
         if existing is None:
             product = Product(
@@ -182,6 +191,7 @@ def collect_products(db: Session, payload: CollectRequest) -> CollectResult:
                 monthly_purchase_collected_at=now if item.monthly_purchase_count is not None else None,
                 category_id=category.id if category else None,
                 rank=item.rank,
+                last_scan_job_id=scan_job_id,
                 first_collected_at=now,
                 last_collected_at=now,
             )

@@ -15,6 +15,8 @@ from app.api.routes import (
     scan,
     settings as settings_routes,
     stats,
+    saved,
+    diagnostics,
 )
 from app.config import settings
 from app.core.logging import configure_logging, get_logger
@@ -59,8 +61,22 @@ app.include_router(stats.router)
 app.include_router(jobs.router)
 app.include_router(scan.router)
 app.include_router(export.router)
+app.include_router(saved.router)
+app.include_router(diagnostics.router)
+
+
+def app_version() -> str:
+    """저장소 루트의 VERSION 파일. 대시보드에 표시해 어떤 버전을 쓰는지 바로 알 수 있게 한다."""
+    from pathlib import Path
+
+    for candidate in (Path(__file__).resolve().parents[2] / "VERSION", Path("VERSION")):
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+    return "unknown"
 
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict[str, str]:
-    return {"status": "ok", "app": settings.app_name}
+    return {"status": "ok", "app": settings.app_name, "version": app_version()}

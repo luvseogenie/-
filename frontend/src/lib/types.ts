@@ -32,6 +32,10 @@ export type MonthlyMethod = keyof typeof MONTHLY_METHODS;
 
 export type Product = {
   id: number;
+  /** 보관함에 있는지 */
+  saved: boolean;
+  /** 마지막으로 이 상품을 훑은 검색(소싱 시작) 번호 */
+  last_scan_job_id: number | null;
   product_id: string;
   product_name: string;
   product_url: string;
@@ -222,3 +226,21 @@ export type ScanStatus = {
 export const PAGES_OPTIONS = [1, 2, 3, 5, 10] as const;
 /** 2단계에서 상세를 확인할 상품 수 선택지 */
 export const DETAIL_LIMIT_OPTIONS = [20, 50, 100, 200] as const;
+
+/** 보관함 한 줄 — 저장 시점 스냅샷 + 현재 상품 값 */
+export type SavedProduct = {
+  id: number;
+  product_id: number;
+  saved_at: string;
+  memo: string | null;
+  scan_job_id: number | null;
+  category_name: string | null;
+  price: number | null;
+  review_count: number | null;
+  monthly_review_count: number | null;
+  monthly_estimated_sales: number | null;
+  monthly_revenue: number | null;
+  monthly_purchase_count: number | null;
+  monthly_purchase_text: string | null;
+  product: Product;
+};

@@ -48,3 +48,13 @@ def test_export_all_when_condition_passed_false(client):
     assert len(rows) == 3
     verdicts = {r[1]: r[0] for r in rows[1:]}
     assert verdicts == {"A": "조건 통과", "B": "미달"}
+
+
+def test_diagnostics_report_has_version_counts_and_logs(client):
+    """[문제 보고서 복사]가 가져가는 진단 정보: 버전·건수·최근 스캔·최근 로그."""
+    client.post("/api/products/collect", json={"source_url": "https://www.coupang.com/np/categories/1", "page_type": "category", "products": [
+        {"product_id": "", "product_name": "id 없음", "product_url": "https://www.coupang.com/vp/products/1", "price": 1000, "review_count": 1}], "skipped": 0})
+    d = client.get("/api/diagnostics").json()
+    assert d["version"] and "counts" in d
+    assert d["counts"]["products"] == 0
+    assert any("상품 저장 건너뜀" in line for line in d["log"])

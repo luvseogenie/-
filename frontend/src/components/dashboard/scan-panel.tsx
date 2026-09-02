@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Pause, Play, Square } from "lucide-react";
+import { ClipboardCopy, Download, Pause, Play, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -42,6 +42,7 @@ export function ScanPanel({
   onExport,
   exportCount,
   extensionConnected,
+  onReport,
 }: {
   selectedCount: number;
   pages: number;
@@ -56,6 +57,8 @@ export function ScanPanel({
   onStop: () => void;
   onExport: () => void;
   exportCount: number;
+  /** 서버 상태·최근 로그·최근 스캔 결과를 글로 복사 (원격에서 원인을 잡기 위한 보고서) */
+  onReport: () => void;
   /** 크롬 확장이 이 페이지에 연결되어 있는지 (null = 아직 확인 중) */
   extensionConnected: boolean | null;
 }) {
@@ -210,6 +213,16 @@ export function ScanPanel({
         title="현재 조건을 통과한 상품을 엑셀에서 열리는 파일로 저장합니다"
       >
         <Download /> 엑셀로 내려받기 {exportCount > 0 && `(${exportCount}건)`}
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-full text-[11px] text-muted-foreground"
+        onClick={onReport}
+        title="뭔가 안 될 때: 서버 기록·최근 수집 결과를 복사해 그대로 붙여넣어 보내주세요"
+      >
+        <ClipboardCopy /> 문제 보고서 복사
       </Button>
     </div>
   );

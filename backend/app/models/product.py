@@ -87,6 +87,8 @@ class Product(Base, TimestampMixin):
 
     # 마지막 수집 시점의 노출 순위(부가 정보). 없으면 NULL.
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 이 상품을 마지막으로 훑은 자동 스캔(검색) 번호. 대시보드는 기본으로 "이번 검색"만 보여준다.
+    last_scan_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     # ------------------------------------------------------------------
     # 최근 30일 지표
