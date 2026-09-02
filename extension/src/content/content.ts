@@ -10,6 +10,7 @@ import {
   extractReviewEntries,
   type ReviewEntry,
 } from "@/parsers/coupang_review_parser";
+import { buildDiagnosticsReport } from "@/parsers/diagnostics";
 import { PRODUCT_ID_URL_PATTERNS } from "@/parsers/selectors";
 import { log } from "@/lib/logger";
 import type { ParseResult, ReviewDateResult } from "@/lib/types";
@@ -130,6 +131,16 @@ function analyzeReviews(): ReviewDateResult {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "DIAGNOSE") {
+    try {
+      const report = buildDiagnosticsReport(document, location.href);
+      log.info("진단 리포트\n" + report);
+      sendResponse({ ok: true, report });
+    } catch (e) {
+      sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+    return true;
+  }
   if (message?.type === "RESET_REVIEWS") {
     resetReviewStore("사용자 요청");
     sendResponse({ ok: true });

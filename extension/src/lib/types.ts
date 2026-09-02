@@ -77,13 +77,15 @@ export type GetStateMessage = { type: "GET_STATE" };
 
 export type AnalyzeReviewsMessage = { type: "ANALYZE_REVIEWS" };
 export type ResetReviewsMessage = { type: "RESET_REVIEWS" };
+export type DiagnoseMessage = { type: "DIAGNOSE" };
 
 export type ExtensionMessage =
   | ScanMessage
   | CollectMessage
   | GetStateMessage
   | AnalyzeReviewsMessage
-  | ResetReviewsMessage;
+  | ResetReviewsMessage
+  | DiagnoseMessage;
 
 export type ScanSummary = {
   detected: number;

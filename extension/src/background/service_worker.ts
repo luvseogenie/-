@@ -208,7 +208,32 @@ async function handleResetReviews(): Promise<{ ok: boolean; error?: string }> {
   }
 }
 
+/** selector 진단 리포트를 content script에서 받아온다. */
+async function handleDiagnose(): Promise<{ ok: boolean; report?: string; error?: string }> {
+  const tab = await getActiveTab();
+  if (!tab?.id) return { ok: false, error: "활성 탭을 찾을 수 없습니다." };
+  if (!isCoupangUrl(tab.url)) {
+    return { ok: false, error: "쿠팡 페이지에서 실행하세요." };
+  }
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "DIAGNOSE" });
+    if (!response?.ok) return { ok: false, error: response?.error ?? "진단에 실패했습니다." };
+    return { ok: true, report: response.report as string };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `페이지와 통신할 수 없습니다. 새로고침 후 다시 시도하세요. (${
+        e instanceof Error ? e.message : String(e)
+      })`,
+    };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "DIAGNOSE") {
+    void handleDiagnose().then(sendResponse);
+    return true;
+  }
   if (message?.type === "RESET_REVIEWS") {
     void handleResetReviews().then(sendResponse);
     return true;

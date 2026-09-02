@@ -28,6 +28,8 @@ const analyzeButton = $<HTMLButtonElement>("analyze-reviews");
 const resetButton = $<HTMLButtonElement>("reset-reviews");
 const reviewProgress = $<HTMLElement>("review-progress");
 const reviewResult = $<HTMLElement>("review-result");
+const diagnoseButton = $<HTMLButtonElement>("diagnose");
+const diagnoseResult = $<HTMLElement>("diagnose-result");
 const apiBaseInput = $<HTMLInputElement>("api-base");
 const saveApiButton = $<HTMLButtonElement>("save-api");
 
@@ -146,6 +148,32 @@ async function analyzeReviews() {
   }
 }
 
+async function diagnose() {
+  clearError();
+  diagnoseButton.disabled = true;
+  diagnoseResult.textContent = "";
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "DIAGNOSE" });
+    if (!response?.ok || !response.report) {
+      showError(response?.error ?? "진단에 실패했습니다.");
+      return;
+    }
+    const report = response.report as string;
+    try {
+      await navigator.clipboard.writeText(report);
+      const lines = report.split("\n").length;
+      diagnoseResult.textContent = `클립보드에 복사했습니다 (${lines}줄). 그대로 붙여넣어 주세요.`;
+    } catch {
+      // 클립보드 권한이 없으면 콘솔로 안내한다.
+      console.log(report);
+      diagnoseResult.textContent =
+        "클립보드 복사에 실패했습니다. 쿠팡 페이지의 개발자도구 Console에 출력된 내용을 복사하세요.";
+    }
+  } finally {
+    diagnoseButton.disabled = false;
+  }
+}
+
 async function scan() {
   clearError();
   resultPanel.classList.add("hidden");
@@ -185,6 +213,7 @@ collectButton.addEventListener("click", () => void collect());
 rescanButton.addEventListener("click", () => void scan());
 analyzeButton.addEventListener("click", () => void analyzeReviews());
 resetButton.addEventListener("click", () => void resetReviews());
+diagnoseButton.addEventListener("click", () => void diagnose());
 saveApiButton.addEventListener("click", () => {
   const value = apiBaseInput.value.trim() || DEFAULT_API_BASE;
   void setApiBase(value).then(() => {

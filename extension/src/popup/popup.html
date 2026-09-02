@@ -42,6 +42,16 @@
 
     <section id="error" class="panel error hidden"></section>
 
+    <section class="panel">
+      <div class="section-title">문제 해결</div>
+      <p class="meta">
+        상품이나 리뷰가 감지되지 않으면, 현재 페이지의 DOM 구조를 요약해 복사합니다.
+        리뷰 본문·작성자명은 자동으로 가려집니다.
+      </p>
+      <button id="diagnose" type="button" class="ghost">진단 정보 복사</button>
+      <div id="diagnose-result" class="meta"></div>
+    </section>
+
     <footer>
       <label for="api-base">백엔드 주소</label>
       <div class="row">

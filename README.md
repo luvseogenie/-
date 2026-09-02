@@ -157,7 +157,7 @@ category_code, category_name, parent_category_code, depth, category_url
 # 백엔드 (pytest 59건)
 cd backend && ./.venv/bin/python -m pytest
 
-# 확장 파서 (vitest + jsdom, 39건)
+# 확장 파서 (vitest + jsdom, 51건)
 cd extension && npm test
 
 # 타입/린트/빌드
@@ -167,7 +167,47 @@ cd frontend  && npx tsc --noEmit && npm run lint && npm run build
 
 ---
 
-## 쿠팡 화면이 바뀌어 상품이 감지되지 않을 때
+## 쿠팡 화면이 바뀌어 상품/리뷰가 감지되지 않을 때
+
+### 1단계 — 진단 정보 뽑기
+
+**방법 A: 확장 popup (권장)**
+
+확장 아이콘 → **[진단 정보 복사]** → 클립보드에 리포트가 복사됩니다.
+
+**방법 B: DevTools 콘솔 (확장 설치 없이)**
+
+1. 쿠팡 페이지에서 `F12` → **Console** 탭
+2. `extension/dist/selector-dump.js` 파일 내용을 **전부 복사**해서 콘솔에 붙여넣고 Enter
+3. 결과가 클립보드에 자동 복사됩니다
+
+**방법 C: 수동**
+
+리뷰 하나에서 **우클릭 → 검사** → Elements 패널에서 감싸는 `<article>`/`<div>` →
+**우클릭 → Copy → Copy outerHTML**
+
+> ⚠️ `Ctrl+U`(페이지 소스 보기)로는 안 됩니다. 쿠팡 리뷰는 JS로 나중에 그려지므로
+> 반드시 **DevTools의 Elements 패널**에서 가져와야 합니다.
+
+진단 리포트는 이런 형태입니다. 리뷰 본문·작성자명은 `⟨text:N⟩` 으로 자동 마스킹되고,
+URL의 쿼리스트링도 제거됩니다.
+
+```
+[리뷰 카드]
+  article.sdp-review__article__list → 0개
+  ⚠ 매칭된 selector가 없습니다 — 이 항목을 고쳐야 합니다.
+
+[날짜로 보이는 텍스트]
+  span.ReviewCard_date__z3  "2026.08.28"
+
+[리뷰 카드 구조 샘플]
+  (리뷰 카드 selector가 모두 실패해 날짜 요소의 조상으로 추정)
+  div.ReviewCard_head__h1
+    span.ReviewCard_author__y2  "⟨text:3⟩"
+    span.ReviewCard_date__z3  "2026.08.28"
+```
+
+### 2단계 — selector 고치기
 
 DOM selector는 **한 파일에만** 모여 있습니다.
 
@@ -182,6 +222,22 @@ extension/src/parsers/selectors.ts
 리뷰 날짜가 읽히지 않을 때도 같은 파일의 `REVIEW_ITEM_SELECTORS` / `REVIEW_DATE_SELECTORS` 를
 수정하면 됩니다. 리뷰 카드 구조를 못 찾으면 날짜 패턴(`2026.08.15`)만으로 훑는 안전망이 동작하며,
 이 경우 확장이 "값이 부정확할 수 있습니다"라고 경고합니다.
+
+위 예시라면 이렇게 고칩니다.
+
+```ts
+export const REVIEW_ITEM_SELECTORS = [
+  "div[class*='ReviewCard_root']",        // ← 새로 추가 (맨 앞)
+  "article.sdp-review__article__list",
+  ...
+] as const;
+
+export const REVIEW_DATE_SELECTORS = [
+  "[class*='ReviewCard_date']",           // ← 새로 추가 (맨 앞)
+  "div.sdp-review__article__list__info__product-info__reg-date",
+  ...
+] as const;
+```
 
 확장 popup은 어떤 selector로 카드를 찾았는지(`selector: li.search-product`) 표시하므로
 어디가 실패했는지 바로 알 수 있습니다. content script 콘솔에도 제외 사유가 남습니다.

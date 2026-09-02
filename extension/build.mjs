@@ -42,6 +42,19 @@ const moduleOptions = {
   format: "esm",
 };
 
+/**
+ * DevTools 콘솔에 붙여넣는 진단 스크립트.
+ * 확장을 설치하지 않아도 쓸 수 있도록 별도 파일로 만든다.
+ * minify하지 않아야 사용자가 내용을 확인하고 붙여넣기 편하다.
+ */
+const consoleOptions = {
+  ...contentOptions,
+  entryPoints: { "selector-dump": "src/console/selector_dump.ts" },
+  format: "iife",
+  minify: false,
+  sourcemap: false,
+};
+
 async function copyStatic() {
   await cp("manifest.json", path.join(outdir, "manifest.json"));
   await cp("src/popup/popup.html", path.join(outdir, "popup.html"));
@@ -53,12 +66,17 @@ if (watch) {
   const contexts = await Promise.all([
     esbuild.context(contentOptions),
     esbuild.context(moduleOptions),
+    esbuild.context(consoleOptions),
   ]);
   await Promise.all(contexts.map((c) => c.watch()));
   await copyStatic();
   console.log("watching...");
 } else {
-  await Promise.all([esbuild.build(contentOptions), esbuild.build(moduleOptions)]);
+  await Promise.all([
+    esbuild.build(contentOptions),
+    esbuild.build(moduleOptions),
+    esbuild.build(consoleOptions),
+  ]);
   await copyStatic();
   console.log("빌드 완료 → dist/  (chrome://extensions 에서 dist 폴더를 로드하세요)");
 }
