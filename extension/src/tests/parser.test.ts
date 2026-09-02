@@ -171,3 +171,23 @@ describe("단일 카드 파싱", () => {
     }
   });
 });
+
+describe("검색결과 페이지 파싱", () => {
+  it("검색 페이지에서도 같은 파서가 동작한다", () => {
+    document.body.innerHTML = loadFixture("search-results.html");
+    const result = parseProductList(document, "https://www.coupang.com/np/search?q=채칼");
+
+    expect(result.pageType).toBe("search");
+    expect(result.matchedCardSelector).toBe("li.search-product");
+    expect(result.products).toHaveLength(5);
+    expect(result.skipped).toBe(0);
+    expect(result.products.map((p) => p.review_count)).toEqual([85, 150, 240, 31, 2480]);
+    expect(result.products.map((p) => p.delivery_type)).toEqual([
+      "rocket_growth",
+      "rocket",
+      "rocket_growth",
+      "seller",
+      "rocket",
+    ]);
+  });
+});

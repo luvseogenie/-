@@ -180,3 +180,13 @@ def test_collect_without_job_creates_one(client):
     stats = client.get("/api/stats").json()
     assert stats["collected_products"] == 2
     assert stats["unique_products"] == 2
+
+
+def test_new_job_closes_previous_running_job(client):
+    first = client.post("/api/collection-jobs", json={"category_ids": []}).json()["job"]
+    second = client.post("/api/collection-jobs", json={"category_ids": []}).json()["job"]
+
+    jobs = {j["id"]: j for j in client.get("/api/collection-jobs").json()}
+    assert jobs[first["id"]]["status"] == "completed"
+    assert jobs[second["id"]]["status"] == "running"
+    assert client.get("/api/collection-jobs/active").json()["id"] == second["id"]

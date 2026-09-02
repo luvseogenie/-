@@ -196,6 +196,18 @@ def get_active_job(db: Session) -> CollectionJob | None:
 
 
 def start_job(db: Session) -> CollectionJob:
+    """새 수집 작업을 시작한다.
+
+    이전 작업이 running으로 남아 있으면 함께 종료한다.
+    (수집은 사용자가 브라우저에서 수동으로 하므로 명시적 종료 시점이 없다.)
+    """
+    for stale in db.scalars(
+        select(CollectionJob).where(CollectionJob.status == JobStatus.RUNNING)
+    ).all():
+        stale.status = JobStatus.COMPLETED
+        stale.finished_at = datetime.now(timezone.utc)
+        logger.info("이전 수집 job 자동 종료: id=%s", stale.id)
+
     job = CollectionJob(status=JobStatus.RUNNING, total_products=0, collected_products=0)
     db.add(job)
     db.flush()
