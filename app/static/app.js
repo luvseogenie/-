@@ -295,7 +295,7 @@
         <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
         <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
-        <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? won(r.revenue_min) + ' 최소' : ''}</div></td>
+        <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? (r.revenue_min < 1e8 ? won(r.revenue_min) + ' 최소' : '최소') : ''}</div></td>
         <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}</b><div class="sub">${esc(deliveryLabel(r.delivery))}</div></td>
       </tr>`;
     }).join('');

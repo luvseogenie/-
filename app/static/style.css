@@ -24,7 +24,7 @@ b { font-weight: 700; }
 .links a { margin-left: 8px; font-size: 12px; }
 .spacer { flex: 1; }
 
-.layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 100vh; }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 100vh; }
 .side { display: flex; flex-direction: column; gap: 12px; }
 .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
@@ -136,12 +136,12 @@ textarea.input { resize: vertical; }
 
 .table-wrap { overflow-x: auto; }
 table.grid { width: 100%; border-collapse: collapse; }
-table.grid th { text-align: right; color: var(--muted); font-weight: 600; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.grid th { text-align: right; color: var(--muted); font-weight: 600; font-size: 12px; padding: 8px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.grid th.left, table.grid td.left { text-align: left; }
 table.grid th.chk, table.grid td.chk { width: 30px; text-align: center; }
-table.grid td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: right; white-space: nowrap; }
+table.grid td { padding: 9px 7px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: right; white-space: nowrap; }
 table.grid tr:hover td { background: #141826; }
-table.grid td.prod { text-align: left; white-space: normal; min-width: 320px; }
+table.grid td.prod { text-align: left; white-space: normal; min-width: 240px; }
 .pname { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; }
 .pname a { color: var(--text); text-decoration: none; }
 .pmeta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; }
@@ -153,7 +153,7 @@ table.grid td.prod { text-align: left; white-space: normal; min-width: 320px; }
 .pill.pending { background: #1c1f2c; color: var(--blue); }
 .pill.restricted { background: #3a1620; color: var(--red); border-color: #5a1f2c; }
 .pill.ad { color: var(--amber); }
-.num b { font-size: 14px; }
+.num b { font-size: 13.5px; }
 .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .bar { height: 3px; background: #1c2130; border-radius: 3px; margin-top: 5px; margin-left: auto; width: 60px; }
 .bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; }
