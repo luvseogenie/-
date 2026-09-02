@@ -324,9 +324,10 @@ def reset_unmatched(run_id) -> int:
 def save_verified_price(run_id, product_id, price: int | None, buyers_min: int | None = None, sellers: int | None = None):
     c = conn()
     c.execute("""UPDATE products SET verified_price=COALESCE(?, verified_price), verified_at=?,
-                 buyers_min=COALESCE(?, buyers_min), seller_count=COALESCE(?, seller_count)
+                 buyers_min=COALESCE(?, buyers_min), seller_count=COALESCE(?, seller_count),
+                 coupon_flag=CASE WHEN ? IS NOT NULL THEN 0 ELSE coupon_flag END
                  WHERE run_id=? AND product_id=?""",
-              (price, now(), buyers_min, sellers, run_id, product_id))
+              (price, now(), buyers_min, sellers, price, run_id, product_id))
     c.commit()
 
 

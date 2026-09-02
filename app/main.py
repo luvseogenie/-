@@ -263,16 +263,16 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
     if leaf:
         rows = [r for r in rows if str(r.get("category_id")) == str(leaf) or r.get("category_path") == leaf]
     keymap = {
-        "sales": lambda r: r.get("sales_28") or -1,
-        "conversion": lambda r: r.get("conversion") or -1,
+        "sales": lambda r: (r.get("buyers_min") or r.get("sales_28") or -1, r.get("views_28") or -1),
+        "conversion": lambda r: r.get("conversion_min") or r.get("conversion") or -1,
         "reviews": lambda r: r.get("review_count") or 0,
         "price": lambda r: r.get("effective_price") or 0,
         "views": lambda r: r.get("views_28") or -1,
-        "revenue": lambda r: r.get("revenue_28") or -1,
+        "revenue": lambda r: r.get("revenue_min") or r.get("revenue_28") or -1,
         "rankpv": lambda r: -(r.get("pv_rank") or 9999),
         "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
     }
-    key = keymap.get(sort or "views", keymap["views"])
+    key = keymap.get(sort or "sales", keymap["sales"])
     reverse = (direction or "desc") == "desc"
     if sort == "rank":
         reverse = False
@@ -281,7 +281,7 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
 
 
 @app.get("/api/products")
-def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "views", dir: str = "desc",
+def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc",
              page: int = 1, size: int = 100):
     run = db.latest_run()
     if not run:

@@ -15,7 +15,7 @@
 
   const state = {
     top: [], trees: {}, checked: new Set(), expanded: new Set(), kwScope: [],
-    conditions: {}, mode: 'category', filter: 'all', q: '', leaf: '', sort: 'views', page: 1,
+    conditions: {}, mode: 'category', filter: 'all', q: '', leaf: '', sort: 'sales', page: 1,
     rows: [], total: 0, all: 0, status: null, stats: null, run: null, selected: new Set(), lastState: null,
   };
 
@@ -228,7 +228,7 @@
     notice.className = 'notice' + (st.message && st.message.startsWith('오류') ? ' err' : '');
     const s = d.stats || { passed: 0, unique: 0, analyzed: 0, categories: 0, seen: 0, passed_revenue: 0, counts: {} };
     $('#s-passed').textContent = fmt(s.passed); $('#s-unique').textContent = fmt(s.unique); $('#s-analyzed').textContent = fmt(s.analyzed);
-    $('#s-cats').textContent = fmt(s.categories); $('#s-seen').textContent = fmt(s.seen); $('#s-revenue').textContent = s.passed_views ? fmt(s.passed_views) : wonShort(s.passed_revenue || 0);
+    $('#s-cats').textContent = fmt(s.categories); $('#s-seen').textContent = fmt(s.seen); $('#s-revenue').textContent = wonShort(s.passed_revenue_min || 0);
     const c = s.counts || {};
     $$('#filter-chips .chip').forEach((el) => { const k = el.dataset.f; el.querySelector('b').textContent = fmt(c[k] ?? 0); });
     const r = d.restricted || {};
@@ -270,7 +270,7 @@
       body.innerHTML = `<tr><td colspan="8" class="empty">${state.all ? '이 조건에 맞는 상품이 없습니다.' : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
       return;
     }
-    const maxConv = Math.max(20, ...state.rows.map((r) => r.conversion || 0));
+    const maxConv = Math.max(5, ...state.rows.map((r) => r.conversion_min || 0));
     body.innerHTML = state.rows.map((r) => {
       const cat = (r.category_path || '').split(' > ').join(' › ');
       const pills = [`<span class="pill ${r.verdict}">${esc(r.verdict_label)}</span>`];
@@ -280,23 +280,22 @@
       const sim = (r.seller_count !== null && r.seller_count !== undefined) ? `<span class="pill">경쟁 판매자 ${r.seller_count}곳</span>` : '';
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
-      const maxView = Math.max(1, ...state.rows.map((x) => x.views_28 || 0));
-      const mlabel = r.mergeable_label;
-      const mcls = mlabel === '매칭 가능' ? 'pass' : (mlabel === '매칭 불가' ? 'unmatched' : 'below');
-      const wcat = (r.wing_category || '').split('>').slice(-2).join(' › ').trim();
-      const buyersCell = r.buyers_min
-        ? `<b class="green">${fmt(r.buyers_min)}명+</b><div class="sub">${r.conversion_min !== null && r.conversion_min !== undefined ? '전환율 ≥ ' + r.conversion_min.toFixed(2) + '%' : ''}${r.buyers_daily ? ' · 일 ' + fmt(Math.round(r.buyers_daily)) + '명' : ''}</div>`
+      const salesCell = r.buyers_min
+        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개 · 월 최소</div>`
         : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
+      const convCell = r.conversion_min !== null && r.conversion_min !== undefined
+        ? `<b class="green">≥ ${r.conversion_min.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, r.conversion_min / Math.max(1, maxConv) * 100)}%"></i></div>`
+        : '<span class="muted">-</span>';
       return `<tr data-id="${r.product_id}">
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.name || ('상품 ' + r.product_id))}</a></div>
-          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}<span class="pill">${esc(deliveryLabel(r.delivery))}</span>${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}${wcat ? `<span class="muted">· 윙: ${esc(wcat)}</span>` : ''}</div></td>
-        <td class="num"><b class="green">${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '정확한 값' : (r.views_28 ? '범위 · 중앙값 ' + fmt(r.views_28) : ''))}</div>${r.views_28 ? `<div class="bar"><i style="width:${Math.min(100, (r.views_28) / maxView * 100)}%"></i></div>` : ''}</td>
-        <td class="num">${buyersCell}</td>
-        <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.rating ? '평점 ' + r.rating : (r.wing_rating ? '평점 ' + Number(r.wing_rating).toFixed(1) : '')}</div></td>
+          <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}<span class="pill">${esc(deliveryLabel(r.delivery))}</span>${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}</div></td>
+        <td class="num">${salesCell}</td>
+        <td class="num">${convCell}</td>
+        <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
-        <td class="num"><b>${r.pv_rank ? r.pv_rank + '위' : '-'}</b><div class="sub">${r.pv_rank ? '검색 판매량 순위' : ''}</div></td>
-        <td class="num">${mlabel ? `<span class="pill ${mcls}">${esc(mlabel)}</span>` : '<span class="muted">-</span>'}</td>
+        <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
+        <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? won(r.revenue_min) + ' 최소' : ''}</div></td>
       </tr>`;
     }).join('');
     $$('.rowchk').forEach((el) => el.addEventListener('change', () => { const id = Number(el.dataset.id); if (el.checked) state.selected.add(id); else state.selected.delete(id); renderSel(); }));
@@ -381,9 +380,7 @@
   $('#c-pages').addEventListener('change', saveConditions);
   $('#c-auto_continue').addEventListener('change', saveConditions);
   $('#c-exclude_restricted').addEventListener('change', saveConditions);
-  $('#c-only_mergeable') && $('#c-only_mergeable').addEventListener('change', saveConditions);
-  $('#c-fetch_rank') && $('#c-fetch_rank').addEventListener('change', saveConditions);
-  $('#c-hide_ads').addEventListener('change', saveConditions);
+      $('#c-hide_ads').addEventListener('change', saveConditions);
 
   $('#btn-start').addEventListener('click', guard(async () => {
     const items = scopeItems();

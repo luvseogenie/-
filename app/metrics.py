@@ -70,6 +70,8 @@ def enrich(p: dict, cond: dict) -> dict:
     out["buyers_min"] = buyers
     out["conversion_min"] = round(buyers / views * 100, 2) if buyers and views else None
     out["buyers_daily"] = round(buyers / 30, 1) if buyers else None
+    out["revenue_min"] = buyers * price if buyers and price else None
+    out["buyers_per_review"] = round(buyers / reviews, 1) if buyers and reviews else None
     out["mergeable_label"] = _mergeable_label(p.get("mergeable"), p.get("eligibility"))
     out["mergeable_ok"] = out["mergeable_label"] == "매칭 가능"
     # 조회 대비 리뷰 비율(관심도) - 판매량 대용 지표
@@ -110,6 +112,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
         "seen": seen_total,
         "passed_revenue": sum((r.get("revenue_28") or 0) for r in passed),
         "passed_views": sum((r.get("views_28") or 0) for r in passed),
+        "passed_revenue_min": sum((r.get("revenue_min") or 0) for r in passed),
         "counts": {
             "all": len(rows),
             "pass": len(passed),
