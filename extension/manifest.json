@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "쿠팡 광고계산기 수집기",
-  "version": "0.1.0",
-  "description": "로그인된 쿠팡 판매자센터·광고센터 화면의 표를 읽어 로컬 광고계산기(coupang_calc)로 보냅니다.",
+  "version": "0.2.0",
+  "description": "쿠팡 판매자센터·광고센터 화면의 어제 데이터를 저장하고 캠페인별 순이익 장부를 보여줍니다. 설치 외에 아무것도 필요 없습니다.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "alarms",
     "tabs",
-    "scripting",
-    "notifications",
-    "webNavigation"
+    "webNavigation",
+    "notifications"
   ],
   "host_permissions": [
     "https://*.coupang.com/*",
@@ -17,13 +17,13 @@
     "http://localhost/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
     "default_title": "쿠팡 광고계산기 수집기"
   },
-  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": [
@@ -40,5 +40,9 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "options_ui": {
+    "page": "app.html#data",
+    "open_in_tab": true
   }
 }

@@ -1,12 +1,15 @@
+import * as S from './lib/store.js';
+import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
+
 const $ = (s) => document.querySelector(s);
-const msg = (t, cls = '') => { $('#msg').textContent = t; $('#msg').className = 'status ' + cls; };
+const msg = (t, cls = '') => { $('#msg').textContent = t; $('#msg').className = 'msg ' + cls; };
 
 async function activeTab() { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); return t; }
 
 async function readActive(kind) {
   const tab = await activeTab();
-  const frames = await chrome.webNavigation?.getAllFrames?.({ tabId: tab.id }).catch(() => null);
-  const ids = frames ? frames.map((f) => f.frameId) : [0];
+  let ids = [0];
+  try { const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id }); if (frames) ids = frames.map((f) => f.frameId); } catch { /* 권한 없음 */ }
   let best = null, tables = [];
   for (const frameId of ids) {
     try {
@@ -17,31 +20,32 @@ async function readActive(kind) {
   return { best, tables, tab };
 }
 
-async function sendKind(kind) {
+async function saveKind(kind) {
+  const label = kind === 'sales' ? '판매' : '광고';
   msg('표를 읽는 중…');
   const { best, tables, tab } = await readActive(kind);
-  $('#detail').textContent = tables.length ? tables.map((t) => `[${t.kind}] ${t.rows}행: ${t.headers.join(' | ')}`).join('\n') : '표를 찾지 못했습니다. 쿠팡 페이지에서 눌러 주세요: ' + (tab?.url || '');
-  if (!best) { msg(`${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 아래 '찾은 표' 목록을 확인하세요.`, 'err'); return; }
-  const date = $('#date').value || best.date || null;
-  const r = await chrome.runtime.sendMessage({ type: 'send', kind, date, records: best.records });
-  if (r.ok) msg(`${r.res.date} ${kind === 'sales' ? '판매' : '광고'} ${r.res.received}행 → ${r.res.saved}건 저장` + (r.res.unmapped_options?.length ? ` · 캠페인 미연결 옵션: ${r.res.unmapped_options.join(', ')}` : ''), 'ok');
-  else msg(r.error, 'err');
+  $('#detail').textContent = tables.length ? tables.map((t) => `[${t.kind}] ${t.rows}행: ${t.headers.join(' | ')}`).join('\n') : '표를 찾지 못했습니다. 쿠팡 페이지에서 눌러 주세요.\n' + (tab?.url || '');
+  if (!tab?.url?.includes('coupang.com')) { msg('쿠팡 판매자센터/광고센터 화면에서 눌러 주세요.', 'err'); return; }
+  if (!best) { msg(`${label} 표를 찾지 못했습니다. 표가 보이는 화면인지 확인하세요. (아래 '찾은 표 보기')`, 'err'); return; }
+  const date = $('#date').value || best.date || yesterdayIso();
+  const rows = kind === 'sales' ? normalizeSales(best.records, date) : normalizeAds(best.records, date);
+  if (!rows.length) { msg(`${label} 표는 찾았지만 인식된 행이 없습니다. 아래 '찾은 표 보기' 의 헤더를 알려주세요.`, 'err'); return; }
+  const d = await S.load();
+  const n = kind === 'sales' ? S.upsertSales(d, rows) : S.upsertAds(d, rows);
+  if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name });
+  await S.save(d);
+  const missing = kind === 'sales' ? S.unmappedOptionIds(d).length : 0;
+  msg(`${date} ${label} 데이터 ${n}건 저장 완료` + (missing ? ` · 캠페인/마진이 비어 있는 옵션 ${missing}개 → '장부 보기' 에서 채워 주세요` : ''), 'ok');
+  if (kind === 'sales' && rows.some((r) => r.date === date)) chrome.runtime.sendMessage({ type: 'syncServer', kind, date, records: best.records }).catch(() => {});
+  if (kind === 'ads') chrome.runtime.sendMessage({ type: 'syncServer', kind, date, records: best.records }).catch(() => {});
 }
 
-$('#send-sales').onclick = () => sendKind('sales');
-$('#send-ads').onclick = () => sendKind('ads');
-$('#run-auto').onclick = async () => { msg('자동 수집 중… (탭이 열렸다 닫힙니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto', date: $('#date').value || null }); msg(rs.every((r) => r.ok) ? '자동 수집 완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); showLogs(); };
-$('#flush').onclick = async () => { const r = await chrome.runtime.sendMessage({ type: 'flush' }); msg(`큐 전송 ${r.sent}건, 남음 ${r.left}건`); };
-$('#open-options').onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
-$('#open-server').onclick = async (e) => { e.preventDefault(); const { server } = await chrome.storage.sync.get({ server: 'http://127.0.0.1:8765' }); chrome.tabs.create({ url: server }); };
+$('#send-sales').onclick = () => saveKind('sales');
+$('#send-ads').onclick = () => saveKind('ads');
+$('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
 
-async function showLogs() {
-  const { logs = [], queue = [] } = await chrome.storage.local.get(['logs', 'queue']);
-  if (logs.length) $('#detail').textContent = logs.slice(-15).join('\n') + (queue.length ? `\n(대기 큐 ${queue.length}건)` : '');
-}
 (async () => {
-  const p = await chrome.runtime.sendMessage({ type: 'ping' });
-  $('#server').textContent = p.ok ? `서버 연결됨 (${p.server})` : `서버 꺼짐 — 터미널에서 python -m coupang_calc serve`;
-  $('#server').className = 'status ' + (p.ok ? 'ok' : 'err');
-  showLogs();
+  const d = await S.load(); const ds = S.dates(d);
+  if (!ds.length) msg('아직 저장된 데이터가 없습니다. ①, ② 를 눌러 시작하세요.');
+  else msg(`저장된 데이터: ${ds[0]} ~ ${ds[ds.length - 1]} (${ds.length}일)`);
 })();

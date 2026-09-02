@@ -1,27 +1,31 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { font-family: "Malgun Gothic", sans-serif; font-size: 13px; width: 340px; margin: 0; padding: 12px; color: #1f2933; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
-  .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
-  button { font: inherit; padding: 6px 10px; border: 1px solid #cfd4da; border-radius: 6px; background: #fff; cursor: pointer; }
+  body { font-family: "Malgun Gothic", sans-serif; font-size: 13px; width: 320px; margin: 0; padding: 14px; color: #1f2933; }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  button { display: block; width: 100%; font: inherit; font-size: 14px; padding: 10px; margin: 6px 0; border: 1px solid #cfd4da; border-radius: 8px; background: #fff; cursor: pointer; text-align: left; }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-  input[type=date] { font: inherit; padding: 4px; }
-  .status { font-size: 12px; color: #6b7280; }
+  button.big { font-weight: 700; }
+  button:disabled { opacity: .5; }
+  .hint { font-size: 12px; color: #6b7280; margin: 2px 0 8px; }
+  .msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
   .ok { color: #059669; } .err { color: #dc2626; }
-  pre { background: #f3f4f6; padding: 6px; font-size: 11px; max-height: 140px; overflow: auto; white-space: pre-wrap; }
-  a { color: #2563eb; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  input[type=date] { font: inherit; padding: 4px; }
+  details { margin-top: 8px; } summary { font-size: 12px; color: #6b7280; cursor: pointer; }
+  pre { background: #f3f4f6; padding: 6px; font-size: 11px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
 </style></head>
 <body>
-<h1>쿠팡 광고계산기 수집기</h1>
-<div class="row"><span id="server" class="status">서버 확인 중…</span><span style="flex:1"></span><a href="#" id="open-server">화면 열기</a> · <a href="#" id="open-options">설정</a></div>
-<div class="row"><label>데이터 날짜</label><input type="date" id="date"><span class="status">(비우면 화면에서 찾은 날짜, 없으면 어제)</span></div>
-<div class="row">
-  <button class="primary" id="send-sales">이 페이지 → 판매 데이터 보내기</button>
-  <button class="primary" id="send-ads">이 페이지 → 광고 데이터 보내기</button>
-</div>
-<div class="row"><button id="run-auto">지금 자동 수집 (어제)</button><button id="flush">대기 큐 다시 보내기</button></div>
-<div id="msg" class="status"></div>
-<details><summary class="status">이 페이지에서 찾은 표 / 최근 기록</summary><pre id="detail"></pre></details>
-<script src="popup.js"></script>
+<h1>쿠팡 광고계산기</h1>
+<div class="hint">쿠팡 화면에서 <b>어제</b> 를 누른 뒤 아래 버튼을 누르세요.</div>
+<button class="primary big" id="send-sales">① 판매 데이터 저장<br><span style="font-weight:400;font-size:11px">판매자센터 › 비즈니스 인사이트 › 판매분석</span></button>
+<button class="primary big" id="send-ads">② 광고 데이터 저장<br><span style="font-weight:400;font-size:11px">광고센터 › 광고 관리 › 매출 성장</span></button>
+<button id="open-app">📒 장부 보기 · 옵션/마진 관리</button>
+<div id="msg" class="msg"></div>
+<details><summary>날짜 직접 지정 / 찾은 표 보기</summary>
+  <div class="row" style="margin-top:6px"><label>데이터 날짜</label><input type="date" id="date"></div>
+  <div class="hint">비워 두면 화면의 날짜를 찾고, 없으면 어제로 저장합니다.</div>
+  <pre id="detail"></pre>
+</details>
+<script type="module" src="popup.js"></script>
 </body></html>
