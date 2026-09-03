@@ -81,7 +81,8 @@ export const ADS_FIELDS = [
   ['ad_orders', ['광고전환 판매수', '광고전환판매수', '광고 전환 판매', '총 판매수량', '판매수량', '전환수', '판매 수', '주문수'], parseNumber, ['매출']],
   ['action', ['ACTION', '액션', '메모', '비고'], null, []],
 ];
-const DATE_ALIASES = ['날짜', '일자', '기준일', 'date', '일'];
+const DATE_ALIASES = ['날짜', '일자', '기준일', 'date'];
+const DATE_EXCLUDE = ['종료', '시작', '요일', '등록', '생성', '수정', '마감', '결제'];
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 
@@ -100,7 +101,7 @@ export function normalizeSales(records, date) {
     if (!/^\d+$/.test(optionId)) continue;
     if (['합계', '총계', 'total'].includes(normHeader(get('option_name')))) continue;
     const row = { date, option_id: optionId };
-    const di = firstMatch(normed, DATE_ALIASES, ['요일']); const rowDate = di == null ? null : parseDate(rec[headers[di]]);
+    const di = firstMatch(normed, DATE_ALIASES, DATE_EXCLUDE); const rowDate = di == null ? null : parseDate(rec[headers[di]]);
     if (rowDate) row.date = rowDate;
     for (const [f] of SALES_FIELDS) {
       if (f === 'option_id') continue;
@@ -131,7 +132,7 @@ export function normalizeAds(records, date, percentUnits = false) {
       for (const v of Object.values(rec)) { const m = String(v ?? '').match(/목표\s*([\d.,]+)\s*%/); if (m) { row.target_roas = parseFloat(m[1].replace(/,/g, '')) / 100; break; } }
     }
     // 보고서 파일처럼 행마다 날짜가 있으면 그 날짜를 쓴다
-    const di = firstMatch(normed, DATE_ALIASES, ['요일']); const rowDate = di == null ? null : parseDate(rec[headers[di]]);
+    const di = firstMatch(normed, DATE_ALIASES, DATE_EXCLUDE); const rowDate = di == null ? null : parseDate(rec[headers[di]]);
     if (rowDate) row.date = rowDate;
     // 캠페인 이름 칸에 'AI 스마트광고' 같은 배지가 붙어 있으면 앞의 배지 제거
     row.campaign = row.campaign.replace(/^(AI\s*스마트광고|NEW|추천)\s*/i, '').trim();

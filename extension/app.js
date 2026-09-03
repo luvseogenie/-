@@ -640,8 +640,16 @@ $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
 renderUpdate();
 reloadIfFilesChanged();
 $('#ads-date').value = localIso(yday);
+async function migrateEndDateBug() {
+  const { migratedEndDate } = await chrome.storage.local.get('migratedEndDate'); if (migratedEndDate) return;
+  const dd = await reload(); const legacyDates = Object.keys(dd.legacy || {}).filter((x) => Object.keys(dd.legacy[x]).length).sort(); const cutoff = legacyDates[legacyDates.length - 1];
+  let n = 0;
+  if (cutoff) for (const date of Object.keys(dd.ads)) if (date <= cutoff) { n += Object.keys(dd.ads[date]).length; delete dd.ads[date]; }
+  if (n) { await S.save(dd); await reload(); const { logs = [] } = await chrome.storage.local.get('logs'); logs.push(`${new Date().toLocaleString('ko-KR')} [정리] 종료일 열 오인으로 잘못된 날짜(${cutoff} 이전)에 저장된 광고 ${n}건 삭제`); await chrome.storage.local.set({ logs: logs.slice(-100) }); }
+  await chrome.storage.local.set({ migratedEndDate: true });
+}
 (async () => {
-  await reload(); await migrateAutoOptions(); renderFoot();
+  await reload(); await migrateAutoOptions(); await migrateEndDateBug(); renderFoot();
   let p = '30'; try { p = localStorage.getItem('cc-range') || '30'; } catch { /* 무시 */ }
   if (p === 'custom') p = '30';
   range.preset = p; [range.start, range.end] = presetRange(p); $('#r-start').value = range.start; $('#r-end').value = range.end;

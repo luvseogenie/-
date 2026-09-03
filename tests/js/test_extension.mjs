@@ -123,6 +123,7 @@ console.log('extension logic: all checks passed');
   assert.equal(r.campaign, '0. 소량 재고'); assert.equal(r.target_roas, 3.5); assert.equal(r.budget, 10000); assert.equal(r.spend, 30964); assert.equal(r.ad_revenue, 94500);
   assert.equal(r.conversion, 0.078); assert.equal(r.impressions, 51328); assert.equal(r.clicks, 153); assert.equal(r.ctr, 0.003); assert.equal(r.ad_orders, 12);
   const [r2] = normalizeAds([{ '날짜': '2026-08-30', '캠페인': 'X', '광고비': '1,000' }], '2026-09-01'); assert.equal(r2.date, '2026-08-30');
+  const [r3] = normalizeAds([{ '캠페인 이름': '37. 끈나시', '집행 광고비': '28,824원', '종료일': '2026.05.14 종료' }], '2026-09-02'); assert.equal(r3.date, '2026-09-02'); assert.equal(r3.spend, 28824); // 종료일은 날짜 열이 아님
   const [s2] = normalizeSales([{ '일자': '2026.08.30', '옵션ID': '123', '매출': '10', '판매량': '1' }], '2026-09-01'); assert.equal(s2.date, '2026-08-30');
   console.log('ad-center parsing: all checks passed');
 }
