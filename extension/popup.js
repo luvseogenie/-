@@ -6,7 +6,7 @@ const SALES_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analy
 const $ = (s) => document.querySelector(s);
 const msg = (t, cls = '') => { $('#msg').textContent = t; $('#msg').className = 'msg ' + cls; };
 
-async function activeTab() { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); return t; }
+async function activeTab() { const forced = new URLSearchParams(location.search).get('tab'); if (forced) return chrome.tabs.get(Number(forced)); const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); return t; }
 
 // 확장 프로그램을 새로고침하면 이미 열려 있던 탭에는 읽기 스크립트가 없다 → 응답이 없으면 직접 주입한다.
 async function ensureContentScript(tab) {
@@ -38,6 +38,10 @@ async function readActive(kind) {
 }
 
 async function saveKind(kind) {
+  try { await saveKindInner(kind); }
+  catch (e) { console.error(e); msg(`저장 중 오류: ${e && e.message ? e.message : e}. 아래 '진단 정보 복사'를 눌러 내용을 보내 주세요.`, 'err'); $('#detail').textContent = (e && e.stack ? e.stack : String(e)) + '\n\n' + $('#detail').textContent; }
+}
+async function saveKindInner(kind) {
   const label = kind === 'sales' ? '판매' : '광고';
   msg('표를 읽는 중…');
   const tab0 = await activeTab();
@@ -81,7 +85,9 @@ async function saveKind(kind) {
   const n = kind === 'sales' ? S.upsertSales(d, rows) : S.upsertAds(d, rows);
   await S.save(d);
   const missing = kind === 'sales' ? S.unmappedOptionIds(d).length : 0;
-  const pageNote = best.pages > 1 ? ` (${best.pages}페이지 합침)` : ''; const extra = best.notes?.length ? ` · ${best.notes.join(', ')}` : '';
+  const legacyDates = Object.keys(d.legacy || {}).filter((x) => Object.keys(d.legacy[x] || {}).length).sort(); const cutoff = legacyDates[legacyDates.length - 1];
+  const cutoffNote = cutoff && date <= cutoff ? ` · 주의: ${cutoff} 까지는 엑셀 확정 구간이라 장부에는 엑셀 값이 표시됩니다 (저장은 됐음)` : '';
+  const pageNote = best.pages > 1 ? ` (${best.pages}페이지 합침)` : ''; const extra = (best.notes?.length ? ` · ${best.notes.join(', ')}` : '') + cutoffNote;
   const zero = kind === 'ads' ? rows.filter((r) => !r.impressions && !r.clicks).length : 0;
   msg(`${date} ${label} 데이터 ${n}건 저장 완료${pageNote}` + (missing ? ` · 캠페인/마진이 비어 있는 옵션 ${missing}개 → '장부 보기' 에서 채워 주세요` : '') + (zero === rows.length && rows.length ? ' · 노출수·클릭수가 비어 있습니다. 광고센터 "지표 설정" 에서 노출수/클릭수/클릭률/전환율/판매수를 켜 주세요' : '') + extra, 'ok');
   $('#detail').textContent = `읽은 머리글: ${(best.headers || []).join(' | ')}\n` + $('#detail').textContent;
@@ -89,6 +95,20 @@ async function saveKind(kind) {
   if (kind === 'ads') chrome.runtime.sendMessage({ type: 'syncServer', kind, date, records: best.records }).catch(() => {});
 }
 
+$('#diag').onclick = async () => {
+  const lines = [`version ${chrome.runtime.getManifest().version}`, `time ${new Date().toISOString()}`];
+  try {
+    const tab = await activeTab(); lines.push(`tab ${tab?.id} ${tab?.url}`);
+    let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch (e) { lines.push('content script: 응답 없음 (' + e.message + ')'); }
+    if (info) lines.push('pageInfo ' + JSON.stringify(info));
+    try { const r = await chrome.tabs.sendMessage(tab.id, { type: 'read', kind: 'ads' }); lines.push('tables ' + JSON.stringify((r?.tables || []).slice(0, 8))); lines.push('date ' + r?.date); } catch (e) { lines.push('read: ' + e.message); }
+  } catch (e) { lines.push('tab: ' + e.message); }
+  try { const d = await S.load(); const ds = S.dates(d); lines.push(`data ${ds[0]} ~ ${ds[ds.length - 1]} days=${ds.length} options=${d.options.length} salesDays=${Object.keys(d.sales).length} adsDays=${Object.keys(d.ads).length} legacyDays=${Object.keys(d.legacy || {}).length} expenses=${(d.expenses || []).length}`); lines.push(`storage bytes ${await new Promise((r) => chrome.storage.local.getBytesInUse(null, r))}`); } catch (e) { lines.push('storage: ' + e.message); }
+  try { const { logs = [] } = await chrome.storage.local.get('logs'); lines.push('logs:\n' + logs.slice(-8).join('\n')); } catch { /* 무시 */ }
+  const text = lines.join('\n'); $('#detail').textContent = text;
+  try { await navigator.clipboard.writeText(text); msg('진단 정보를 복사했습니다. 붙여넣기(Ctrl+V)로 보내 주세요.', 'ok'); } catch { msg('아래 진단 정보를 캡처해서 보내 주세요.', 'ok'); }
+  document.querySelector('details').open = true;
+};
 $('#send-sales').onclick = () => saveKind('sales');
 $('#send-ads').onclick = () => saveKind('ads');
 $('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
