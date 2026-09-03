@@ -596,6 +596,55 @@ def capture_headers():
     return "\n".join(out) if out else "해당 요청이 캡처 기록에 없습니다."
 
 
+@app.post("/api/diag/options")
+async def diag_options(req: Request):
+    """옵션별 '월 N명 이상 구매' 문구가 다른지 비교한다 (옵션이 여러 개인 상품 1개, 최대 4옵션)."""
+    body = await req.json() if req.headers.get("content-length") not in (None, "0") else {}
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 진단할 수 없습니다.")
+    run_id = _current_run_id()
+    cond = db.get_conditions()
+    rows = [enrich(p, cond) for p in db.products(run_id)]
+    pid = body.get("product_id")
+    cands = [r for r in rows if (r["product_id"] == int(pid))] if pid else \
+            sorted([r for r in rows if r.get("pre_pass") and (r.get("option_total") or 0) > 1], key=lambda r: -(r.get("option_total") or 0))
+    if not cands:
+        return _err("옵션이 여러 개인 조건 통과 상품이 없습니다.")
+    target = cands[0]
+
+    def task(bt):
+        from .coupang_list import fetch_detail_price
+        opts = wing.product_options(bt, target)[:4]
+        results = []
+        for o in opts:
+            if not o.get("vendor_item_id"):
+                continue
+            d = fetch_detail_price(bt.page(), target["product_id"], o["item_id"], o["vendor_item_id"])
+            results.append({"option": o.get("name") or o["item_id"], "vendor_item_id": o["vendor_item_id"],
+                            "buyers_min": d.get("buyers_min"), "price": d.get("price")})
+            from .browser import human_delay
+            human_delay(1.5, 3.0)
+        return {"product": target["name"], "product_id": target["product_id"], "options_total": target.get("option_total"), "results": results}
+    try:
+        r = browser.call(task, "옵션별 구매자 비교", timeout=300)
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+    lines = [f"상품: {r['product']} (ID {r['product_id']}, 옵션 {r['options_total']}개 중 {len(r['results'])}개 확인)", ""]
+    vals = set()
+    for x in r["results"]:
+        b = x["buyers_min"]
+        vals.add(b)
+        lines.append(f"- 옵션 [{x['option']}] (vendorItemId {x['vendor_item_id']}): 월 구매 {('%s명 이상' % format(b, ',')) if b else '표시 없음'} · 가격 {x['price'] or '-'}")
+    lines.append("")
+    if len([v for v in vals if v]) > 1:
+        lines.append("→ 옵션마다 문구가 다릅니다. '월 구매' 문구는 옵션(판매 단위) 기준입니다.")
+    elif len(r["results"]) >= 2:
+        lines.append("→ 모든 옵션에 같은 문구가 뜹니다. '월 구매' 문구는 상품 전체 기준으로 보입니다.")
+    else:
+        lines.append("→ 비교할 옵션이 부족합니다.")
+    return {"ok": True, "text": "\n".join(lines)}
+
+
 @app.get("/api/capture/summary", response_class=PlainTextResponse)
 def capture_summary():
     files = sorted(config.CAPTURE_DIR.glob("*_요약.txt"))

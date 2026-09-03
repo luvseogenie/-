@@ -612,6 +612,24 @@ def recheck_login(bt) -> bool:
         return False
 
 
+def product_options(bt, product: dict) -> list:
+    """카탈로그 매칭 API 로 상품의 옵션(itemId, vendorItemId, 가격) 목록을 얻는다."""
+    page = wing_page(bt)
+    pid = product.get("product_id")
+    params = [f"productId={pid}", "allowSingleProduct=true"]
+    if product.get("item_id"):
+        params.append(f"itemId={product['item_id']}")
+    data = _fetch_json(page, PREMATCH_URL + "?" + "&".join(params), "GET", None,
+                       {"referer": "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"})
+    out = []
+    for it in (data or {}).get("items") or []:
+        vids = it.get("vendorItemIds") or []
+        attrs = ", ".join(str(a.get("attributeValue")) for a in (it.get("attributes") or []) if a.get("attributeValue"))
+        out.append({"item_id": _to_int(it.get("itemId")), "vendor_item_id": _to_int(vids[0]) if vids else None,
+                    "price": _to_int(it.get("buyboxWinnerPrice")), "name": attrs})
+    return out
+
+
 def test_connection(bt) -> dict:
     """윙 연결 테스트: 알려진 상품 하나로 API 들을 호출해 결과를 보여준다."""
     page = wing_page(bt)
