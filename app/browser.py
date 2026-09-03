@@ -79,6 +79,29 @@ class BrowserThread(threading.Thread):
                 return self.context
             except Exception as e:  # noqa: BLE001
                 last = e
+        if self.driver == "rebrowser":
+            log.warn(f"패치 구동으로 브라우저를 못 열어 기존 방식으로 다시 시도합니다 ({last})")
+            try:
+                self.pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            from playwright.sync_api import sync_playwright as _sp
+            self.pw = _sp().start()
+            self.driver = "playwright"
+            for channel in ("chrome", "msedge", None):
+                try:
+                    self.context = self.pw.chromium.launch_persistent_context(
+                        str(config.PROFILE_DIR), headless=False, channel=channel, viewport=None, locale="ko-KR",
+                        args=["--disable-blink-features=AutomationControlled", "--start-maximized", "--lang=ko-KR"],
+                        ignore_default_args=["--enable-automation"])
+                    self.channel = channel or "chromium"
+                    self._closed = False
+                    self.context.on("close", self._on_close)
+                    self._install_stealth()
+                    log.info(f"브라우저 창을 열었습니다 ({self.channel}, playwright)")
+                    return self.context
+                except Exception as e:  # noqa: BLE001
+                    last = e
         raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
 
     _STEALTH_JS = """

@@ -477,17 +477,23 @@ def tools(name: str):
                 page = bt.page()
                 page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(2500)
-                r = page.goto(config.PRODUCT_URL.format(pid=8350616562), wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_timeout(2000)
-                body = page.evaluate("() => document.body ? document.body.innerText.slice(0, 400) : ''")
-                blocked = (r and r.status in (403, 429)) or ("사용권한이 제한" in body) or ("Access Denied" in body)
-                return {"removed": removed, "status": r.status if r else None, "blocked": blocked}
-            r = browser.call(t, "차단 해제 시도", timeout=180)
-            if r["blocked"]:
-                msg = (f"봇 방어 쿠키 {r['removed']}개를 지웠지만 아직 막혀 있습니다 (HTTP {r['status']}). "
-                       "평소 쓰는 브라우저로 쿠팡 상품 페이지가 열리는지 확인해 보세요. 거기서도 막히면 IP 차단이니 공유기를 껐다 켜거나 시간이 지나야 풀립니다.")
+                def probe(url):
+                    rr = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(2000)
+                    body = page.evaluate("() => document.body ? document.body.innerText.slice(0, 400) : ''")
+                    return (rr.status if rr else None), ((rr and rr.status in (403, 429)) or ("사용권한이 제한" in body) or ("Access Denied" in body))
+                st_www, b_www = probe(config.PRODUCT_URL.format(pid=8350616562))
+                st_m, b_m = probe(config.PRODUCT_URL_MOBILE.format(pid=8350616562))
+                return {"removed": removed, "status": st_www, "blocked": b_www, "status_m": st_m, "blocked_m": b_m, "driver": browser.driver}
+            r = browser.call(t, "차단 해제 시도", timeout=240)
+            drv = "패치 구동" if r.get("driver") == "rebrowser" else "기본 구동"
+            if r["blocked"] and r["blocked_m"]:
+                msg = (f"[{drv}] 봇 방어 쿠키 {r['removed']}개를 지웠지만 www({r['status']})와 모바일({r['status_m']}) 모두 막혀 있습니다. "
+                       "평소 브라우저로 상품 페이지가 열리는지 확인해 보세요. 거기서도 막히면 IP 차단이니 공유기를 껐다 켜거나 핫스팟으로 바꾼 뒤 다시 눌러주세요.")
+            elif r["blocked"]:
+                msg = f"[{drv}] www 상품 페이지는 막혀 있지만 모바일 페이지는 열립니다. 확인 작업을 시작하면 자동으로 모바일 페이지를 씁니다."
             else:
-                msg = f"봇 방어 쿠키 {r['removed']}개를 지웠고, 상품 페이지가 정상적으로 열립니다. 이제 확인 작업을 다시 시작해도 됩니다."
+                msg = f"[{drv}] 봇 방어 쿠키 {r['removed']}개를 지웠고, 상품 페이지가 정상적으로 열립니다. 이제 확인 작업을 다시 시작해도 됩니다."
             log.info(msg)
             return {"ok": True, "message": msg}
         if name == "wing_login":
