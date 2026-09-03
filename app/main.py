@@ -455,6 +455,41 @@ def tools(name: str):
             msg = "윙 연결 정상입니다 (정확한 조회수 조회 가능)." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
             log.info(msg)
             return {"ok": True, "message": msg, "text": "\n".join(lines)}
+        if name == "unblock":
+            if job.is_running():
+                return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+
+            def t(bt):
+                ctx = bt.ensure_context()
+                names = ("_abck", "bm_sz", "bm_sv", "bm_mi", "ak_bmsc", "bm_s", "bm_so", "bm_ss", "bm_lso", "sbsd", "sbsd_o", "bmuid", "x-coupang-accept-language")
+                removed = 0
+                try:
+                    before = ctx.cookies()
+                    for n in names:
+                        try:
+                            ctx.clear_cookies(name=n)
+                        except TypeError:
+                            pass
+                    after = ctx.cookies()
+                    removed = len(before) - len(after)
+                except Exception as e:  # noqa: BLE001
+                    log.warn(f"쿠키 정리 실패: {e}")
+                page = bt.page()
+                page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(2500)
+                r = page.goto(config.PRODUCT_URL.format(pid=8350616562), wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(2000)
+                body = page.evaluate("() => document.body ? document.body.innerText.slice(0, 400) : ''")
+                blocked = (r and r.status in (403, 429)) or ("사용권한이 제한" in body) or ("Access Denied" in body)
+                return {"removed": removed, "status": r.status if r else None, "blocked": blocked}
+            r = browser.call(t, "차단 해제 시도", timeout=180)
+            if r["blocked"]:
+                msg = (f"봇 방어 쿠키 {r['removed']}개를 지웠지만 아직 막혀 있습니다 (HTTP {r['status']}). "
+                       "IP 단위 차단일 수 있으니 30분 이상 기다리거나, 공유기(모뎀)를 껐다 켜서 IP 를 바꾼 뒤 다시 시도해 주세요.")
+            else:
+                msg = f"봇 방어 쿠키 {r['removed']}개를 지웠고, 상품 페이지가 정상적으로 열립니다. 이제 확인 작업을 다시 시작해도 됩니다."
+            log.info(msg)
+            return {"ok": True, "message": msg}
         if name == "wing_login":
             browser.call(wing.open_login, "윙 로그인", timeout=90)
             return {"ok": True, "message": "윙 로그인 창을 열었습니다. 로그인해 주세요."}
