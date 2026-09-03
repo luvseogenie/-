@@ -615,6 +615,22 @@ def lookup(bt, product: dict):
     return self_fields, others
 
 
+def _goto_settle(page, url: str, timeout: int = 45000):
+    """윙 홈은 SSO(xauth) 를 거쳐 되돌아오므로 이동이 중간에 끊겼다는 오류가 날 수 있다.
+    그 경우 오류로 보지 않고 리다이렉트가 끝나기를 기다린다."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        if "interrupted by another navigation" not in str(e):
+            raise
+    page.wait_for_timeout(2500)
+    # 아직 xauth 에 머물러 있으면(자동 로그인 처리 중) 조금 더 기다린다
+    for _ in range(6):
+        if "xauth.coupang.com" not in (page.url or ""):
+            break
+        page.wait_for_timeout(1000)
+
+
 def recheck_login(bt) -> bool:
     """로그인 풀림 신호가 왔을 때 실제로 풀렸는지 확인한다. 윙 홈을 다시 열고 알려진 상품을 조회해 본다."""
     try:
@@ -626,8 +642,7 @@ def recheck_login(bt) -> bool:
                 break
         if page is None:
             page = ctx.new_page()
-        page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(2500)
+        _goto_settle(page, config.WING_HOME)
         if _is_login_url(page.url):
             return False
         sample = {"product_id": 8350616562, "item_id": 24124670002, "name": "코멧 비닐봉투"}

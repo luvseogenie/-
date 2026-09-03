@@ -396,15 +396,26 @@ class JobController:
             except Exception:  # noqa: BLE001
                 pass
             self._check()
-        for p in pending:
+        i = 0
+        while i < len(pending):          # 로그인 후 [재개]하면 같은 상품을 다시 조회하도록 번호로 돈다
+            p = pending[i]
             self._check()
             pid = p["product_id"]
             if pid in done:
                 self.progress["done"] += 1
+                i += 1
                 continue
             self.progress["label"] = (p.get("name") or str(pid))[:38]
             try:
-                self_fields, others = wing.lookup(bt, p)
+                try:
+                    self_fields, others = wing.lookup(bt, p)
+                except wing.WingLoginRequired:
+                    # 잠깐 튕긴 경우가 있어 한 번 더 확인하고, 살아 있으면 같은 상품을 다시 조회한다
+                    if not wing.recheck_login(bt):
+                        raise
+                    log.info("로그인은 살아 있습니다. 계속 진행합니다")
+                    self._sleep_checked(2)
+                    self_fields, others = wing.lookup(bt, p)
                 if self_fields:
                     db.save_analysis(run_id, pid, self_fields, None)
                 else:
@@ -420,11 +431,6 @@ class JobController:
                     log.info(f"'{self.progress['label']}' 검색으로 {filled}개 순위 미리 채움")
                 fails = 0
             except wing.WingLoginRequired:
-                # 진짜 풀렸는지 한 번 더 확인 (잠깐 튕긴 경우가 있다)
-                if wing.recheck_login(bt):
-                    log.info("로그인은 살아 있습니다. 계속 진행합니다")
-                    self._sleep_checked(2)
-                    continue
                 self.paused = True
                 self.message = ("윙 로그인이 풀렸습니다. 다른 브라우저나 탭에서 같은 계정으로 윙에 로그인하면 이쪽이 끊깁니다. "
                                 "열린 크롬 창에서 윙에 다시 로그인한 뒤 [재개]를 눌러주세요.")
@@ -434,7 +440,7 @@ class JobController:
                 except Exception:  # noqa: BLE001
                     pass
                 self._check()
-                continue
+                continue                 # 재개되면 이 상품부터 다시
             except Exception as e:  # noqa: BLE001
                 fails += 1
                 db.save_analysis(run_id, pid, None, str(e)[:200])
@@ -446,6 +452,7 @@ class JobController:
                     fails = 0
             self.progress["done"] = already + len(done)
             human_delay(0.8, 1.8)
+            i += 1
         db.set_run_status(run_id, "analyzed")
         log.info("윙 조회수 분석 완료")
 
