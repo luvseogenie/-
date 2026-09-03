@@ -173,11 +173,28 @@
       if (pageTotal() <= i) break;
     }
     if (pages > 1) { try { await gotoPage(1); } catch { /* 무시 */ } }
-    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), url: location.href, tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length })) };
+    const tables = allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length }));
+    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), url: location.href, tables, errors: [...readErrors] };
   }
 
+  // 광고센터 캠페인 목록(react-table v6): .rt-table > .rt-thead.-header .rt-th / .rt-tbody .rt-tr-group .rt-tr .rt-td
+  function readReactTables() {
+    const out = [];
+    for (const t of deepAll('.rt-table, .ReactTable')) {
+      const head = t.querySelector('.rt-thead.-header') || t.querySelector('.rt-thead');
+      if (!head) continue;
+      const headers = [...head.querySelectorAll('.rt-th')].map((h) => clean(h.innerText));
+      const rows = [...t.querySelectorAll('.rt-tbody .rt-tr')].map((r) => [...r.querySelectorAll('.rt-td')].map((c) => clean(c.innerText))).filter((r) => r.length >= 3 && r.some((x) => x));
+      if (headers.length && rows.length) out.push({ headers, rows, kind: 'react-table' });
+    }
+    return out;
+  }
+  const readErrors = [];
+  function safe(name, fn) { try { return fn(); } catch (e) { readErrors.push(name + ': ' + (e && e.message ? e.message : e)); return []; } }
   function allTables() {
-    return [...readAgGrids(document), ...readHtmlTables(document), ...readAriaGrids(document), ...readDivGrids()];
+    readErrors.length = 0;
+    const rt = safe('react-table', readReactTables);
+    return [...rt, ...safe('ag-grid', () => readAgGrids(document)), ...safe('table', () => readHtmlTables(document)), ...safe('aria-grid', () => readAriaGrids(document).filter((g) => !rt.length)), ...safe('div-grid', () => (rt.length ? [] : readDivGrids()))];
   }
 
   const KIND_RULES = {
@@ -322,15 +339,17 @@
 
   chrome.runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'read') {
-      const picked = window.__ccPick(msg.kind);
-      sendResponse({ ok: !!picked, ...(picked || {}), date: detectDate(), url: location.href,
-        tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 12), rows: t.rows.length })) });
+      try {
+        const picked = window.__ccPick(msg.kind);
+        sendResponse({ ok: !!picked, ...(picked || {}), date: detectDate(), url: location.href,
+          tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 12), rows: t.rows.length })), errors: [...readErrors] });
+      } catch (e) { sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }); }
     } else if (msg?.type === 'clickYesterday') {
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickDownloadReport') {
       clickDownloadReport().then(sendResponse);
     } else if (msg?.type === 'readAll') {
-      readAllPages(msg.kind).then(sendResponse);
+      readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'pageInfo') {

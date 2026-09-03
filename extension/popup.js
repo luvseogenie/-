@@ -31,7 +31,7 @@ async function readActive(kind) {
   for (const frameId of ids) {
     try {
       const r = await chrome.tabs.sendMessage(tab.id, { type: kind === 'ads' ? 'readAll' : 'read', kind }, { frameId });
-      if (r) { tables = tables.concat(r.tables || []); if (r.ok && (!best || r.records.length > best.records.length)) best = r; }
+      if (r) { tables = tables.concat(r.tables || []); if (r.error) tables.push({ kind: 'error', headers: [r.error.slice(0, 200)], rows: 0 }); for (const e of r.errors || []) tables.push({ kind: 'reader-error', headers: [e.slice(0, 200)], rows: 0 }); if (r.ok && (!best || r.records.length > best.records.length)) best = r; }
     } catch { /* 이 프레임엔 content script 가 없음 */ }
   }
   return { best, tables, tab };
