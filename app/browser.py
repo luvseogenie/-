@@ -190,7 +190,7 @@ class BrowserThread(threading.Thread):
                 log.info(f"평소 쓰는 {name} 프로필로 실행합니다: {prof}")
             port = self._free_port()
             args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
-                    "--no-first-run", "--no-default-browser-check", "--start-maximized", "--lang=ko-KR"]
+                    "--no-first-run", "--no-default-browser-check"]
             if _os.environ.get("CS_BROWSER_HEADLESS"):
                 args += ["--headless=new", "--no-sandbox"]
             args.append("about:blank")
@@ -261,10 +261,8 @@ class BrowserThread(threading.Thread):
 """
 
     def _install_stealth(self):
-        try:
-            self.context.add_init_script(self._STEALTH_JS)
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"위장 스크립트 설정 실패: {e}")
+        # 일부러 아무것도 하지 않는다. 브라우저 속성을 덮어쓰면 그 자체가 봇 표식이 된다.
+        return
 
     _BLOCK_HOSTS = ("mercury.coupang.com", "ljc.coupang.com", "asset.coupang.com/ad", "ads.coupang.com",
                     "googletagmanager.com", "google-analytics.com", "doubleclick.net", "facebook.net", "criteo")
