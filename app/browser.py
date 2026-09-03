@@ -62,7 +62,8 @@ class BrowserThread(threading.Thread):
                 self.channel = channel or "chromium"
                 self._closed = False
                 self.context.on("close", self._on_close)
-                self._install_lightweight_routes()
+                if config.LIGHT_MODE:
+                    self._install_lightweight_routes()
                 log.info(f"브라우저 창을 열었습니다 ({self.channel})")
                 return self.context
             except Exception as e:  # noqa: BLE001
@@ -87,7 +88,7 @@ class BrowserThread(threading.Thread):
             return route.continue_()
         try:
             self.context.route("**/*", handler)
-            log.info("가벼운 모드: 이미지·동영상·광고 요청을 차단합니다")
+            log.info("가벼운 모드: 이미지·동영상·광고 요청을 차단합니다 (설정 LIGHT_MODE)")
         except Exception as e:  # noqa: BLE001
             log.warn(f"가벼운 모드 설정 실패: {e}")
 

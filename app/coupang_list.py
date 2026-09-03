@@ -480,8 +480,21 @@ def _dump_debug(page, tag: str):
         log.warn(f"디버그 저장 실패: {e}")
 
 
+_page_counter = {"n": 0}
+
+
 def _goto(page, url: str, wait_selector: str | None = None):
-    resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    # 상품 페이지는 검색 목록에서 클릭해 들어온 것처럼 출처를 남긴다
+    referer = None
+    if "/vp/products/" in url:
+        referer = "https://www.coupang.com/np/search?q=%EC%83%81%ED%92%88&channel=user"
+    _page_counter["n"] += 1
+    if config.REST_EVERY and _page_counter["n"] % config.REST_EVERY == 0:
+        import random as _r
+        pause = _r.uniform(*config.REST_SECONDS)
+        log.info(f"페이지 {_page_counter['n']}개째 · {pause:.0f}초 쉽니다")
+        time.sleep(pause)
+    resp = page.goto(url, wait_until="domcontentloaded", timeout=60000, referer=referer)
     status = resp.status if resp else None
     if status in (403, 429, 503):
         _dump_debug(page, f"blocked_{status}")

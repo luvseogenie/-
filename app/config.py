@@ -31,7 +31,10 @@ SEARCH_LIST_SIZE = 72        # 검색 페이지는 최대 72개
 # 요청 사이 대기 시간(초). 차단을 피하기 위해 무작위로 섞는다.
 DELAY_MIN = 1.5
 DELAY_MAX = 3.0
-BLOCK_COOLDOWN = 120          # 차단 감지 시 쉬는 시간(초)
+BLOCK_COOLDOWN = 120
+LIGHT_MODE = False           # 이미지·폰트 차단 (봇으로 보일 수 있어 기본 끔)
+REST_EVERY = 20              # 페이지 N개마다 잠깐 쉼
+REST_SECONDS = (15, 30)          # 차단 감지 시 쉬는 시간(초)
 
 DEFAULT_CONDITIONS = {
     "price_min": 9000,
