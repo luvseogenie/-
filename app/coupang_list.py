@@ -267,7 +267,7 @@ DETAIL_PRICE_JS = r"""
   const topOnly = (el) => { try { const r = el.getBoundingClientRect(); return (r.top + window.scrollY) < 1000; } catch (e) { return true; } };
   const imgs = Array.from(scope.querySelectorAll('img')).filter(im => box ? true : topOnly(im));
   const alts = imgs.map(im => (im.getAttribute('alt') || '') + ' ' + (im.getAttribute('src') || '')).join(' ');
-  const near = (box ? txt(scope) : txt(document.body)).slice(0, box ? 3000 : 1500);
+  const near = box ? txt(scope).slice(0, 3000) : '';   // 구매 영역을 못 찾으면 본문은 보지 않는다 (상단 메뉴에 '로켓직구' 글자가 늘 있음)
   // 글자(alt·본문)로만 판정한다. 그림 파일명은 다른 상품 뱃지가 섞여 있어 쓰지 않는다.
   const classify = (t) => {
     if (/판매자\s*로켓|로켓그로스/.test(t)) return 'ROCKET_GROWTH';
@@ -593,6 +593,7 @@ def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
     if not seller:
         return {}            # 판매자 정보가 아예 없음 = 쿠팡 직매입(로켓배송)
     out["seller_name"] = seller.get("vendorName")
+    out["seller_country"] = (seller.get("countryCode") or "").upper()
     out["seller_retail"] = bool(seller.get("retail"))
     out["seller_goldfish"] = bool(seller.get("goldFish"))
     out["seller_3pm"] = bool(seller.get("threePM"))
@@ -651,12 +652,15 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
     d = out.get("delivery") or "WING"
     if out.get("btf_ok"):
+        # 판매자 정보가 있으면 화면 판정은 쓰지 않는다 (판매자 정보가 정답)
         name = (out.get("seller_name") or "")
+        country = out.get("seller_country") or ""
+        is_global = (country and country != "KR") or re.search(r"global|글로벌", name, re.I) is not None
         coupang_seller = (seller == {}) or out.get("seller_retail") or (re.search(r"쿠팡", name) is not None)
         charge = out.get("delivery_charge_text") or ""
         if out.get("rocket_fresh"):
             out["delivery"] = "ROCKET_FRESH"
-        elif d == "ROCKET_GLOBAL" and out.get("delivery_how") in ("badge", "text"):
+        elif is_global:
             out["delivery"] = "ROCKET_GLOBAL"
         elif coupang_seller:
             out["delivery"] = "ROCKET"
@@ -664,7 +668,7 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
             out["delivery"] = "ROCKET_GROWTH"
         elif out.get("seller_3pm"):
             out["delivery"] = "WING"
-        elif "로켓" in charge or d.startswith("ROCKET"):
+        elif "로켓" in charge:
             out["delivery"] = "ROCKET_GROWTH"
         else:
             out["delivery"] = "WING"
