@@ -651,7 +651,11 @@ def product_options(bt, product: dict) -> list:
 
 def test_connection(bt) -> dict:
     """윙 연결 테스트: 알려진 상품 하나로 API 들을 호출해 결과를 보여준다."""
-    page = wing_page(bt)
+    try:
+        page = wing_page(bt)
+    except WingLoginRequired:
+        open_login(bt)
+        raise RuntimeError("윙 로그인이 필요합니다. 방금 연 창에서 로그인한 뒤 다시 눌러주세요.")
     out = {"page_url": page.url}
     sample = {"product_id": 8350616562, "item_id": 24124670002, "name": "코멧 뽑아쓰는 분리수거 배접 비닐봉투, 200개, 60L"}
     try:

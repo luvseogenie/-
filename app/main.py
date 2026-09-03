@@ -55,7 +55,12 @@ def favicon():
 
 
 def _err(e):
-    return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    msg = str(e)
+    if not msg:
+        name = type(e).__name__
+        msg = {"WingLoginRequired": "윙 로그인이 필요합니다. 도구 › 윙 로그인 창 열기 로 로그인한 뒤 다시 눌러주세요.",
+               "BlockedError": "쿠팡이 접근을 막았습니다. 잠시 뒤 다시 시도해 주세요."}.get(name, f"오류 ({name})")
+    return JSONResponse({"ok": False, "error": msg}, status_code=400)
 
 
 # ---------- 기본 정보 ----------
@@ -423,7 +428,9 @@ def tools(name: str):
                 lines.append("-----")
             return {"ok": True, "message": msg, "result": r, "text": "\n".join(lines)}
         if name == "test_wing":
-            r = browser.call(wing.test_connection, "윙 연결 테스트", timeout=180)
+            if job.is_running():
+                return _err("다른 작업이 진행 중입니다. 끝나거나 완전중단한 뒤 눌러주세요.")
+            r = browser.call(wing.test_connection, "윙 연결 테스트", timeout=240)
             lines = [f"윙 탭 주소: {r.get('page_url')} → {r.get('page_url_after')}", "",
                      f"[카탈로그 매칭 · 카테고리번호 없이] {'오류: ' + r['prematch_error'] if r.get('prematch_error') else ('응답 없음' if not r.get('prematch_nocat') else '정상')}",
                      json.dumps(r.get("prematch_nocat"), ensure_ascii=False) if r.get("prematch_nocat") else "",
