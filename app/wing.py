@@ -588,6 +588,30 @@ def lookup(bt, product: dict):
     return self_fields, others
 
 
+def recheck_login(bt) -> bool:
+    """로그인 풀림 신호가 왔을 때 실제로 풀렸는지 확인한다. 윙 홈을 다시 열고 알려진 상품을 조회해 본다."""
+    try:
+        ctx = bt.ensure_context()
+        page = None
+        for pg in ctx.pages:
+            if "wing.coupang.com" in pg.url or "xauth.coupang.com" in pg.url:
+                page = pg
+                break
+        if page is None:
+            page = ctx.new_page()
+        page.goto(config.WING_HOME, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2500)
+        if _is_login_url(page.url):
+            return False
+        sample = {"product_id": 8350616562, "item_id": 24124670002, "name": "코멧 비닐봉투"}
+        return _prematch(page, sample, None) is not None
+    except WingLoginRequired:
+        return False
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"로그인 재확인 실패: {e}")
+        return False
+
+
 def test_connection(bt) -> dict:
     """윙 연결 테스트: 알려진 상품 하나로 API 들을 호출해 결과를 보여준다."""
     page = wing_page(bt)
