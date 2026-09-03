@@ -3,6 +3,7 @@
 화면 구조가 바뀌어도 버티도록 class 이름 대신 링크 주소(/vp/products/, /np/categories/)와
 글자 패턴으로 값을 찾는다. 하나도 못 찾으면 data/debug 에 화면과 HTML을 저장한다.
 """
+import json
 import re
 import time
 from datetime import datetime
@@ -263,8 +264,10 @@ DETAIL_PRICE_JS = r"""
   let box = priceEl;
   for (let i = 0; i < 6 && box && box.parentElement; i++) { box = box.parentElement; if (box.querySelectorAll('img').length >= 1 && box.textContent.length > 200) break; }
   const scope = box || document.body;
-  const alts = Array.from(scope.querySelectorAll('img')).map(im => (im.getAttribute('alt') || '') + ' ' + (im.getAttribute('src') || '')).join(' ');
-  const near = txt(scope).slice(0, 3000);
+  const topOnly = (el) => { try { const r = el.getBoundingClientRect(); return (r.top + window.scrollY) < 1000; } catch (e) { return true; } };
+  const imgs = Array.from(scope.querySelectorAll('img')).filter(im => box ? true : topOnly(im));
+  const alts = imgs.map(im => (im.getAttribute('alt') || '') + ' ' + (im.getAttribute('src') || '')).join(' ');
+  const near = (box ? txt(scope) : txt(document.body)).slice(0, box ? 3000 : 1500);
   const classify = (t) => {
     if (/판매자\s*로켓|로켓그로스|rocket[_-]?growth|rocket[_-]?merchant|merchant/i.test(t)) return 'ROCKET_GROWTH';
     if (/로켓직구|global/i.test(t)) return 'ROCKET_GLOBAL';
@@ -597,28 +600,36 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
                 notice = rp.get("vendorItemDeliveryNotice") or {}
                 out["seller_name"] = seller.get("vendorName")
                 out["seller_retail"] = bool(seller.get("retail"))
+                out["seller_goldfish"] = bool(seller.get("goldFish"))
+                out["seller_3pm"] = bool(seller.get("threePM"))
+                out["seller_3pc"] = bool(seller.get("threePC"))
                 out["rocket_fresh"] = bool(notice.get("rocketFresh"))
                 out["rocket_install"] = bool(notice.get("rocketInstall"))
+                out["delivery_charge_text"] = (notice.get("deliveryCharge") or "")[:120]
         except Exception as e:  # noqa: BLE001
             log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
     d = out.get("delivery") or "WING"
-    rocketish = d.startswith("ROCKET") or bool(re.search(r"도착\s*보장", data.get("title") or "")) 
     if seller is not None and seller:
         name = (out.get("seller_name") or "")
         coupang_seller = out.get("seller_retail") or re.search(r"쿠팡", name) is not None
+        charge = out.get("delivery_charge_text") or ""
+        rocket_in_notice = "로켓" in charge
         if out.get("rocket_fresh"):
             out["delivery"] = "ROCKET_FRESH"
         elif d == "ROCKET_GLOBAL":
             out["delivery"] = "ROCKET_GLOBAL"
-        elif rocketish and coupang_seller:
-            out["delivery"] = "ROCKET"
-        elif rocketish and not coupang_seller:
+        elif coupang_seller:
+            out["delivery"] = "ROCKET"                       # 쿠팡 직매입 = 로켓배송
+        elif out.get("seller_goldfish") or out.get("seller_3pc"):
+            out["delivery"] = "ROCKET_GROWTH"                # 판매자 상품을 쿠팡 물류로 = 판매자로켓(로켓그로스)
+        elif out.get("seller_3pm"):
+            out["delivery"] = "WING"                         # 판매자 직접 배송
+        elif rocket_in_notice or d.startswith("ROCKET"):
             out["delivery"] = "ROCKET_GROWTH"
-        elif not rocketish and coupang_seller:
-            out["delivery"] = "ROCKET"
         else:
             out["delivery"] = "WING"
         out["delivery_how"] = "seller"
+        out["seller_flags"] = "retail" if out.get("seller_retail") else ("goldFish" if out.get("seller_goldfish") else ("3PC" if out.get("seller_3pc") else ("3PM" if out.get("seller_3pm") else "-")))
     if out["price"] is None:
         for c in data.get("candidates", []):
             out["price"] = c["value"]

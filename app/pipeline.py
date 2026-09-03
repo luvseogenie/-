@@ -346,7 +346,7 @@ class JobController:
                         parts.append(f"최종가 {data['price']:,}원{extra}")
                     parts.append(f"월 구매 {data['buyers_min']:,}명 이상" if data.get("buyers_min") else "구매자 문구 없음")
                     if data.get("delivery"):
-                        parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']})" if data.get("seller_name") else ""))
+                        parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
                 human_delay(1.5, 3.5)
