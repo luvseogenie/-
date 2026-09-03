@@ -264,7 +264,7 @@ console.log('extension logic: all checks passed');
   assert.equal(e.on.days, 10); assert.equal(e.off.days, 10); assert.equal(e.on.organic_qty, 7); assert.equal(e.off.organic_qty, 3); approx(e.delta.organic_qty, 4 / 3, 1e-9);
   assert.equal(e.bySlot['2'].days, 10);
   const ba = T.beforeAfter(computeLedger(d), 'C', d.traffic[0]);
-  assert.equal(ba.n, 14); assert.equal(ba.beforeFrom, '2025-05-28'); assert.equal(ba.afterTo, '2025-06-24'); assert.equal(ba.before.days, 10); assert.equal(ba.after.days, 10);
+  assert.equal(ba.n, 10); assert.equal(ba.beforeFrom, '2025-06-01'); assert.equal(ba.afterTo, '2025-06-20'); assert.equal(ba.before.days, 10); assert.equal(ba.after.days, 10); // 데이터가 있는 마지막 날(6/20)까지만
   const ba2 = T.beforeAfter(computeLedger(d), 'C', d.traffic[0], 14, '2025-06-20'); assert.equal(ba2.n, 10); assert.equal(ba2.beforeFrom, '2025-06-01'); assert.equal(ba2.afterTo, '2025-06-20'); assert.equal(ba.before.organic_qty, 3); assert.equal(ba.after.organic_qty, 7); assert.equal(ba.before.revenue, 4000); assert.equal(ba.after.revenue, 8000);
   assert.equal(T.campaignEffects(led, []).length, 0);
   console.log('traffic effect: all checks passed');

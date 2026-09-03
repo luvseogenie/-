@@ -24,7 +24,9 @@ export function campaignEffects(led, traffic) {
 export function beforeAfter(ledAll, campaignName, entry, maxDays = 14, endLimit = null) {
   const c = ledAll.campaigns.find((x) => x.campaign === campaignName); if (!c) return null;
   const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  let end = entry.end && entry.end < ledAll.end ? entry.end : ledAll.end; if (endLimit && endLimit < end) end = endLimit;
+  // 비교 끝: 종료일 / 데이터가 있는 마지막 날 / 장부 끝 중 가장 이른 날 (미래 날짜를 '후' 기간에 넣지 않음)
+  const lastData = Object.keys(c.days).filter((d) => c.days[d].has_sales || c.days[d].has_ads).sort().pop();
+  const end = [entry.end || null, lastData || null, ledAll.end, endLimit || null].filter(Boolean).sort()[0];
   const afterDates = []; for (let d = entry.start; d <= end && afterDates.length < maxDays; d = addDays(d, 1)) afterDates.push(d);
   const n = afterDates.length; if (!n) return null;
   const beforeDates = []; for (let i = n; i >= 1; i--) beforeDates.push(addDays(entry.start, -i));

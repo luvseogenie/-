@@ -14,10 +14,10 @@
       <button data-page="tax"><span class="ico">₩</span>세후 순마진</button>
       <button data-page="dash" class="active"><span class="ico">▦</span>대시보드</button>
       <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
-      <button data-page="traffic"><span class="ico">🚦</span>트래픽 효과</button>
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
       <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
       <button data-page="expense"><span class="ico">－</span>광고 외 지출</button>
+      <button data-page="traffic"><span class="ico">🚦</span>트래픽 효과</button>
       <button data-page="data"><span class="ico">⇅</span>데이터 · 설정</button>
     </nav>
     <div class="foot" id="foot"></div>
@@ -152,19 +152,17 @@
 
     <!-- ===== 트래픽 효과 ===== -->
     <section id="page-traffic" style="display:none">
-      <div id="tf-empty" class="card empty" style="display:none"><b>트래픽 설정이 없습니다</b><div class="sub">광고 장부 → <b>트래픽 슬롯 설정</b>에서 캠페인별 사용 기간과 슬롯 수를 적어 두면 여기서 효과를 비교합니다.</div></div>
+      <div id="tf-empty" class="card empty" style="display:none"><b>트래픽 설정이 없습니다</b><div class="sub">광고 장부 → <b>트래픽 슬롯 설정</b>에서 캠페인별 사용 기간과 슬롯 수를 적어 두면 여기서 효과를 봅니다.</div></div>
       <div id="tf-body">
-        <div class="card">
-          <h2>캠페인별 트래픽 사용일 vs 미사용일 <span class="sub">선택 기간 안에서 하루 평균. Δ = 사용일이 미사용일보다 얼마나 높은지</span></h2>
-          <div class="tablewrap"><table id="tf-table"></table></div>
-          <p class="sub" style="margin:8px 0 0">자연 판매 = 실제 판매 − 광고 전환 판매, 자연 매출 = 총 매출 − 광고 매출 (엑셀 구간은 판매 리포트 매출 기준). 계절·프로모션 영향이 섞일 수 있으니 아래 '시작 전후 비교'와 함께 보세요.</p>
+        <div class="row" style="margin-bottom:12px"><label class="sub">캠페인</label><select id="tf-camp" style="min-width:260px"></select><span class="sub" id="tf-status"></span></div>
+        <div class="card" id="tf-verdict-card">
+          <div id="tf-headline" style="font-size:17px;font-weight:700;line-height:1.5"></div>
+          <div id="tf-basis" class="sub" style="margin-top:4px"></div>
+          <div class="kpis" id="tf-kpis" style="margin-top:12px;margin-bottom:0"></div>
         </div>
-        <div class="card">
-          <h2>캠페인 상세 <span class="sub">트래픽 사용일(보라)과 미사용일(회색)의 일별 추이</span><span class="grow"></span><select id="tf-camp"></select><select id="tf-metric"><option value="organic_qty">자연 판매 수</option><option value="organic_revenue">자연 매출</option><option value="revenue">총 매출</option><option value="actual_qty">전체 판매 수</option><option value="profit">순이익</option></select></h2>
-          <div class="chart" id="tf-chart" style="height:240px"></div>
-          <h2 style="margin-top:14px">트래픽 시작 전후 비교 <span class="sub">시작일부터 최대 14일 vs 그 직전 같은 길이</span></h2>
-          <div class="tablewrap"><table id="tf-ba"></table></div>
-        </div>
+        <div class="card"><h2>일별 자연 매출 <span class="sub">보라 = 트래픽 사용일, 회색 = 미사용일</span><span class="grow"></span><select id="tf-metric"><option value="organic_revenue">자연 매출</option><option value="organic_qty">자연 판매 수</option><option value="revenue">총 매출</option></select></h2><div class="chart" id="tf-chart" style="height:220px"></div></div>
+        <div class="card" id="tf-periods-card"><h2>트래픽 기간별 전후 비교 <span class="sub">각 기간의 시작일부터 최대 14일 vs 그 직전 같은 길이</span></h2><div class="tablewrap"><table id="tf-ba"></table></div></div>
+        <details class="card"><summary>다른 캠페인도 한눈에</summary><div class="tablewrap" style="margin-top:8px"><table id="tf-table"></table></div></details>
       </div>
     </section>
 

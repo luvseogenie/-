@@ -158,8 +158,13 @@ function closeDrawer() { $('#drawer').classList.remove('open'); $('#backdrop').c
 $('#backdrop').onclick = closeDrawer;
 
 /* ===== 트래픽 효과 ===== */
-const TF_COLS = [['organic_qty', '자연 판매/일', 'int'], ['organic_revenue', '자연 매출/일', 'won'], ['revenue', '총 매출/일', 'won'], ['ad_orders', '광고 판매/일', 'int'], ['spend_vat', '광고비/일', 'won'], ['profit', '순이익/일', 'won']];
 const fmtDelta = (v) => { const p = Math.round(v * 100); return `<span class="${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}" style="font-weight:700">${p > 0 ? '+' : ''}${p}%</span>`; };
+const verdictOf = (ba) => {
+  if (!ba || !ba.before.days || !ba.after.days) return { cls: 'gray', text: '비교 불가' };
+  if (ba.after.days < 5) return { cls: 'gray', text: `아직 판단 이름 (${ba.after.days}일)` };
+  const d = ba.delta.organic_revenue;
+  if (d >= 0.2) return { cls: 'good', text: '효과 있음' }; if (d <= -0.1) return { cls: 'bad', text: '효과 없음' }; return { cls: 'gray', text: '비슷함' };
+};
 let tfEffects = [];
 function renderTrafficEffect() {
   const tr = DATA.traffic || [];
@@ -167,28 +172,46 @@ function renderTrafficEffect() {
   if (!tr.length) return;
   const led = computeLedger(DATA, range.start, range.end);
   tfEffects = campaignEffects(led, tr);
-  let h = '<thead><tr><th class="l">캠페인</th><th>사용일</th><th>미사용일</th>' + TF_COLS.map(([, l]) => `<th>${l}<div class="sub">사용 / 미사용 / Δ</div></th>`).join('') + '<th>판정</th></tr></thead><tbody>';
-  for (const e of tfEffects) {
-    const verdict = e.on.days && e.off.days ? (e.delta.organic_qty > 0.15 && e.delta.revenue > 0 ? '<span class="pill good">효과 있음</span>' : e.delta.organic_qty < -0.15 ? '<span class="pill bad">효과 없음</span>' : '<span class="pill gray">비슷함</span>') : '<span class="pill gray">비교 불가</span>';
-    h += `<tr><td class="l link" data-tf="${esc(e.campaign)}">${esc(e.campaign)}</td><td class="num">${e.on.days}</td><td class="num">${e.off.days}</td>` + TF_COLS.map(([k, , f]) => `<td class="num">${fmt[f](e.on[k])} / ${fmt[f](e.off[k])} / ${e.on.days && e.off.days ? fmtDelta(e.delta[k]) : '-'}</td>`).join('') + `<td>${verdict}</td></tr>`;
+  const sel = $('#tf-camp'); const cur = sel.value;
+  const names = S.sortCampaigns([...new Set(tr.map((t) => t.campaign))]);
+  sel.innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  const active = names.find((n) => S.trafficStatus(DATA, n, localIso(yday)));
+  sel.value = names.includes(cur) ? cur : (active || names[0]);
+  // 전체 캠페인 요약 (접힘)
+  const ledAll = computeLedger(DATA);
+  let h = '<thead><tr><th class="l">캠페인</th><th class="l">트래픽</th><th>자연 매출/일<div class="sub">전 → 후</div></th><th>자연 판매/일<div class="sub">전 → 후</div></th><th>판정</th></tr></thead><tbody>';
+  for (const n of names) {
+    const entries = tr.filter((t) => t.campaign === n).sort((a, b) => b.start.localeCompare(a.start)); const ba = beforeAfter(ledAll, n, entries[0]); const v = verdictOf(ba); const st = S.trafficStatus(DATA, n, localIso(yday));
+    h += `<tr><td class="l link" data-tf="${esc(n)}">${esc(n)}</td><td class="l">${st ? `<span class="pill traffic">🚦 ${st.slots}슬롯 (${st.since.slice(5).replace('-', '/')}~)</span>` : '<span class="sub">종료</span>'}</td><td class="num">${ba ? `${fmtWon(ba.before.organic_revenue)} → ${fmtWon(ba.after.organic_revenue)} ${fmtDelta(ba.delta.organic_revenue)}` : '-'}</td><td class="num">${ba ? `${ba.before.organic_qty.toFixed(1)} → ${ba.after.organic_qty.toFixed(1)} ${fmtDelta(ba.delta.organic_qty)}` : '-'}</td><td><span class="pill ${v.cls}">${v.text}</span></td></tr>`;
   }
   $('#tf-table').innerHTML = h + '</tbody>';
   $$('#tf-table td.link').forEach((td) => td.onclick = () => { $('#tf-camp').value = td.dataset.tf; renderTrafficDetail(); });
-  const sel = $('#tf-camp'); const cur = sel.value; sel.innerHTML = tfEffects.map((e) => `<option value="${esc(e.campaign)}">${esc(e.campaign)}</option>`).join(''); if (tfEffects.some((e) => e.campaign === cur)) sel.value = cur;
   renderTrafficDetail();
 }
 function renderTrafficDetail() {
-  const e = tfEffects.find((x) => x.campaign === $('#tf-camp').value); if (!e) { $('#tf-chart').innerHTML = ''; $('#tf-ba').innerHTML = ''; return; }
-  const key = $('#tf-metric').value; const unit = key.includes('qty') || key.includes('orders') ? '개' : '원';
-  const days = e.days.slice().sort((a, b) => a.date.localeCompare(b.date));
-  barChart($('#tf-chart'), days.map((v) => v.date), days.map((v) => v[key] || 0), { label: $('#tf-metric').selectedOptions[0].textContent, classes: days.map((v) => v.traffic_slots > 0 ? 'on' : 'off'), unit, extra: (i) => `<div class="r"><span>트래픽</span><span>${days[i].traffic_slots > 0 ? days[i].traffic_slots + '슬롯' : '없음'}</span></div>` });
-  // 시작 전후 비교 (전체 데이터 기준)
-  const ledAll = computeLedger(DATA); const entries = (DATA.traffic || []).filter((t) => t.campaign === e.campaign).sort((a, b) => a.start.localeCompare(b.start));
-  let h = '<thead><tr><th class="l">트래픽 기간</th><th>슬롯</th><th class="l">비교 구간</th>' + TF_COLS.map(([, l]) => `<th>${l}<div class="sub">전 / 후 / Δ</div></th>`).join('') + '</tr></thead><tbody>';
-  for (const t of entries) {
-    const ba = beforeAfter(ledAll, e.campaign, t, 14, S.dates(DATA).pop()); if (!ba) continue;
-    h += `<tr><td class="l">${t.start} ~ ${t.end || '진행 중'}${t.memo ? `<div class="sub">${esc(t.memo)}</div>` : ''}</td><td class="num">${t.slots}</td><td class="l sub">전 ${ba.beforeFrom.slice(5)}~${ba.beforeTo.slice(5)} (${ba.before.days}일)<br>후 ${ba.afterFrom.slice(5)}~${ba.afterTo.slice(5)} (${ba.after.days}일)</td>` + TF_COLS.map(([k, , f]) => `<td class="num">${fmt[f](ba.before[k])} / ${fmt[f](ba.after[k])} / ${ba.before.days && ba.after.days ? fmtDelta(ba.delta[k]) : '-'}</td>`).join('') + '</tr>';
+  const name = $('#tf-camp').value; const e = tfEffects.find((x) => x.campaign === name);
+  const entries = (DATA.traffic || []).filter((t) => t.campaign === name).sort((a, b) => a.start.localeCompare(b.start));
+  const st = S.trafficStatus(DATA, name, localIso(yday));
+  $('#tf-status').textContent = st ? `현재 ${st.slots}슬롯 사용 중 (${st.since}부터)` : '현재 트래픽 사용 안 함';
+  const ledAll = computeLedger(DATA); const latest = entries[entries.length - 1]; const ba = latest ? beforeAfter(ledAll, name, latest) : null; const v = verdictOf(ba);
+  if (ba && ba.before.days && ba.after.days) {
+    const b0 = ba.before.organic_revenue, a0 = ba.after.organic_revenue; const up = a0 >= b0;
+    $('#tf-headline').innerHTML = `트래픽을 켠 뒤 자연 매출이 하루 평균 <b>${fmtWon(b0)}원 → ${fmtWon(a0)}원</b> (${fmtDelta(ba.delta.organic_revenue)}) ${up ? '늘었습니다' : '줄었습니다'}. <span class="pill ${v.cls}" style="font-size:13px;vertical-align:middle">${v.text}</span>`;
+    $('#tf-basis').textContent = `비교 기준: 트래픽 전 ${ba.beforeFrom} ~ ${ba.beforeTo} (${ba.before.days}일 데이터) vs 트래픽 후 ${ba.afterFrom} ~ ${ba.afterTo} (${ba.after.days}일 데이터, ${latest.slots}슬롯). 자연 매출 = 총 매출 − 광고 전환 매출.`;
+    const tiles = [['자연 매출 / 일', fmtWon(b0) + '원', fmtWon(a0) + '원', ba.delta.organic_revenue, '#1baf7a'], ['자연 판매 수 / 일', ba.before.organic_qty.toFixed(1) + '개', ba.after.organic_qty.toFixed(1) + '개', ba.delta.organic_qty, '#1baf7a'], ['총 매출 / 일', fmtWon(ba.before.revenue) + '원', fmtWon(ba.after.revenue) + '원', ba.delta.revenue, '#17202a']];
+    $('#tf-kpis').innerHTML = tiles.map(([k, b, a, d, color]) => `<div class="kpi"><div class="k"><span class="dot" style="background:${color}"></span>${k}</div><div class="v num" style="font-size:18px"><span class="sub" style="font-size:13px;font-weight:400">${b} →</span> ${a}</div><div class="d">${fmtDelta(d)} 변화</div></div>`).join('');
+  } else {
+    $('#tf-headline').textContent = '아직 비교할 데이터가 부족합니다.'; $('#tf-basis').textContent = '트래픽 시작 전후로 판매 데이터가 며칠 쌓이면 자동으로 계산됩니다.'; $('#tf-kpis').innerHTML = '';
   }
+  // 일별 차트
+  if (e) { const key = $('#tf-metric').value; const days = e.days.slice().sort((x, y) => x.date.localeCompare(y.date)); const unit = key === 'organic_qty' ? '개' : '원';
+    barChart($('#tf-chart'), days.map((x) => x.date), days.map((x) => x[key] || 0), { label: $('#tf-metric').selectedOptions[0].textContent, classes: days.map((x) => x.traffic_slots > 0 ? 'on' : 'off'), unit, extra: (i) => `<div class="r"><span>트래픽</span><span>${days[i].traffic_slots > 0 ? days[i].traffic_slots + '슬롯' : '없음'}</span></div>` }); }
+  else $('#tf-chart').innerHTML = '<div class="empty sub">선택한 기간에 데이터가 없습니다</div>';
+  // 기간별 표 (2번 이상 켰다 껐다 했을 때 의미 있음)
+  $('#tf-periods-card').style.display = entries.length > 1 ? '' : 'none';
+  let h = '<thead><tr><th class="l">트래픽 기간</th><th>슬롯</th><th>자연 매출/일<div class="sub">전 → 후</div></th><th>자연 판매/일<div class="sub">전 → 후</div></th><th>총 매출/일<div class="sub">전 → 후</div></th><th>판정</th></tr></thead><tbody>';
+  for (const t of entries) { const b = beforeAfter(ledAll, name, t); if (!b) continue; const vv = verdictOf(b);
+    h += `<tr><td class="l">${t.start} ~ ${t.end || '진행 중'}${t.memo ? `<div class="sub">${esc(t.memo)}</div>` : ''}</td><td class="num">${t.slots}</td><td class="num">${fmtWon(b.before.organic_revenue)} → ${fmtWon(b.after.organic_revenue)} ${fmtDelta(b.delta.organic_revenue)}</td><td class="num">${b.before.organic_qty.toFixed(1)} → ${b.after.organic_qty.toFixed(1)} ${fmtDelta(b.delta.organic_qty)}</td><td class="num">${fmtWon(b.before.revenue)} → ${fmtWon(b.after.revenue)} ${fmtDelta(b.delta.revenue)}</td><td><span class="pill ${vv.cls}">${vv.text}</span></td></tr>`; }
   $('#tf-ba').innerHTML = h + '</tbody>';
 }
 $('#tf-camp').onchange = renderTrafficDetail; $('#tf-metric').onchange = renderTrafficDetail;
