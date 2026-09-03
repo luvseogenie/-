@@ -386,12 +386,13 @@ class JobController:
         total = 0
         any_found = False
         done_vid = p.get("vendor_item_id")
+        done_iid = p.get("item_id")
         base_label = (p.get("name") or "")[:30]
         log.info(f"  옵션 {len(options)}개 확인 시작" + (f" (전체 {len(options)}개 초과분은 생략)" if truncated else ""))
         for idx, o in enumerate(options, 1):
             self._check()
             self.progress["label"] = f"{base_label} · 옵션 {idx}/{len(options)}"
-            if o["vendor_item_id"] == done_vid and primary is not None:
+            if primary is not None and (o["vendor_item_id"] == done_vid or (done_iid and o.get("item_id") == done_iid)):
                 b = primary.get("buyers_min")
             else:
                 r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
@@ -402,11 +403,18 @@ class JobController:
             if b:
                 total += b
                 any_found = True
+        per = "/".join((f"{d['buyers_min']:,}" if d.get("buyers_min") else "-") for d in detail)
         if any_found:
+            primary_b = (primary or {}).get("buyers_min") or 0
+            if total < primary_b:      # 대표 옵션 값이 합산에 안 들어간 경우 보정
+                total = primary_b
             db.save_buyers_sum(run_id, p["product_id"], total, len(options), detail)
-            log.info(f"  옵션 {len(options)}개 합산: 월 구매 {total:,}명 이상" + (f" (옵션 {cap}개까지만 확인)" if truncated else ""))
+            log.info(f"  옵션 {len(options)}개 합산: 월 구매 {total:,}명 이상 (옵션별 {per})" + (f" (옵션 {cap}개까지만 확인)" if truncated else ""))
         else:
-            db.save_buyers_sum(run_id, p["product_id"], None, len(options), detail)
+            # 옵션 페이지에서 문구를 하나도 못 읽음: 대표 옵션 값은 유지한다
+            keep = (primary or {}).get("buyers_min")
+            db.save_buyers_sum(run_id, p["product_id"], keep, len(options), detail)
+            log.info(f"  옵션 {len(options)}개에서 문구를 못 읽음 (옵션별 {per}) · 대표 옵션 값 {keep or '없음'} 유지")
 
     def _verify(self, bt, run_id, product_ids):
         try:

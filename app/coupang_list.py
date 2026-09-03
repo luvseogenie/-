@@ -623,10 +623,14 @@ def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None
     if params:
         url += "?" + "&".join(params)
     _goto(page, url, None)
-    page.wait_for_timeout(900)
+    page.wait_for_timeout(1300)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
         raise BlockedError("상품 페이지 접근이 막혔습니다")
+    if data.get("buyers_min") is None:
+        # 문구가 늦게 뜨는 경우가 있어 한 번 더 기다렸다가 다시 읽는다
+        page.wait_for_timeout(1500)
+        data = page.evaluate(DETAIL_PRICE_JS)
     return {"buyers_min": data.get("buyers_min"), "sold_out": bool(data.get("sold_out"))}
 
 
