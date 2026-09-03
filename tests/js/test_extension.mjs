@@ -160,7 +160,7 @@ console.log('extension logic: all checks passed');
   assert.equal(led.legacyCutoff, '2025-06-08');
   // 되돌리기 → 가져오기 전 상태
   await L.undoImport(r.id); d = await S.load();
-  assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(Object.keys(d.sales).length, 0); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0);
+  assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(d.sales['2025-06-08'], undefined); assert.equal(Object.keys(d.sales).length, 1); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0); // 가져온 판매 행은 제거, 테스트가 넣은 6/9 행만 남음
   // 다시 적용 → 장부 값만 삭제
   const r2 = await L.applyLegacy(parsed); const n = await L.removeImportData(r2.id); d = await S.load();
   assert.equal(n, 2); assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 3); assert.equal((await L.listImports()).length, 0);
