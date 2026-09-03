@@ -232,6 +232,9 @@ def convert(xlsx: Path) -> dict:
             m = _num(row[c_margin - 1]) if c_margin else 0
             if m:
                 data["margins"].append({"option_id": oid, "effective_from": "", "margin": m, "note": "엑셀에서 가져옴"})
+    # 3번 시트: 옵션별 실제 판매 (빠짐없이)
+    raw = convert_raw(xlsx)
+    data["sales"] = raw["sales"]
     wb.close()
     return data
 
@@ -248,8 +251,8 @@ def _main_wrapper(argv):
         n_sales = sum(len(v) for v in data["sales"].values()); n_ads = sum(len(v) for v in data["ads"].values())
         print(f"[원자료] 옵션 {len(data['options'])}개, 판매 {n_sales}행, 광고 {n_ads}행 → {dst}")
     else:
-        n = sum(len(v) for v in data["legacy"].values()); dates = sorted(data["legacy"])
-        print(f"[4번 시트] 캠페인×날짜 {n}칸, 기간 {dates[0]}~{dates[-1]}, 옵션 {len(data['options'])}개, 마진 {len(data['margins'])}개 → {dst} ({dst.stat().st_size/1e6:.1f} MB)")
+        n = sum(len(v) for v in data["legacy"].values()); dates = sorted(data["legacy"]); n_sales = sum(len(v) for v in data["sales"].values())
+        print(f"[4번 시트] 캠페인×날짜 {n}칸, 기간 {dates[0]}~{dates[-1]}, 판매(3번 시트) {n_sales}행, 옵션 {len(data['options'])}개, 마진 {len(data['margins'])}개 → {dst} ({dst.stat().st_size/1e6:.1f} MB)")
     return 0
 
 

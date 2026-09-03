@@ -135,14 +135,18 @@ console.log('extension logic: all checks passed');
   const buf = readFileSync(new URL('./fixtures/legacy_small.xlsx', import.meta.url));
   const parsed = await L.parseLegacyWorkbook(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'small.xlsx');
   assert.deepEqual([parsed.from, parsed.to, parsed.campaigns.length, parsed.cells, parsed.mapping.length, parsed.marginFrom], ['2025-06-08', '2025-06-08', 2, 2, 3, '2025-06-09']);
+  assert.equal(parsed.sales.length, 3); assert.equal(parsed.sales[0].revenue, 90000); assert.equal(parsed.salesFrom, '2025-06-08');
   const b = parsed.legacy['2025-06-08']['1_버킷햇_240%'];
   approx(b.spend_vat, 73965.1); approx(b.spend, 67241, 0.01); approx(b.ad_revenue, 180000, 5); assert.equal(b.actual_qty, 12); assert.equal(b.margin_total, 72000); approx(b.profit, -1965.1);
-  let d = await S.load(); assert.deepEqual(L.previewAgainst(d, parsed), { overlapDays: 0, dailyDays: 0, newOptions: 3, changedOptions: 0 });
+  let d = await S.load(); assert.deepEqual(L.previewAgainst(d, parsed), { overlapDays: 0, dailyDays: 0, newOptions: 3, changedOptions: 0, salesRows: 3, salesOverwrite: 0 });
   const r = await L.applyLegacy(parsed, { withMapping: true }); d = await S.load();
+  assert.equal(r.salesSaved, 3); assert.equal(Object.keys(d.sales['2025-06-08']).length, 3);
   assert.equal(d.options.length, 3); assert.equal(d.margins.length, 3); assert.equal(d.margins[0].effective_from, ''); // 이력 없으면 처음부터
   let led = computeLedger(d, '2025-06-08', '2025-06-08');
   const c1 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
   assert.equal(c1.legacy, true); approx(c1.profit, -1965.1); assert.equal(c1.actual_qty, 12); assert.equal(c1.organic_qty, 0); approx(c1.roas, 2.6769, 1e-3);
+  assert.equal(c1.revenue, 135000); // 3번 시트 매출 (버킷햇 블랙 90,000 + 아이보리 45,000)
+  const un = led.campaigns.find((c) => c.campaign === '(캠페인 없음)').days['2025-06-08']; assert.equal(un.revenue, 5000); assert.equal(un.actual_qty, 1); // 매핑 없는 옵션은 자연 판매
   approx(led.total_profit['2025-06-08'], -1965.1 + 64639.2);
   // 엑셀 마지막 날짜(6/8)까지는 엑셀 확정값만 쓴다: 같은 날 ①로 저장한 옵션별 판매는 무시
   S.upsertSales(d, [{ date: '2025-06-08', option_id: '12340330543', option_name: 'x', product_name: '', product_id: '', category: '', sales_type: '', revenue: 100000, orders: 10, quantity: 10, visitors: 0, views: 0, carts: 0, conversion: null }]);
@@ -150,13 +154,13 @@ console.log('extension logic: all checks passed');
   await S.save(d); led = computeLedger(d, '2025-06-08', '2025-06-09');
   const c2 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%');
   assert.equal(c2.days['2025-06-08'].actual_qty, 12); assert.equal(c2.days['2025-06-08'].margin_total, 72000); assert.equal(c2.days['2025-06-08'].legacy, true); // 엑셀 값 유지
-  assert.equal(c2.days['2025-06-08'].revenue, 100000); // 매출은 판매 리포트에서 (광고 매출이 더 크면 자연 매출 0)
+  assert.equal(c2.days['2025-06-08'].revenue, 145000); // 매출은 판매 리포트에서: 블랙 100,000(덮어씀) + 아이보리 45,000 (광고 매출이 더 크면 자연 매출 0)
   assert.equal(c2.days['2025-06-08'].organic_revenue, 0);
   assert.equal(c2.days['2025-06-09'].actual_qty, 5); assert.equal(c2.days['2025-06-09'].margin_total, 30000); assert.equal(c2.days['2025-06-09'].revenue, 50000); // 다음 날부터 확장 데이터
   assert.equal(led.legacyCutoff, '2025-06-08');
   // 되돌리기 → 가져오기 전 상태
   await L.undoImport(r.id); d = await S.load();
-  assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0);
+  assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(Object.keys(d.sales).length, 0); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0);
   // 다시 적용 → 장부 값만 삭제
   const r2 = await L.applyLegacy(parsed); const n = await L.removeImportData(r2.id); d = await S.load();
   assert.equal(n, 2); assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 3); assert.equal((await L.listImports()).length, 0);

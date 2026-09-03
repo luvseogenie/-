@@ -461,6 +461,7 @@ $('#import-legacy').onchange = async (ev) => {
     $('#legacy-summary').innerHTML = `파일: <b>${esc(f.name)}</b><br>기간 <b>${legacyParsed.from} ~ ${legacyParsed.to}</b> (${legacyParsed.dates.length}일) · 캠페인 ${legacyParsed.campaigns.length}개 · 캠페인×날짜 ${fmtInt(legacyParsed.cells)}칸<br>`
       + (pv.overlapDays ? `이미 엑셀에서 가져온 날짜 ${pv.overlapDays}일은 덮어씁니다.<br>` : '')
       + (pv.dailyDays ? `확장 프로그램으로 저장한 날짜 ${pv.dailyDays}일은 그 데이터가 우선이고, 엑셀 값은 비어 있는 쪽만 채웁니다.<br>` : '')
+      + `3번 시트(실제 판매): <b>${fmtInt(pv.salesRows)}행</b> 전부 저장${legacyParsed.salesFrom ? ` (${legacyParsed.salesFrom} ~ ${legacyParsed.salesTo})` : ''}${pv.salesOverwrite ? ` · 이미 있는 ${fmtInt(pv.salesOverwrite)}행은 덮어씀` : ''}<br>`
       + `1번 시트: 옵션 ${legacyParsed.mapping.length}개 (새 옵션 ${pv.newOptions}개) · 마진은 <b>${legacyParsed.marginFrom}</b>부터 적용`;
     $('#legacy-preview').style.display = 'block'; msg('#legacy-msg', '내용을 확인하고 적용을 누르세요.');
   } catch (e) { msg('#legacy-msg', e.message, 'err'); legacyParsed = null; }
@@ -469,14 +470,14 @@ $('#import-legacy').onchange = async (ev) => {
 $('#legacy-cancel').onclick = () => { legacyParsed = null; $('#legacy-preview').style.display = 'none'; msg('#legacy-msg', ''); };
 $('#legacy-apply').onclick = async () => {
   if (!legacyParsed) return; msg('#legacy-msg', '적용 중…');
-  try { const r = await applyLegacy(legacyParsed, { withMapping: $('#legacy-with-mapping').checked }); msg('#legacy-msg', `적용됨: ${r.from} ~ ${r.to}, ${fmtInt(r.cells)}칸` + (r.mappedOptions ? ` · 옵션 ${r.mappedOptions}개, 마진 ${r.mappedMargins}개` : '') + '. 대시보드에서 확인하세요. 잘못됐으면 아래 기록에서 되돌리기.', 'ok'); }
+  try { const r = await applyLegacy(legacyParsed, { withMapping: $('#legacy-with-mapping').checked }); msg('#legacy-msg', `적용됨: 장부 ${r.from} ~ ${r.to} ${fmtInt(r.cells)}칸 · 판매 ${fmtInt(r.salesSaved)}행` + (r.mappedOptions ? ` · 옵션 ${r.mappedOptions}개, 마진 ${r.mappedMargins}개` : '') + '. 대시보드에서 확인하세요. 잘못됐으면 아래 기록에서 되돌리기.', 'ok'); }
   catch (e) { msg('#legacy-msg', e.message, 'err'); }
   legacyParsed = null; $('#legacy-preview').style.display = 'none'; await reload(); renderFoot(); renderImports();
 };
 async function renderImports() {
   const list = await listImports(); const box = $('#legacy-history');
   if (!list.length) { box.innerHTML = ''; return; }
-  box.innerHTML = '<b class="sub">가져오기 기록</b>' + list.map((i) => `<div class="row" style="margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><span><b>${esc(i.source || '엑셀')}</b> <span class="sub">${new Date(i.at).toLocaleString('ko-KR')} · ${i.from} ~ ${i.to} · 캠페인 ${i.campaigns}개 · ${fmtInt(i.cells)}칸${i.mappedOptions ? ` · 옵션 ${i.mappedOptions}개` : ''}</span></span><span class="grow"></span><button class="btn sm" data-undo="${i.id}">되돌리기</button><button class="btn danger sm" data-remove="${i.id}">장부 값 삭제</button></div>`).join('')
+  box.innerHTML = '<b class="sub">가져오기 기록</b>' + list.map((i) => `<div class="row" style="margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><span><b>${esc(i.source || '엑셀')}</b> <span class="sub">${new Date(i.at).toLocaleString('ko-KR')} · ${i.from} ~ ${i.to} · 캠페인 ${i.campaigns}개 · ${fmtInt(i.cells)}칸${i.salesSaved ? ` · 판매 ${fmtInt(i.salesSaved)}행` : ''}${i.mappedOptions ? ` · 옵션 ${i.mappedOptions}개` : ''}</span></span><span class="grow"></span><button class="btn sm" data-undo="${i.id}">되돌리기</button><button class="btn danger sm" data-remove="${i.id}">장부 값 삭제</button></div>`).join('')
     + '<div class="sub" style="margin-top:4px">되돌리기 = 가져오기 전 상태로 복구(옵션·마진 포함). 장부 값 삭제 = 이 가져오기로 들어온 캠페인×날짜 값만 지우고 옵션·마진은 둠.</div>';
   box.querySelectorAll('[data-undo]').forEach((b) => b.onclick = async () => { if (confirm('이 가져오기를 되돌릴까요? 가져오기 전 상태로 복구됩니다.')) { await undoImport(b.dataset.undo); msg('#legacy-msg', '되돌렸습니다.', 'ok'); refreshAll(); renderImports(); } });
   box.querySelectorAll('[data-remove]').forEach((b) => b.onclick = async () => { if (confirm('이 가져오기로 들어온 장부 값을 삭제할까요? (옵션·마진은 남습니다)')) { const n = await removeImportData(b.dataset.remove); msg('#legacy-msg', `${fmtInt(n)}칸 삭제`, 'ok'); refreshAll(); renderImports(); } });

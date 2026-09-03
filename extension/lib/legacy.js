@@ -4,7 +4,7 @@
 //  - 미리보기(parse) → 적용(apply, 되돌리기용 스냅샷 저장) → 되돌리기(undo) / 삭제(remove)
 import * as S from './store.js';
 import { parseXlsx } from './xlsx.js';
-import { parseNumber, parseDate, normHeader } from './parse.js';
+import { parseNumber, parsePercent, parseDate, normHeader } from './parse.js';
 
 const str = (v) => String(v ?? '').trim();
 const cleanId = (v) => { if (typeof v === 'number') return String(Math.round(v)); let s = str(v).replace(/,/g, ''); return s.endsWith('.0') ? s.slice(0, -2) : s; };
@@ -74,7 +74,27 @@ export async function parseLegacyWorkbook(buf, filename = '') {
       for (const row of map.rows.slice(mh.r + 1)) { const oid = cleanId(row[cId]); if (!/^\d+$/.test(oid) || seen.has(oid)) continue; seen.add(oid); mapping.push({ option_id: oid, product_name: str(row[cName]), campaign: str(row[cCamp]), margin: parseNumber(row[cMargin]) }); }
     }
   }
-  return { source: filename, legacy, dates, from: dates[0], to: dates[dates.length - 1], campaigns: [...campaigns], cells, mapping, marginFrom: addDays(dates[dates.length - 1], 1) };
+  // 3번 시트: 옵션별 실제 판매 데이터 (한 줄도 빠짐없이)
+  const sales = [];
+  const salesSheet = findSheet(sheets, '매출 실적') || findSheet(sheets, '매출') || sheets[3];
+  if (salesSheet) {
+    let sh = null; for (let r = 0; r < Math.min(salesSheet.rows.length, 10); r++) { const vals = salesSheet.rows[r].map((v) => str(v).replace(/\n/g, '')); if (vals.some((v) => v.includes('옵션') && v.length <= 20) && vals.some((v) => v.includes('매출') && v.length <= 20) && vals.filter(Boolean).length >= 3) { sh = { r, vals }; break; } }
+    if (sh) {
+      const col = (...names) => { const i = sh.vals.findIndex((v) => names.some((n) => normHeader(v).startsWith(normHeader(n)))); return i < 0 ? null : i; };
+      const c = { date: col('날짜'), oid: col('옵션ID', '옵션 ID'), oname: col('옵션명'), pname: col('상품명'), pid: col('등록상품ID'), cat: col('카테고리'), type: col('판매방식'), rev: col('매출'), orders: col('주문'), qty: col('판매량'), vis: col('방문자'), views: col('조회'), carts: col('장바구니'), conv: col('구매전환율') };
+      const g = (row, k) => (c[k] == null ? null : row[c[k]]);
+      for (const row of salesSheet.rows.slice(sh.r + 1)) {
+        const oid = cleanId(g(row, 'oid')); const date = excelDate(g(row, 'date'));
+        if (!/^\d+$/.test(oid) || !date) continue;
+        sales.push({ date, option_id: oid, option_name: str(g(row, 'oname')), product_name: str(g(row, 'pname')), product_id: cleanId(g(row, 'pid')), category: str(g(row, 'cat')), sales_type: str(g(row, 'type')),
+          revenue: parseNumber(g(row, 'rev')) ?? 0, orders: parseNumber(g(row, 'orders')) ?? 0, quantity: parseNumber(g(row, 'qty')) ?? 0, visitors: parseNumber(g(row, 'vis')) ?? 0,
+          views: parseNumber(g(row, 'views')) ?? 0, carts: parseNumber(g(row, 'carts')) ?? 0, conversion: g(row, 'conv') == null || g(row, 'conv') === '' ? null : parsePercent(g(row, 'conv')) });
+      }
+    }
+  }
+  const salesDates = [...new Set(sales.map((r) => r.date))].sort();
+  return { source: filename, legacy, dates, from: dates[0], to: dates[dates.length - 1], campaigns: [...campaigns], cells, mapping, marginFrom: addDays(dates[dates.length - 1], 1),
+    sales, salesFrom: salesDates[0] || null, salesTo: salesDates[salesDates.length - 1] || null };
 }
 
 // 미리보기: 현재 데이터와 겹치는 정도
@@ -82,13 +102,22 @@ export function previewAgainst(d, parsed) {
   const overlapDays = parsed.dates.filter((x) => d.legacy?.[x]).length;
   const dailyDays = parsed.dates.filter((x) => d.sales[x] || d.ads[x]).length;
   const newOptions = parsed.mapping.filter((m) => !d.options.find((o) => o.option_id === m.option_id)).length;
-  return { overlapDays, dailyDays, newOptions, changedOptions: parsed.mapping.length - newOptions };
+  const salesOverwrite = (parsed.sales || []).filter((r) => d.sales[r.date]?.[r.option_id]).length;
+  return { overlapDays, dailyDays, newOptions, changedOptions: parsed.mapping.length - newOptions, salesRows: (parsed.sales || []).length, salesOverwrite };
 }
 
 export async function applyLegacy(parsed, { withMapping = true } = {}) {
   const d = await S.load(); d.legacy ||= {}; d.imports ||= [];
   const id = 'imp_' + Date.now().toString(36);
-  const before = { legacy: {}, options: [], margins: [], marginKeys: [] };
+  const before = { legacy: {}, options: [], margins: [], salesAdded: [], salesPrev: {} };
+  // 3번 시트 판매 데이터: 전부 저장 (같은 날짜·옵션은 덮어쓰기, 되돌리기용으로 이전 값 보관)
+  let salesSaved = 0;
+  for (const r of parsed.sales || []) {
+    const prev = d.sales[r.date]?.[r.option_id];
+    const key = r.date + '|' + r.option_id;
+    if (prev) before.salesPrev[key] = prev; else before.salesAdded.push(key);
+    (d.sales[r.date] ||= {})[r.option_id] = r; salesSaved++;
+  }
   for (const [date, day] of Object.entries(parsed.legacy)) {
     for (const [c, L] of Object.entries(day)) {
       (before.legacy[date] ||= {})[c] = d.legacy[date]?.[c] ? { ...d.legacy[date][c] } : null;
@@ -110,15 +139,17 @@ export async function applyLegacy(parsed, { withMapping = true } = {}) {
       }
     }
   }
-  d.imports.push({ id, at: new Date().toISOString(), source: parsed.source, from: parsed.from, to: parsed.to, campaigns: parsed.campaigns.length, cells: parsed.cells, mappedOptions, mappedMargins, before });
+  d.imports.push({ id, at: new Date().toISOString(), source: parsed.source, from: parsed.from, to: parsed.to, campaigns: parsed.campaigns.length, cells: parsed.cells, salesSaved, mappedOptions, mappedMargins, before });
   while (d.imports.length > 3) d.imports.shift();
   await S.save(d);
-  return { id, cells: parsed.cells, mappedOptions, mappedMargins, from: parsed.from, to: parsed.to };
+  return { id, cells: parsed.cells, salesSaved, mappedOptions, mappedMargins, from: parsed.from, to: parsed.to };
 }
 
 export async function undoImport(id) {
   const d = await S.load(); const i = (d.imports || []).findIndex((x) => x.id === id); if (i < 0) throw new Error('가져오기 기록이 없습니다');
   const imp = d.imports[i]; const before = imp.before || { legacy: {}, options: [], margins: [] };
+  for (const key of before.salesAdded || []) { const [date, oid] = key.split('|'); if (d.sales[date]) { delete d.sales[date][oid]; if (!Object.keys(d.sales[date]).length) delete d.sales[date]; } }
+  for (const [key, prev] of Object.entries(before.salesPrev || {})) { const [date, oid] = key.split('|'); (d.sales[date] ||= {})[oid] = prev; }
   for (const [date, day] of Object.entries(before.legacy)) {
     for (const [c, prev] of Object.entries(day)) { if (!d.legacy[date]) continue; if (prev) d.legacy[date][c] = prev; else delete d.legacy[date][c]; }
     if (d.legacy[date] && !Object.keys(d.legacy[date]).length) delete d.legacy[date];
