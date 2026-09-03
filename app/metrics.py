@@ -110,7 +110,9 @@ def enrich(p: dict, cond: dict) -> dict:
             v = "below"
         # (예전 버전의 '28일 판매량' 조건은 더 이상 쓰지 않는다)
         if cond.get("buyers_min"):
-            basis = sales if sales is not None else buyers
+            # 상세 확인의 '월 N명 이상 구매'는 쿠팡이 밝힌 하한이고, 리뷰 추정은 어림값이므로 둘 중 큰 쪽으로 판정한다
+            known = [x for x in (sales, buyers) if x is not None]
+            basis = max(known) if known else None
             if basis is None or basis < cond["buyers_min"]:
                 v = "below"
         if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:

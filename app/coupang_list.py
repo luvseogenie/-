@@ -23,6 +23,7 @@ async (args) => {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), args.timeout_ms || 20000);
   const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {}, signal: ctrl.signal };
+  if (args.referrer) opt.referrer = args.referrer;   // 같은 사이트 안의 다른 페이지에서 온 것처럼 (상품별 API 는 그 상품 페이지 출처를 요구한다)
   if (args.body !== undefined && args.body !== null) opt.body = args.body;
   try {
     const r = await fetch(args.url, opt);
@@ -686,8 +687,9 @@ def _parse_date(v):
         return None
 
 
-def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 50, max_pages: int = 6) -> dict:
+def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 30, max_pages: int = 10) -> dict:
     """리뷰 API 를 최신순으로 받아 최근 N일 안에 달린 리뷰 수를 센다 (상품 페이지를 열지 않음).
+    (한 번에 30개까지만 받는다. 50개를 요청하면 쿠팡이 오류 없이 빈 목록을 준다)
 
     반환: {"count": 최근 N일 리뷰 수, "days": 실제로 센 기간(일), "total": 전체 리뷰 수, "note": 설명}
     끝까지 못 센 경우(리뷰가 아주 많은 상품)는 센 기간으로 비례 환산한다.
@@ -700,15 +702,20 @@ def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 50,
     newest = None
     total = None
     pages = 0
+    # 리뷰 API 는 "그 상품 페이지에서 온 요청"만 받는다 (다른 상품 페이지에서 부르면 403).
+    # 탭을 옮기지 않고 요청의 출처(referrer)만 그 상품 페이지로 맞춰 보낸다.
+    referrer = config.PRODUCT_URL.format(pid=product_id)
     for pg in range(1, max_pages + 1):
         url = config.REVIEW_URL.format(pid=product_id, page=pg, size=size)
-        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
-                                                                         "x-requested-with": "XMLHttpRequest"}})
+        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "referrer": referrer,
+                                     "headers": {"accept": "application/json, text/plain, */*", "x-requested-with": "XMLHttpRequest"}})
         if r.get("status") in (403, 429):
             raise BlockedError(f"리뷰 API 가 막혔습니다 (HTTP {r.get('status')})")
         if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
             return {"count": None, "days": None, "total": None, "note": f"리뷰 API 응답 이상 HTTP {r.get('status')}"}
         data = json.loads(r["text"])
+        if isinstance(data, dict) and data.get("rCode") and data.get("rCode") != "RET0000":
+            return {"count": None, "days": None, "total": None, "note": f"리뷰 API 거부 ({data.get('rCode')})"}
         rd = (data or {}).get("rData") or data or {}
         paging = rd.get("paging") or {}
         if total is None:
@@ -728,7 +735,9 @@ def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 50,
                 oldest = min(oldest, d) if oldest else d
             else:
                 stop = True
-        if stop or not paging.get("isNext", True):
+        # 다음 쪽이 있는지는 전체 개수로 판단한다 (isNext 는 페이지 바 표시용이라 첫 쪽에서도 false 가 온다)
+        has_more = (pg * size) < total if total is not None else bool(paging.get("isNext", True))
+        if stop or not has_more:
             return {"count": count, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {count}개 (전체 {total or '?'}개)"}
     # max_pages 안에 28일 전까지 못 감 → 센 기간으로 비례 환산
     if oldest and newest and count:
