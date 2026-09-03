@@ -58,9 +58,16 @@ def enrich(p: dict, cond: dict) -> dict:
         src = "상세 표시가"
     out["effective_price"] = price
     out["price_source"] = src
-    sales = p.get("sales_28")
     views = p.get("views_28")
     reviews = p.get("review_count") or 0
+    # 28일 판매 = 최근 28일 리뷰 수 × 배수 (추정). 상세 확인의 '월 N명 이상'은 별도 표시.
+    mult = float(cond.get("review_multiplier") or 20)
+    r28 = p.get("reviews_28")
+    sales = int(round(r28 * mult)) if r28 is not None else None
+    out["sales_est"] = sales
+    out["reviews_28"] = r28
+    out["reviews_28_note"] = p.get("reviews_28_note")
+    out["review_multiplier"] = mult
     out["daily_avg"] = round(sales / 28, 1) if sales is not None else None
     out["conversion"] = round(sales / views * 100, 2) if sales is not None and views else None
     out["revenue_28"] = sales * price if sales is not None else None
@@ -72,6 +79,7 @@ def enrich(p: dict, cond: dict) -> dict:
     out["conversion_min"] = round(buyers / views * 100, 2) if buyers and views else None
     out["buyers_daily"] = round(buyers / 30, 1) if buyers else None
     out["revenue_min"] = buyers * price if buyers and price else None
+    out["revenue_est"] = sales * price if sales and price else None
     detail = []
     if p.get("buyers_detail"):
         try:
@@ -101,8 +109,10 @@ def enrich(p: dict, cond: dict) -> dict:
         if cond.get("views_max") and (views or 0) > cond["views_max"]:
             v = "below"
         # (예전 버전의 '28일 판매량' 조건은 더 이상 쓰지 않는다)
-        if cond.get("buyers_min") and (buyers or 0) < cond["buyers_min"]:
-            v = "below"
+        if cond.get("buyers_min"):
+            basis = sales if sales is not None else buyers
+            if basis is None or basis < cond["buyers_min"]:
+                v = "below"
         if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:
             v = "below"
         if cond.get("conv_min") and (out["conversion"] or out["conversion_min"] or 0) < cond["conv_min"]:
@@ -132,7 +142,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
         "seen": seen_total,
         "passed_revenue": sum((r.get("revenue_28") or 0) for r in passed),
         "passed_views": sum((r.get("views_28") or 0) for r in passed),
-        "passed_revenue_min": sum((r.get("revenue_min") or 0) for r in passed),
+        "passed_revenue_min": sum(((r.get("revenue_est") or r.get("revenue_min") or 0)) for r in passed),
         "counts": {
             "all": len(rows),
             "pass": len(passed),

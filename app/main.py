@@ -18,7 +18,7 @@ from .coupang_list import PAGE_INFO_JS, diagnose_category, diagnose_site, fetch_
 from .export import build_xlsx
 from .metrics import enrich, summarize
 from . import update as updater
-from .pipeline import job
+from .pipeline import job, Stopped
 
 app = FastAPI(title="쿠팡 소싱 프로그램")
 STATIC = Path(__file__).parent / "static"
@@ -106,7 +106,7 @@ async def set_conditions(req: Request):
     for k in config.DEFAULT_CONDITIONS:
         if k in body:
             v = body[k]
-            if k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price"):
+            if k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify"):
                 cond[k] = bool(v)
             elif k == "conv_min":
                 cond[k] = float(v or 0)
@@ -190,6 +190,30 @@ def run_quick_prices():
                 finally:
                     job._finish()
             job.future = browser.submit(task, "쿠폰 적용가 확인")
+        return {"ok": True}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+@app.post("/api/run/review_estimate")
+def run_review_estimate():
+    try:
+        run_id = _current_run_id()
+        with job.lock:
+            if job.is_running():
+                return _err("이미 작업이 진행 중입니다.")
+            cond = db.get_conditions()
+            job.run_id = run_id
+            job._set("analyzing", "리뷰로 판매량 추정 준비")
+
+            def task(bt):
+                try:
+                    job._review_estimate(bt, run_id, cond)
+                except Stopped:
+                    job.message = "완전중단됨"
+                finally:
+                    job._finish()
+            job.future = browser.submit(task, "리뷰 판매량 추정")
         return {"ok": True}
     except Exception as e:  # noqa: BLE001
         return _err(e)
@@ -306,12 +330,12 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
     if leaf:
         rows = [r for r in rows if str(r.get("category_id")) == str(leaf) or r.get("category_path") == leaf]
     keymap = {
-        "sales": lambda r: (r.get("buyers_min") or r.get("sales_28") or -1, r.get("views_28") or -1),
-        "conversion": lambda r: r.get("conversion_min") or r.get("conversion") or -1,
+        "sales": lambda r: (r.get("sales_est") or r.get("buyers_min") or -1, r.get("views_28") or -1),
+        "conversion": lambda r: ((r.get("sales_est") or 0) / r["views_28"] * 100) if (r.get("sales_est") and r.get("views_28")) else (r.get("conversion_min") or -1),
         "reviews": lambda r: r.get("review_count") or 0,
         "price": lambda r: r.get("effective_price") or 0,
         "views": lambda r: r.get("views_28") or -1,
-        "revenue": lambda r: r.get("revenue_min") or r.get("revenue_28") or -1,
+        "revenue": lambda r: r.get("revenue_est") or r.get("revenue_min") or -1,
         "rankpv": lambda r: -(r.get("pv_rank") or 9999),
         "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
     }
@@ -805,6 +829,9 @@ def make_demo() -> int:
                 db.save_analysis(run_id, pid, None, "윙에서 찾지 못함")
         db.update_run_category(run_id, cid, status="done", pages_done=1, products_seen=15)
     # 일부는 상세 확인(구매자 수)까지 된 상태로
+    for p in db.products(run_id):
+        if rnd.random() < 0.85:
+            db.save_review_velocity(run_id, p["product_id"], rnd.choice([3, 8, 15, 40, 90, 160]), 28.0, "최근 28일 리뷰")
     for p in db.products(run_id)[::3]:
         db.save_verified_price(run_id, p["product_id"], p["price"], rnd.choice([100, 500, 1000, 5000, 10000]), rnd.choice([1, 3, 9]))
         if rnd.random() < 0.5:

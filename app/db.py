@@ -110,7 +110,8 @@ def init_db():
              ("wing_rating", "REAL"), ("wing_review", "INTEGER"), ("pv_exact", "INTEGER"),
              ("option_total", "INTEGER"), ("buyers_min", "INTEGER"), ("badge_key", "TEXT"),
              ("delivery_sure", "INTEGER"), ("price_sale", "INTEGER"), ("price_origin", "INTEGER"),
-             ("buyers_options", "INTEGER"), ("buyers_detail", "TEXT")]
+             ("buyers_options", "INTEGER"), ("buyers_detail", "TEXT"),
+             ("reviews_28", "INTEGER"), ("reviews_28_days", "REAL"), ("reviews_28_at", "TEXT"), ("reviews_28_note", "TEXT")]
     have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
     for col, typ in extra:
         if col not in have:
@@ -361,6 +362,13 @@ def save_quick_price(run_id, product_id, price: int | None, price_sale: int | No
     c = conn()
     c.execute("""UPDATE products SET verified_price=?, price_sale=COALESCE(?, price_sale), price_origin=COALESCE(?, price_origin),
                  coupon_flag=0 WHERE run_id=? AND product_id=?""", (price, price_sale, price_origin, run_id, product_id))
+    c.commit()
+
+
+def save_review_velocity(run_id, product_id, count: int | None, days: float | None, note: str | None):
+    c = conn()
+    c.execute("UPDATE products SET reviews_28=?, reviews_28_days=?, reviews_28_at=?, reviews_28_note=? WHERE run_id=? AND product_id=?",
+              (count, days, now(), note, run_id, product_id))
     c.commit()
 
 

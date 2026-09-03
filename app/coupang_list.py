@@ -664,6 +664,81 @@ def ensure_product_context(page, product_id: int, item_id=None, vendor_item_id=N
     page.wait_for_timeout(1000)
 
 
+_DATE_RE = re.compile(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})")
+
+
+def _parse_date(v):
+    from datetime import date
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        try:
+            from datetime import datetime as _dt
+            return _dt.fromtimestamp(v / 1000 if v > 10**11 else v).date()
+        except Exception:  # noqa: BLE001
+            return None
+    m = _DATE_RE.search(str(v))
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 50, max_pages: int = 6) -> dict:
+    """리뷰 API 를 최신순으로 받아 최근 N일 안에 달린 리뷰 수를 센다 (상품 페이지를 열지 않음).
+
+    반환: {"count": 최근 N일 리뷰 수, "days": 실제로 센 기간(일), "total": 전체 리뷰 수, "note": 설명}
+    끝까지 못 센 경우(리뷰가 아주 많은 상품)는 센 기간으로 비례 환산한다.
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    cutoff = today - timedelta(days=days)
+    count = 0
+    oldest = None
+    newest = None
+    total = None
+    pages = 0
+    for pg in range(1, max_pages + 1):
+        url = config.REVIEW_URL.format(pid=product_id, page=pg, size=size)
+        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
+                                                                         "x-requested-with": "XMLHttpRequest"}})
+        if r.get("status") in (403, 429):
+            raise BlockedError(f"리뷰 API 가 막혔습니다 (HTTP {r.get('status')})")
+        if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
+            return {"count": None, "days": None, "total": None, "note": f"리뷰 API 응답 이상 HTTP {r.get('status')}"}
+        data = json.loads(r["text"])
+        rd = (data or {}).get("rData") or data or {}
+        paging = rd.get("paging") or {}
+        if total is None:
+            total = _num(paging.get("totalCount")) or _num(rd.get("reviewTotalCount"))
+        contents = paging.get("contents") or rd.get("contents") or []
+        pages += 1
+        if not contents:
+            break
+        stop = False
+        for rv in contents:
+            d = _parse_date(rv.get("reviewAt") or rv.get("createdAt") or rv.get("reviewDate"))
+            if d is None:
+                continue
+            newest = max(newest, d) if newest else d
+            if d >= cutoff:
+                count += 1
+                oldest = min(oldest, d) if oldest else d
+            else:
+                stop = True
+        if stop or not paging.get("isNext", True):
+            return {"count": count, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {count}개 (전체 {total or '?'}개)"}
+    # max_pages 안에 28일 전까지 못 감 → 센 기간으로 비례 환산
+    if oldest and newest and count:
+        span = max(1, (newest - oldest).days)
+        est = int(round(count * days / span))
+        return {"count": est, "days": float(span), "total": total,
+                "note": f"{span}일치 리뷰 {count}개를 {days}일로 환산 (리뷰가 많아 {pages}쪽만 확인)"}
+    return {"count": count, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {count}개"}
+
+
 def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
     """상품 페이지를 새로 열지 않고 가격 API 만 호출해 쿠폰 적용 최종가를 얻는다.
     (탭이 상품 페이지가 아니면 처음 한 번만 연다)"""

@@ -46,6 +46,7 @@ CATEGORY_PAGE = "https://www.coupang.com/np/categories/{cid}"
 CATEGORY_URL = "https://www.coupang.com/np/categories/{cid}?listSize={size}&sorter=saleCountDesc&page={page}"
 SEARCH_URL = "https://www.coupang.com/np/search?q={q}&listSize=72&sorter=saleCountDesc&page={page}"
 PRODUCT_URL = "https://www.coupang.com/vp/products/{pid}"
+REVIEW_URL = "https://www.coupang.com/next-api/review?productId={pid}&page={page}&size={size}&sortBy=DATE_DESC&ratingSummary=false"
 PRODUCT_URL_MOBILE = "https://m.coupang.com/vm/products/{pid}"
 WING_HOME = "https://wing.coupang.com/"
 
@@ -82,6 +83,9 @@ DEFAULT_CONDITIONS = {
     "conv_min": 0,
     "buyers_min": 0,
     "sales28_min": 0,
+    "auto_verify": False,         # 손 놓으면 자동 시 상세 확인(페이지 열기)까지 이어갈지
+    "review_estimate": True,      # 최근 28일 리뷰 수 × 배수로 판매량 추정 (페이지 안 열고 API 만)
+    "review_multiplier": 20,      # 리뷰 1개당 판매 개수(추정 배수)
     "quick_price": False,         # 수집 직후 쿠폰 적용가 미리 확인 (가격 API 를 많이 불러 차단 위험, 기본 끔)
     "sum_options": True,          # 월 구매자 수를 옵션 전체 합산 (옵션마다 페이지를 열어야 해서 느림)
     "sum_options_max": 8,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)

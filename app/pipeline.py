@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, reset_debug_budget
+from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, ensure_product_context, reset_debug_budget
 from .metrics import restricted_reason
 
 
@@ -157,7 +157,9 @@ class JobController:
                 self._quick_prices(bt, run_id, cond)
             if cond.get("auto_continue") and wing.is_configured():
                 self._analyze(bt, run_id, cond)
-                self._auto_verify(bt, run_id, cond)
+                self._review_estimate(bt, run_id, cond)
+                if cond.get("auto_verify"):
+                    self._auto_verify(bt, run_id, cond)
             elif cond.get("auto_continue"):
                 self.message = "수집 완료. [28일 판매량 분석]을 누르면 윙 조회수 분석을 시작합니다."
             self._finish()
@@ -285,6 +287,60 @@ class JobController:
             self.message = ""
             self.future = browser.submit(lambda bt: self._analyze_wrapper(bt, run_id, cond, include_excluded), "판매량 분석")
 
+    def _review_estimate(self, bt, run_id, cond):
+        """최근 28일 리뷰 수로 판매량을 추정한다. 상품 페이지를 열지 않고 리뷰 API 만 부른다."""
+        if not cond.get("review_estimate"):
+            return
+        targets = []
+        for p in db.products(run_id):
+            if p.get("reviews_28") is not None:
+                continue
+            if not db.eligible(p, cond):
+                continue
+            if p.get("analyzed") and not p.get("matched"):
+                continue
+            if cond.get("views_min") and p.get("analyzed") and (p.get("views_28") or 0) < cond["views_min"]:
+                continue        # 조회수 미달은 어차피 탈락
+            targets.append(p)
+        if not targets:
+            return
+        targets.sort(key=lambda r: -(r.get("views_28") or 0))
+        self._set("analyzing", "리뷰로 판매량 추정 중", len(targets))
+        log.info(f"리뷰 기반 판매량 추정: {len(targets)}개 (리뷰 API, 페이지 안 열음)")
+        page = bt.page()
+        # 리뷰 API 는 상품 페이지 문맥에서 부르는 게 안전하다 → 첫 상품 페이지를 한 번만 연다
+        try:
+            t0 = targets[0]
+            ensure_product_context(page, t0["product_id"], t0.get("item_id"), t0.get("vendor_item_id"))
+        except BlockedError:
+            log.warn("상품 페이지가 막혀 리뷰 추정을 건너뜁니다")
+            return
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"상품 페이지 열기 실패(계속 진행): {e}")
+        fails = 0
+        for p in targets:
+            self._check()
+            self.progress["label"] = (p.get("name") or "")[:38]
+            try:
+                r = fetch_review_velocity(page, p["product_id"])
+                db.save_review_velocity(run_id, p["product_id"], r.get("count"), r.get("days"), r.get("note"))
+                if r.get("count") is None:
+                    fails += 1
+                else:
+                    fails = 0
+            except BlockedError as e:
+                log.warn(f"{e} · 리뷰 추정을 중단합니다")
+                break
+            except Exception as e:  # noqa: BLE001
+                fails += 1
+                log.warn(f"리뷰 추정 실패 {p['product_id']}: {e}")
+            if fails >= 8:
+                log.warn("리뷰 API 실패가 계속되어 리뷰 추정을 중단합니다")
+                break
+            self.progress["done"] += 1
+            human_delay(1.2, 2.5)
+        log.info("리뷰 기반 판매량 추정 완료")
+
     def _auto_verify(self, bt, run_id, cond):
         """손 놓으면 자동: 조건에 맞는(가격·리뷰·조회수 통과) 상품의 실제가격·구매자수·배송을 이어서 확인한다."""
         from .metrics import enrich
@@ -304,7 +360,8 @@ class JobController:
     def _analyze_wrapper(self, bt, run_id, cond, include_excluded):
         try:
             self._analyze(bt, run_id, cond, include_excluded)
-            if cond.get("auto_continue"):
+            self._review_estimate(bt, run_id, cond)
+            if cond.get("auto_continue") and cond.get("auto_verify"):
                 self._auto_verify(bt, run_id, cond)
             self._finish()
         except Stopped:

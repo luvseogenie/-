@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -271,7 +271,7 @@
       body.innerHTML = `<tr><td colspan="9" class="empty">${state.all ? (state.filter === 'pass' ? '조건 통과 상품이 아직 없습니다. 위 칩에서 [전체]를 누르면 수집된 상품을 모두 볼 수 있고, 조건을 바꾼 뒤엔 [시작 / 이어하기]로 새로 들어온 상품을 분석하세요.' : '이 조건에 맞는 상품이 없습니다.') : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
       return;
     }
-    const maxConv = Math.max(5, ...state.rows.map((r) => r.conversion_min || 0));
+    const maxConv = Math.max(5, ...state.rows.map((r) => (r.sales_est && r.views_28) ? r.sales_est / r.views_28 * 100 : (r.conversion_min || 0)));
     body.innerHTML = state.rows.map((r) => {
       const cat = (r.category_path || '').split(' > ').join(' › ');
       const pills = [`<span class="pill ${r.verdict}">${esc(r.verdict_label)}</span>`];
@@ -281,23 +281,28 @@
       const sim = (r.seller_count !== null && r.seller_count !== undefined) ? `<span class="pill">경쟁 판매자 ${r.seller_count}곳</span>` : '';
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
-      const salesCell = r.buyers_min
-        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합${r.buyers_best ? ' · 최다 ' + fmt(r.buyers_best) + '+' : ''} <a class="optlink" data-id="${r.product_id}">옵션별</a>` : ' · 월 최소'}</div>`
-        : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
-      const wingSales = (r.sales_28 !== null && r.sales_28 !== undefined) ? `<div class="sub">윙 28일 판매 ${fmt(r.sales_28)}</div>` : '';
-      const convCell = r.conversion_min !== null && r.conversion_min !== undefined
-        ? `<b class="green">≥ ${r.conversion_min.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, r.conversion_min / Math.max(1, maxConv) * 100)}%"></i></div>`
+      let salesCell;
+      if (r.sales_est !== null && r.sales_est !== undefined) {
+        salesCell = `<b class="green">≈ ${fmt(r.sales_est)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}개×${r.review_multiplier} · 일 ${fmt(Math.round(r.sales_est / 28))}개${r.buyers_min ? ` · 확인 ${fmt(r.buyers_min)}명+` : ''}</div>`;
+      } else if (r.buyers_min) {
+        salesCell = `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">월 구매자 최소${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합` : ''}</div>`;
+      } else {
+        salesCell = `<span class="muted">-</span><div class="sub">${r.reviews_28_note ? esc(r.reviews_28_note) : '미추정'}</div>`;
+      }
+      const convVal = (r.sales_est && r.views_28) ? (r.sales_est / r.views_28 * 100) : (r.conversion_min !== null && r.conversion_min !== undefined ? r.conversion_min : null);
+      const convCell = convVal !== null
+        ? `<b class="green">${r.sales_est ? '' : '≥ '}${convVal.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, convVal / Math.max(1, maxConv) * 100)}%"></i></div>`
         : '<span class="muted">-</span>';
       return `<tr data-id="${r.product_id}">
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.name || ('상품 ' + r.product_id))}</a></div>
           <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}</div></td>
-        <td class="num">${salesCell}${wingSales}</td>
+        <td class="num">${salesCell}</td>
         <td class="num">${convCell}</td>
         <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
         <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
-        <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? (r.revenue_min < 1e8 ? won(r.revenue_min) + ' 최소' : '최소') : ''}</div></td>
+        <td class="num"><b>${r.revenue_est ? '≈ ' + wonShort(r.revenue_est) : (r.revenue_min ? wonShort(r.revenue_min) : '-')}</b><div class="sub">${r.revenue_est ? (r.revenue_est < 1e8 ? won(r.revenue_est) : '추정') : (r.revenue_min ? '최소' : '')}</div></td>
         <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}${r.delivery_sure ? '' : ' <span class="muted" title="상세 확인 전 추정값">?</span>'}</b><div class="sub">${esc(deliveryLabel(r.delivery))}${r.delivery_sure ? '' : ' (추정)'}</div></td>
       </tr>`;
     }).join('');
@@ -395,6 +400,9 @@
   $('#c-exclude_restricted').addEventListener('change', saveConditions);
   $('#c-sum_options') && $('#c-sum_options').addEventListener('change', saveConditions);
   $('#c-quick_price') && $('#c-quick_price').addEventListener('change', saveConditions);
+  $('#c-review_estimate') && $('#c-review_estimate').addEventListener('change', saveConditions);
+  $('#c-auto_verify') && $('#c-auto_verify').addEventListener('change', saveConditions);
+  $('#btn-review').addEventListener('click', guard(async () => { await api('/api/run/review_estimate', {}); toast('리뷰로 판매량을 추정합니다 (페이지는 열지 않습니다).'); await refreshAll(); }));
       $('#c-hide_ads').addEventListener('change', saveConditions);
 
   $('#btn-start').addEventListener('click', guard(async () => {
