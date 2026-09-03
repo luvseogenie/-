@@ -156,6 +156,7 @@ class JobController:
             self._quick_prices(bt, run_id, cond)
             if cond.get("auto_continue") and wing.is_configured():
                 self._analyze(bt, run_id, cond)
+                self._auto_verify(bt, run_id, cond)
             elif cond.get("auto_continue"):
                 self.message = "수집 완료. [28일 판매량 분석]을 누르면 윙 조회수 분석을 시작합니다."
             self._finish()
@@ -260,9 +261,25 @@ class JobController:
             self.message = ""
             self.future = browser.submit(lambda bt: self._analyze_wrapper(bt, run_id, cond, include_excluded), "판매량 분석")
 
+    def _auto_verify(self, bt, run_id, cond):
+        """손 놓으면 자동: 조건에 맞는(가격·리뷰·조회수 통과) 상품의 실제가격·구매자수·배송을 이어서 확인한다."""
+        from .metrics import enrich
+        rows = [enrich(p, cond) for p in db.products(run_id)]
+        ids = sorted({r["product_id"] for r in rows
+                      if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
+                                                or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))})
+        if not ids:
+            log.info("상세 확인 대상 없음")
+            return
+        log.info(f"손 놓으면 자동: 조건 통과 후보 {len(ids)}개 상세 확인 시작")
+        self._set("verifying", "실제가격·구매자수 확인 중", len(ids))
+        self._verify_loop(bt, run_id, ids)
+
     def _analyze_wrapper(self, bt, run_id, cond, include_excluded):
         try:
             self._analyze(bt, run_id, cond, include_excluded)
+            if cond.get("auto_continue"):
+                self._auto_verify(bt, run_id, cond)
             self._finish()
         except Stopped:
             db.set_run_status(run_id, "stopped")
@@ -418,6 +435,18 @@ class JobController:
 
     def _verify(self, bt, run_id, product_ids):
         try:
+            self._verify_loop(bt, run_id, product_ids)
+            self._finish()
+        except Stopped:
+            self.message = "완전중단됨"
+            self._finish()
+        except Exception as e:  # noqa: BLE001
+            self.message = f"오류: {e}"
+            log.error(f"실제가격 확인 오류: {e}")
+            self._finish()
+
+    def _verify_loop(self, bt, run_id, product_ids):
+        if True:
             reset_debug_budget(3)
             cond = db.get_conditions()
             rows = {p["product_id"]: p for p in db.products(run_id)}
@@ -454,14 +483,7 @@ class JobController:
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
                 human_delay(1.5, 3.5)
-            self._finish()
-        except Stopped:
-            self.message = "완전중단됨"
-            self._finish()
-        except Exception as e:  # noqa: BLE001
-            self.message = f"오류: {e}"
-            log.error(f"실제가격 확인 오류: {e}")
-            self._finish()
+            log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----
     def start_capture(self):
