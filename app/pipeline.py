@@ -153,7 +153,8 @@ class JobController:
             db.set_setting(f"seen_total_{run_id}", seen_total)
             db.set_run_status(run_id, "collected")
             log.info(f"수집 완료: 상품 {seen_total}개 훑음")
-            self._quick_prices(bt, run_id, cond)
+            if cond.get("quick_price"):
+                self._quick_prices(bt, run_id, cond)
             if cond.get("auto_continue") and wing.is_configured():
                 self._analyze(bt, run_id, cond)
                 self._auto_verify(bt, run_id, cond)
@@ -439,7 +440,7 @@ class JobController:
             else:
                 r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
                 b = (r or {}).get("buyers_min")
-                human_delay(1.2, 2.5)
+                human_delay(2.0, 4.0)
             detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b,
                            "price": o.get("price"), "item_id": o.get("item_id")})
             if b:
@@ -507,7 +508,7 @@ class JobController:
                         parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(1.5, 3.0)
+                human_delay(3.0, 6.0)
             log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----

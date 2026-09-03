@@ -494,6 +494,7 @@ def _goto(page, url: str, wait_selector: str | None = None):
         pause = _r.uniform(*config.REST_SECONDS)
         log.info(f"페이지 {_page_counter['n']}개째 · {pause:.0f}초 쉽니다")
         time.sleep(pause)
+    _human_before_nav(page)
     resp = page.goto(url, wait_until="domcontentloaded", timeout=60000, referer=referer)
     status = resp.status if resp else None
     if status in (403, 429, 503):
@@ -504,15 +505,45 @@ def _goto(page, url: str, wait_selector: str | None = None):
             page.wait_for_selector(wait_selector, timeout=15000)
         except Exception:  # noqa: BLE001
             pass
-    # 지연 렌더링(스크롤해야 나오는 카드) 대비
+    _human_on_page(page, deep=("/vp/products/" in url))
+    return status
+
+
+def _human_before_nav(page):
+    """페이지를 넘기기 전에 사람처럼 마우스를 조금 움직인다."""
+    import random as _r
     try:
-        page.mouse.wheel(0, 2500)
-        page.wait_for_timeout(350)
-        page.mouse.wheel(0, 4000)
-        page.wait_for_timeout(300)
+        w, h = 1200, 800
+        try:
+            vp = page.viewport_size
+            if vp:
+                w, h = vp["width"], vp["height"]
+        except Exception:  # noqa: BLE001
+            pass
+        for _ in range(_r.randint(1, 3)):
+            page.mouse.move(_r.randint(80, w - 80), _r.randint(80, h - 80), steps=_r.randint(5, 15))
+            page.wait_for_timeout(_r.randint(80, 250))
     except Exception:  # noqa: BLE001
         pass
-    return status
+
+
+def _human_on_page(page, deep: bool = False):
+    """페이지에 들어와서 사람처럼 머문다: 나눠서 스크롤, 마우스 이동, 짧은 멈춤."""
+    import random as _r
+    try:
+        page.wait_for_timeout(_r.randint(400, 900))
+        steps = _r.randint(3, 5) if deep else 2
+        for _ in range(steps):
+            page.mouse.wheel(0, _r.randint(500, 1400))
+            page.wait_for_timeout(_r.randint(250, 700))
+            if _r.random() < 0.5:
+                page.mouse.move(_r.randint(200, 1000), _r.randint(200, 700), steps=_r.randint(4, 10))
+        if deep and _r.random() < 0.6:
+            page.mouse.wheel(0, -_r.randint(300, 900))      # 위로 조금 되돌아보기
+            page.wait_for_timeout(_r.randint(200, 500))
+        page.wait_for_timeout(_r.randint(300, 800))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def fetch_listing(page, kind: str, key, page_no: int) -> dict:
@@ -653,13 +684,13 @@ def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None
     if params:
         url += "?" + "&".join(params)
     _goto(page, url, None)
-    page.wait_for_timeout(800)
+    page.wait_for_timeout(300)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
         raise BlockedError("상품 페이지 접근이 막혔습니다")
     if data.get("buyers_min") is None:
         # 문구가 늦게 뜨는 경우가 있어 한 번 더 기다렸다가 다시 읽는다
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(900)
         data = page.evaluate(DETAIL_PRICE_JS)
     return {"buyers_min": data.get("buyers_min"), "sold_out": bool(data.get("sold_out"))}
 
@@ -679,13 +710,13 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     if params:
         url += "?" + "&".join(params)
     _goto(page, url, None)
-    page.wait_for_timeout(800)
+    page.wait_for_timeout(300)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
         _dump_debug(page, f"blocked_detail_{product_id}")
         raise BlockedError("상품 페이지 접근이 막혔습니다")
     if data.get("buyers_min") is None:
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(900)
         data = page.evaluate(DETAIL_PRICE_JS)
     out["buyers_min"] = data.get("buyers_min")
     out["sellers"] = data.get("sellers")

@@ -34,7 +34,7 @@ DELAY_MAX = 3.0
 BLOCK_COOLDOWN = 120
 LIGHT_MODE = False           # 이미지·폰트 차단 (봇으로 보일 수 있어 기본 끔)
 REST_EVERY = 20              # 페이지 N개마다 잠깐 쉼
-REST_SECONDS = (15, 30)          # 차단 감지 시 쉬는 시간(초)
+REST_SECONDS = (20, 40)          # 차단 감지 시 쉬는 시간(초)
 
 DEFAULT_CONDITIONS = {
     "price_min": 9000,
@@ -46,8 +46,9 @@ DEFAULT_CONDITIONS = {
     "conv_min": 0,
     "buyers_min": 0,
     "sales28_min": 0,
+    "quick_price": False,         # 수집 직후 쿠폰 적용가 미리 확인 (가격 API 를 많이 불러 차단 위험, 기본 끔)
     "sum_options": True,          # 월 구매자 수를 옵션 전체 합산 (옵션마다 페이지를 열어야 해서 느림)
-    "sum_options_max": 12,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)
+    "sum_options_max": 8,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)
     "only_mergeable": False,
     "fetch_rank": False,          # 판매 순위도 조회 (인기상품검색 화면 이용, 느림)
     "pages": 1,
