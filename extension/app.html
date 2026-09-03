@@ -16,6 +16,7 @@
       <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
       <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
+      <button data-page="expense"><span class="ico">－</span>광고 외 지출</button>
       <button data-page="data"><span class="ico">⇅</span>데이터 · 설정</button>
     </nav>
     <div class="foot" id="foot"></div>
@@ -177,6 +178,31 @@
           <div class="row" style="margin-top:8px"><label class="sub">데이터 날짜</label><input type="date" id="paste-date"><label class="chk"><input type="radio" name="paste-kind" value="ads" checked> 광고</label><label class="chk"><input type="radio" name="paste-kind" value="sales"> 판매</label><button class="btn primary sm" id="paste-go">저장</button><span id="paste-msg" class="msg"></span></div>
           <textarea id="paste-text" style="width:100%;height:110px;margin-top:6px;font-family:monospace;font-size:12px" placeholder="캠페인 이름	광고비	광고전환 매출	노출수	클릭수 …"></textarea>
         </details>
+      </div>
+    </section>
+
+    <!-- ===== 광고 외 지출 ===== -->
+    <section id="page-expense" style="display:none">
+      <div class="card">
+        <h2>광고 외 지출 입력 <span class="sub">트래픽·마케팅 등 광고비 외에 쓴 돈. 그 달 순이익(그리고 세후 순이익)에서 자동으로 빠집니다. 캠페인별 숫자는 그대로 두고 전체 합계에서만 뺍니다.</span></h2>
+        <div class="row">
+          <label class="sub">날짜</label><input type="date" id="ex-date">
+          <label class="sub">사유</label><select id="ex-cat"></select><input type="text" id="ex-cat-custom" class="short" placeholder="직접 입력" style="display:none">
+          <label class="sub">금액</label><input type="number" id="ex-amount" style="width:140px" placeholder="원">
+          <label class="sub">메모</label><input type="text" id="ex-memo" style="width:220px" placeholder="예: 9월 트래픽 결제">
+          <label class="sub">적용</label><select id="ex-mode"><option value="month">해당 월에 나눠 반영 (월 결제)</option><option value="day">해당 일에 반영</option></select>
+          <button class="btn primary sm" id="ex-add">추가</button><span id="ex-msg" class="msg"></span>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>지출 내역 <span class="sub" id="ex-sub"></span><span class="grow"></span><select id="ex-month"></select></h2>
+          <div class="tablewrap" style="max-height:60vh"><table id="ex-table"><thead><tr><th class="l">날짜</th><th class="l">사유</th><th>금액</th><th class="l">메모</th><th class="l">적용</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+        <div class="card">
+          <h2>월별 합계 · 순이익 반영</h2>
+          <div class="tablewrap" style="max-height:60vh"><table id="ex-month-table"><thead><tr><th class="l">월</th><th>순이익 (광고비 제외)</th><th>광고 외 지출</th><th>지출 차감 순이익</th><th class="l">사유별</th></tr></thead><tbody></tbody></table></div>
+        </div>
       </div>
     </section>
 

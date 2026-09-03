@@ -1,5 +1,5 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
@@ -113,11 +113,14 @@ export function computeLedger(d, start, end) {
     finalizeSum(total); total.days = Object.keys(days).length;
     result.push({ campaign: camp, days, months, total });
   }
-  // 날짜별 전체 합계 (대시보드용)
+  // 날짜별 전체 합계 (대시보드용) + 광고 외 지출 차감
   const daily = {};
   for (const c of result) for (const [date, v] of Object.entries(c.days)) { const t = (daily[date] ||= cell()); for (const k of SUM) t[k] += v[k]; }
-  for (const t of Object.values(daily)) finalizeSum(t);
-  const grand = cell(); for (const t of Object.values(daily)) for (const k of SUM) grand[k] += t[k]; finalizeSum(grand);
+  const expDay = expensesByDay(d, start, end); const month_expense = {};
+  for (const [date, amt] of Object.entries(expDay)) { const t = (daily[date] ||= cell()); t.expense = amt; month_expense[date.slice(0, 7)] = (month_expense[date.slice(0, 7)] || 0) + amt; }
+  for (const t of Object.values(daily)) { finalizeSum(t); t.expense ||= 0; t.profit_net = t.profit - t.expense; }
+  const grand = cell(); grand.expense = 0; for (const t of Object.values(daily)) { for (const k of SUM) grand[k] += t[k]; grand.expense += t.expense; } finalizeSum(grand); grand.profit_net = grand.profit - grand.expense;
+  const month_profit_net = {}; for (const mk of new Set([...Object.keys(month_profit), ...Object.keys(month_expense)])) month_profit_net[mk] = (month_profit[mk] || 0) - (month_expense[mk] || 0);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
-    total_profit, month_profit, daily, grand, unmapped_options: [...unmapped].sort(), legacyCutoff };
+    total_profit, month_profit, month_expense, month_profit_net, daily, grand, expense_by_day: expDay, unmapped_options: [...unmapped].sort(), legacyCutoff };
 }

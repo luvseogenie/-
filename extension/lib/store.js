@@ -4,7 +4,7 @@
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [] });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [] });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -105,4 +105,25 @@ export function unmappedOptionIds(d) {
 }
 export function marginHistory(d, option_id) {
   return d.margins.filter((m) => m.option_id === option_id).sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+}
+
+// ---- 광고 외 지출 (트래픽·마케팅 등 수기 입력) ----
+export const EXPENSE_CATEGORIES = ['트래픽', '마케팅', '체험단', '촬영·디자인', '포장·부자재', '기타'];
+export function addExpense(d, { date, category, amount, memo = '', mode = 'month', id = null }) {
+  d.expenses ||= [];
+  const e = { id: id || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date, category: String(category || '기타').trim(), amount: Number(amount) || 0, memo: String(memo || '').trim(), mode: mode === 'day' ? 'day' : 'month' };
+  const i = d.expenses.findIndex((x) => x.id === e.id); if (i >= 0) d.expenses[i] = e; else d.expenses.push(e);
+  return e;
+}
+export function deleteExpense(d, id) { d.expenses = (d.expenses || []).filter((x) => x.id !== id); }
+// 날짜별 지출 배분: mode 'month' 는 그 달 일수로 나눠 매일 반영, 'day' 는 그 날에 반영
+export function expensesByDay(d, start, end) {
+  const out = {};
+  for (const e of d.expenses || []) {
+    if (!e.date || !e.amount) continue;
+    if (e.mode === 'day') { if (e.date >= start && e.date <= end) out[e.date] = (out[e.date] || 0) + e.amount; continue; }
+    const [y, m] = e.date.split('-').map(Number); const days = new Date(y, m, 0).getDate(); const per = e.amount / days;
+    for (let day = 1; day <= days; day++) { const iso = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`; if (iso >= start && iso <= end) out[iso] = (out[iso] || 0) + per; }
+  }
+  return out;
 }

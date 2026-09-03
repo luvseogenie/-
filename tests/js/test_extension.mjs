@@ -193,3 +193,21 @@ console.log('extension logic: all checks passed');
   assert.equal(T.bracketsFor(2022), T.BRACKETS_OLD);
   console.log('tax estimate: all checks passed');
 }
+
+// 광고 외 지출: 월에 나눠 반영 / 그 날에 반영, 순이익 차감
+{
+  await S.replaceAll({});
+  const d = await S.load();
+  S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.setMargin(d, '1', 1000);
+  for (let day = 1; day <= 30; day++) S.upsertSales(d, [{ date: `2025-06-${String(day).padStart(2, '0')}`, option_id: '1', option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: 10000, orders: 1, quantity: 10, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  S.addExpense(d, { date: '2025-06-05', category: '트래픽', amount: 300000, mode: 'month' });   // 30일로 나눠 하루 10,000
+  S.addExpense(d, { date: '2025-06-10', category: '마케팅', amount: 50000, mode: 'day' });
+  await S.save(d);
+  const led = computeLedger(d, '2025-06-01', '2025-06-30');
+  assert.equal(led.grand.profit, 300000); assert.equal(led.grand.expense, 350000); assert.equal(led.grand.profit_net, -50000);
+  approx(led.daily['2025-06-01'].expense, 10000); approx(led.daily['2025-06-10'].expense, 60000); approx(led.daily['2025-06-10'].profit_net, 10000 - 60000);
+  approx(led.month_expense['2025-06'], 350000); approx(led.month_profit_net['2025-06'], -50000);
+  const week = computeLedger(d, '2025-06-01', '2025-06-07'); approx(week.grand.expense, 70000); // 월 분배분 7일치
+  assert.deepEqual(Object.keys(S.expensesByDay(d, '2025-07-01', '2025-07-31')), []);
+  console.log('expenses: all checks passed');
+}

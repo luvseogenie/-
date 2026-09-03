@@ -44,7 +44,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', options: '캠페인 · 옵션', ads: '광고 입력', data: '데이터 · 설정' };
+const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -58,7 +58,7 @@ function showPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'expense') renderExpense(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
 function renderFoot() {
@@ -87,7 +87,7 @@ async function renderDash() {
   const at = periodAfterTax(range.start, range.end), pat = periodAfterTax(ps, pe);
   const kpis = [
     { k: '세후 순이익 (종합소득세 반영)', v: fmtWon(at.net) + '원', bad: at.net < 0, d: `세금 ${fmtWon(at.tax)}원 · 실효 ${(at.rate * 100).toFixed(1)}% · ${delta(at.net, pat.net)}`, color: at.net < 0 ? '#d03b3b' : '#1baf7a' },
-    { k: '순이익 (광고비 제외)', v: fmtWon(g.profit) + '원', bad: g.profit < 0, d: delta(g.profit, pg.profit), color: g.profit < 0 ? '#d03b3b' : '#4a3aa7' },
+    { k: '순이익 (광고비 · 광고 외 지출 제외)', v: fmtWon(g.profit_net) + '원', bad: g.profit_net < 0, d: (g.expense ? `광고 외 지출 −${fmtWon(g.expense)}원 · ` : '') + delta(g.profit_net, pg.profit_net), color: g.profit_net < 0 ? '#d03b3b' : '#4a3aa7' },
     { k: '총 매출', v: fmtWon(g.revenue) + '원', d: delta(g.revenue, pg.revenue), color: '#17202a' },
     { k: '자연 매출 (광고 외)', v: fmtWon(g.organic_revenue) + '원', d: `매출의 ${Math.round(organicShare * 100)}% · ${delta(organicShare, prevOrganicShare, true)}`, color: '#1baf7a' },
     { k: '광고비 (부가세 포함)', v: fmtWon(g.spend_vat) + '원', d: delta(g.spend_vat, pg.spend_vat), color: '#eb6834' },
@@ -98,7 +98,7 @@ async function renderDash() {
 
   const dates = led.dates.filter((d) => led.daily[d]);
   const D = (k) => dates.map((d) => led.daily[d][k] || 0);
-  barChart($('#ch-profit'), dates, D('profit'));
+  barChart($('#ch-profit'), dates, D('profit_net'), { label: '순이익 (지출 차감)' });
   stackedChart($('#ch-rev'), dates, [{ label: '광고 매출', cls: 'ad', color: '#2a78d6', values: D('ad_revenue') }, { label: '자연 매출', cls: 'org', color: '#1baf7a', values: D('organic_revenue') }]);
   lineChart($('#ch-cost'), dates, [{ label: '광고비', cls: 'cost', color: '#eb6834', values: D('spend_vat') }, { label: '광고 매출', cls: 'rev', color: '#2a78d6', values: D('ad_revenue') }]);
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
@@ -215,7 +215,9 @@ function renderLedgerTable() {
   if (m) cols.push({ sum: m });
   const metrics = led.metrics.filter((x) => shownMetrics.has(x.key));
   let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + (showAction ? '<th class="l">ACTION</th>' : '') + '</tr></thead><tbody>';
-  h += '<tr><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
+  h += '<tr><td class="camp" rowspan="3">전체</td><td class="lbl"><b>전체 순이익 (광고비 제외)</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
+  h += '<tr><td class="lbl">광고 외 지출</td>' + cols.map((c) => { const v = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]; return `<td class="total num">${v ? '−' + fmtWon(v) : ''}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
+  h += '<tr><td class="lbl"><b>지출 차감 순이익</b></td>' + cols.map((c) => { const v = c.date ? (led.daily[c.date]?.profit_net) : led.month_profit_net[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
   const showHidden = $('#lg-show-hidden').checked;
   const allCamps = S.campaigns(DATA); const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
@@ -515,9 +517,49 @@ async function loadSettings() {
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
 
+/* ===== 광고 외 지출 ===== */
+$('#ex-date').value = localIso(yday);
+$('#ex-cat').innerHTML = S.EXPENSE_CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join('') + '<option value="__custom">직접 입력…</option>';
+$('#ex-cat').onchange = () => { $('#ex-cat-custom').style.display = $('#ex-cat').value === '__custom' ? '' : 'none'; };
+$('#ex-add').onclick = async () => {
+  const cat = $('#ex-cat').value === '__custom' ? $('#ex-cat-custom').value.trim() : $('#ex-cat').value;
+  const amount = parseNumber($('#ex-amount').value);
+  if (!$('#ex-date').value || !cat || !amount) { msg('#ex-msg', '날짜 · 사유 · 금액을 넣어 주세요', 'err'); return; }
+  const d = await reload(); S.addExpense(d, { date: $('#ex-date').value, category: cat, amount, memo: $('#ex-memo').value, mode: $('#ex-mode').value }); await S.save(d);
+  $('#ex-amount').value = ''; $('#ex-memo').value = ''; msg('#ex-msg', '추가됨', 'ok'); await reload(); renderExpense(); renderFoot();
+};
+$('#ex-month').onchange = () => renderExpense();
+function renderExpense() {
+  const d = DATA; const list = [...(d.expenses || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const months = [...new Set([...list.map((e) => e.date.slice(0, 7)), localIso(yday).slice(0, 7)])].sort().reverse();
+  const sel = $('#ex-month'); const cur = sel.value || months[0];
+  sel.innerHTML = '<option value="">전체</option>' + months.map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m.replace('-', '년 ')}월</option>`).join('');
+  const shown = list.filter((e) => !sel.value || e.date.startsWith(sel.value));
+  $('#ex-sub').textContent = `${shown.length}건 · ${fmtWon(shown.reduce((a, e) => a + e.amount, 0))}원`;
+  const tb = $('#ex-table tbody'); tb.innerHTML = '';
+  for (const e of shown) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="l"><input type="date" data-k="date" value="${e.date}"></td><td class="l"><input type="text" data-k="category" value="${esc(e.category)}" list="ex-cat-list" style="width:110px"></td><td><input type="number" data-k="amount" value="${e.amount}" style="width:120px"></td><td class="l"><input type="text" data-k="memo" value="${esc(e.memo)}" style="width:200px"></td><td class="l"><select data-k="mode"><option value="month" ${e.mode === 'month' ? 'selected' : ''}>월에 나눠</option><option value="day" ${e.mode === 'day' ? 'selected' : ''}>그 날에</option></select></td><td class="actions"><button class="btn primary sm">저장</button> <button class="btn danger sm">삭제</button></td>`;
+    const [save, del] = tr.querySelectorAll('button');
+    save.onclick = async () => { const g = (k) => tr.querySelector(`[data-k=${k}]`).value; const dd = await reload(); S.addExpense(dd, { id: e.id, date: g('date'), category: g('category'), amount: parseNumber(g('amount')), memo: g('memo'), mode: g('mode') }); await S.save(dd); await reload(); renderExpense(); msg('#ex-msg', '저장됨', 'ok'); };
+    del.onclick = async () => { if (confirm('이 지출을 삭제할까요?')) { const dd = await reload(); S.deleteExpense(dd, e.id); await S.save(dd); await reload(); renderExpense(); } };
+    tb.appendChild(tr);
+  }
+  if (!document.getElementById('ex-cat-list')) document.body.insertAdjacentHTML('beforeend', `<datalist id="ex-cat-list">${S.EXPENSE_CATEGORIES.map((c) => `<option value="${c}">`).join('')}</datalist>`);
+  // 월별 합계
+  const allMonths = [...new Set([...S.dates(d).map((x) => x.slice(0, 7)), ...list.map((e) => e.date.slice(0, 7))])].sort().reverse().slice(0, 24);
+  const mt = $('#ex-month-table tbody'); mt.innerHTML = '';
+  for (const mk of allMonths) {
+    const [y, m] = mk.split('-').map(Number); const endDay = new Date(y, m, 0).getDate();
+    const led = computeLedger(d, `${mk}-01`, `${mk}-${String(endDay).padStart(2, '0')}`);
+    const byCat = {}; for (const e of list.filter((x) => x.date.startsWith(mk))) byCat[e.category] = (byCat[e.category] || 0) + e.amount;
+    mt.insertAdjacentHTML('beforeend', `<tr><td class="l">${mk.replace('-', '년 ')}월</td><td class="num">${fmtWon(led.grand.profit)}</td><td class="num">${led.grand.expense ? '−' + fmtWon(led.grand.expense) : ''}</td><td class="num ${led.grand.profit_net < 0 ? 'neg' : 'pos'}">${fmtWon(led.grand.profit_net)}</td><td class="l sub">${Object.entries(byCat).map(([c, v]) => `${esc(c)} ${fmtWon(v)}`).join(' · ')}</td></tr>`);
+  }
+}
+
 /* ===== 세후 순마진 (종합소득세 추정) ===== */
 // 기간의 세후 순이익: 연도별로 (기간 끝까지 누적 순이익의 세금) − (기간 시작 전날까지 누적 순이익의 세금)
-function yearProfitUntil(y, until) { if (until < `${y}-01-01`) return 0; const led = computeLedger(DATA, `${y}-01-01`, until); return Object.values(led.daily).reduce((a, v) => a + v.profit, 0); }
+function yearProfitUntil(y, until) { if (until < `${y}-01-01`) return 0; const led = computeLedger(DATA, `${y}-01-01`, until); return Object.values(led.daily).reduce((a, v) => a + v.profit_net, 0); }
 function periodAfterTax(start, end) {
   let profit = 0, tax = 0;
   for (let y = Number(start.slice(0, 4)); y <= Number(end.slice(0, 4)); y++) {
@@ -542,13 +584,13 @@ async function renderTax() {
   $('#tx-localTax').checked = !!st.localTax; $('#tx-spouse').checked = !!st.spouse; $('#tx-children').value = (st.childrenBirthYears || []).join(', ');
   $('#tx-basic').textContent = `본인${st.spouse ? '·배우자' : ''}${(st.childrenBirthYears || []).length ? '·자녀 ' + st.childrenBirthYears.length + '명' : ''} = ${fmtWon(basicDeduction(st))}원`;
   const led = computeLedger(DATA, `${y}-01-01`, `${y}-12-31`);
-  const monthly = {}; for (const [d, v] of Object.entries(led.daily)) { const m = Number(d.slice(5, 7)); monthly[m] = (monthly[m] || 0) + v.profit; }
+  const monthly = {}; for (const [d, v] of Object.entries(led.daily)) { const m = Number(d.slice(5, 7)); monthly[m] = (monthly[m] || 0) + v.profit_net; }
   const total = Object.values(monthly).reduce((a, b) => a + b, 0);
   const r = computeYearTax(y, total, st);
   const lastDate = S.dates(DATA).filter((d) => d.startsWith(String(y))).pop();
   $('#tax-sub').textContent = lastDate ? `${y}-01-01 ~ ${lastDate} 장부 기준` : '이 연도의 데이터가 없습니다';
   const kpis = [
-    { k: '연 누적 순이익 (세전)', v: fmtWon(total) + '원', color: '#4a3aa7' },
+    { k: '연 누적 순이익 (세전, 광고 외 지출 차감)', v: fmtWon(total) + '원', d: led.grand.expense ? `광고 외 지출 −${fmtWon(led.grand.expense)}원 반영` : '', color: '#4a3aa7' },
     { k: '쿠팡 몫 세금 (지방세 포함)', v: fmtWon(r.bizTax) + '원', d: `실효세율 ${(r.effectiveRate * 100).toFixed(1)}%`, color: '#eb6834' },
     { k: '세후 순마진', v: fmtWon(r.netAfterTax) + '원', bad: r.netAfterTax < 0, d: `순이익의 ${total ? Math.round(r.netAfterTax / total * 100) : 0}%`, color: '#1baf7a' },
     { k: '한계세율 (다음 1원에 붙는 세율)', v: (r.marginalEffective * 100).toFixed(2) + '%', d: `${Math.round(r.withBiz.marginal * 100)}% 구간 × (1 − 감면 ${Math.round(r.reliefApplied * 100)}%)${st.localTax ? ' × 지방세 1.1' : ''}${r.reliefApplied < st.reliefRate / 100 - 1e-9 ? ' · 최저한세로 감면 제한' : ''}`, color: '#2a78d6' },
