@@ -144,11 +144,14 @@ console.log('extension logic: all checks passed');
   const c1 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
   assert.equal(c1.legacy, true); approx(c1.profit, -1965.1); assert.equal(c1.actual_qty, 12); assert.equal(c1.organic_qty, 0); approx(c1.roas, 2.6769, 1e-3);
   approx(led.total_profit['2025-06-08'], -1965.1 + 64639.2);
-  // 옵션별 판매 데이터가 있는 날은 그쪽이 우선 (마진 이력으로 계산)
+  // 엑셀 마지막 날짜(6/8)까지는 엑셀 확정값만 쓴다: 같은 날 ①로 저장한 옵션별 판매는 무시
   S.upsertSales(d, [{ date: '2025-06-08', option_id: '12340330543', option_name: 'x', product_name: '', product_id: '', category: '', sales_type: '', revenue: 100000, orders: 10, quantity: 10, visitors: 0, views: 0, carts: 0, conversion: null }]);
-  await S.save(d); led = computeLedger(d, '2025-06-08', '2025-06-08');
-  const c2 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%').days['2025-06-08'];
-  assert.equal(c2.actual_qty, 10); assert.equal(c2.margin_total, 60000); assert.equal(c2.revenue, 100000); approx(c2.spend_vat, 73965.1); // 광고 쪽은 여전히 엑셀 값
+  S.upsertSales(d, [{ date: '2025-06-09', option_id: '12340330543', option_name: 'x', product_name: '', product_id: '', category: '', sales_type: '', revenue: 50000, orders: 5, quantity: 5, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  await S.save(d); led = computeLedger(d, '2025-06-08', '2025-06-09');
+  const c2 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%');
+  assert.equal(c2.days['2025-06-08'].actual_qty, 12); assert.equal(c2.days['2025-06-08'].margin_total, 72000); assert.equal(c2.days['2025-06-08'].legacy, true); // 엑셀 값 유지
+  assert.equal(c2.days['2025-06-09'].actual_qty, 5); assert.equal(c2.days['2025-06-09'].margin_total, 30000); assert.equal(c2.days['2025-06-09'].revenue, 50000); // 다음 날부터 확장 데이터
+  assert.equal(led.legacyCutoff, '2025-06-08');
   // 되돌리기 → 가져오기 전 상태
   await L.undoImport(r.id); d = await S.load();
   assert.equal(Object.keys(d.legacy).length, 0); assert.equal(d.options.length, 0); assert.equal(d.margins.length, 0); assert.equal(d.imports.length, 0);

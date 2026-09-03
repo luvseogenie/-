@@ -49,8 +49,12 @@ export function computeLedger(d, start, end) {
   const cells = Object.fromEntries(order.map((c) => [c, {}]));
   const get = (camp, date) => { if (!cells[camp]) { cells[camp] = {}; order.push(camp); } return (cells[camp][date] ||= cell()); };
 
+  // 엑셀 4번 시트가 있는 마지막 날짜까지는 엑셀 확정값만 쓴다 (그 구간의 ①② 데이터는 무시)
+  const legacyDatesAll = Object.keys(d.legacy || {}).filter((x) => Object.keys(d.legacy[x]).length);
+  const legacyCutoff = legacyDatesAll.length ? legacyDatesAll.sort().pop() : null;
+  const excelOnly = (date) => legacyCutoff && date <= legacyCutoff;
   for (const [date, day] of Object.entries(d.ads)) {
-    if (date < start || date > end) continue;
+    if (date < start || date > end || excelOnly(date)) continue;
     for (const a of Object.values(day)) {
       const c = get(a.campaign, date);
       Object.assign(c, { has_ads: true, target_roas: a.target_roas, budget: a.budget, spend: a.spend, ad_revenue: a.ad_revenue, spend_vat: a.spend * VAT,
@@ -60,7 +64,7 @@ export function computeLedger(d, start, end) {
   }
   const unmapped = new Set();
   for (const [date, day] of Object.entries(d.sales)) {
-    if (date < start || date > end) continue;
+    if (date < start || date > end || excelOnly(date)) continue;
     for (const s of Object.values(day)) {
       let camp = campaignOf[s.option_id];
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
@@ -72,7 +76,7 @@ export function computeLedger(d, start, end) {
   }
   // 예전 엑셀 4번 시트 값: 그 날 옵션별 판매/광고 데이터가 없는 쪽만 채운다 (있으면 새 데이터가 우선)
   const salesTouched = new Set();
-  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end) continue; for (const s of Object.values(day)) { const camp = campaignOf[s.option_id]; if (camp) salesTouched.add(camp + '|' + date); } }
+  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end || excelOnly(date)) continue; for (const s of Object.values(day)) { const camp = campaignOf[s.option_id]; if (camp) salesTouched.add(camp + '|' + date); } }
   for (const [date, day] of Object.entries(d.legacy || {})) {
     if (date < start || date > end) continue;
     for (const [camp, L] of Object.entries(day)) {
@@ -110,5 +114,5 @@ export function computeLedger(d, start, end) {
   for (const t of Object.values(daily)) finalizeSum(t);
   const grand = cell(); for (const t of Object.values(daily)) for (const k of SUM) grand[k] += t[k]; finalizeSum(grand);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
-    total_profit, month_profit, daily, grand, unmapped_options: [...unmapped].sort() };
+    total_profit, month_profit, daily, grand, unmapped_options: [...unmapped].sort(), legacyCutoff };
 }

@@ -105,7 +105,7 @@ async function renderDash() {
   renderCampTable(led);
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
   $('#notice').innerHTML = ''
-    + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일은 엑셀 4번 시트에서 가져온 확정 값입니다. 엑셀에는 옵션별 매출이 없어 그 날의 총 매출은 광고 매출로, 자연 매출은 0으로 표시됩니다 (자연 판매 수는 있습니다).</div>` : '');
+    + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일(${led.legacyCutoff} 까지)은 엑셀 4번 시트 확정값만 씁니다. 엑셀에는 옵션별 매출이 없어 그 날의 총 매출은 광고 매출로, 자연 매출은 0으로 표시됩니다 (자연 판매 수는 있습니다).</div>` : '');
 }
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
@@ -186,6 +186,9 @@ $('#vis-search').oninput = () => renderVisPanel();
 $('#vis-reset').onclick = async () => { if (confirm('모든 캠페인을 자동 표시로 되돌릴까요?')) { campVis = {}; await saveCampVis(); renderVisPanel(); renderLedgerTable(); } };
 $('#vis-hide-old').onclick = async () => { const { spend30 } = campaignStats(); let k = 0; for (const c of S.campaigns(DATA)) if (!(spend30[c] > 0) && campVis[c] !== 'always') { campVis[c] = 'hidden'; k++; } await saveCampVis(); renderVisPanel(); renderLedgerTable(); msg('#lg-warn', ''); alert(`${k}개 캠페인을 숨겼습니다.`); };
 $('#lg-show-hidden').onchange = () => renderLedgerTable();
+$('#lg-camp').onchange = () => renderLedgerTable();
+function stepCamp(n) { const sel = $('#lg-camp'); const i = sel.selectedIndex + n; if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; renderLedgerTable(); } }
+$('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = () => stepCamp(1);
 
 /* ===== 광고 장부 (피벗) ===== */
 const DEFAULT_METRICS = ['target_roas', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'actual_qty', 'organic_qty', 'margin_total', 'profit'];
@@ -216,8 +219,16 @@ function renderLedgerTable() {
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
   const showHidden = $('#lg-show-hidden').checked;
   const allCamps = S.campaigns(DATA); const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
+  // 캠페인 선택 목록 (표시되는 캠페인만)
+  const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; const c = byName[name]; return v === 'always' || (c && Object.keys(c.days).some((d) => dates.includes(d))); });
+  const sel = $('#lg-camp'); const cur = sel.value;
+  sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  if (cur && !visibleCamps.includes(cur)) sel.value = '';
+  const only = sel.value;
+  if (led.legacyCutoff && led.start <= led.legacyCutoff) $('#lg-warn').innerHTML += `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">${led.legacyCutoff} 까지는 엑셀 4번 시트 확정값만 씁니다 (그 구간에 ①②로 저장한 데이터는 무시).</div>`;
   for (const name of allCamps) {
     const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
+    if (only && name !== only) continue;
     if (v === 'hidden' && !showHidden) continue;
     const hasData = Object.keys(c.days).some((d) => dates.includes(d));
     if (v !== 'always' && !hasData) continue;
