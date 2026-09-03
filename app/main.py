@@ -241,7 +241,8 @@ async def run_verify(req: Request):
         if skipped:
             log.info(f"조건에 맞지 않는 {skipped}개는 확인에서 제외했습니다")
     else:
-        ids = sorted(todo)
+        by_views = {r["product_id"]: (r.get("views_28") or 0) for r in rows}
+        ids = sorted(todo, key=lambda i: -by_views.get(i, 0))    # 조회수 높은 상품부터
     if not ids:
         return _err("확인할 상품이 없습니다. 조건에 맞고 아직 확인하지 않은 상품이 없습니다.")
     try:

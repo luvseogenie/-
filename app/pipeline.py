@@ -265,9 +265,11 @@ class JobController:
         """손 놓으면 자동: 조건에 맞는(가격·리뷰·조회수 통과) 상품의 실제가격·구매자수·배송을 이어서 확인한다."""
         from .metrics import enrich
         rows = [enrich(p, cond) for p in db.products(run_id)]
-        ids = sorted({r["product_id"] for r in rows
-                      if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
-                                                or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))})
+        todo = [r for r in rows
+                if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
+                                          or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))]
+        todo.sort(key=lambda r: -(r.get("views_28") or 0))      # 조회수 높은 상품부터
+        ids = [r["product_id"] for r in todo]
         if not ids:
             log.info("상세 확인 대상 없음")
             return

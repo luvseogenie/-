@@ -604,10 +604,27 @@ def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
     return seller
 
 
+def ensure_product_context(page, product_id: int, item_id=None, vendor_item_id=None):
+    """가격 API 는 상품 페이지 안에서 부를 때만 응답한다. 탭이 상품 페이지가 아니면 이 상품 페이지를 한 번 연다."""
+    if "/vp/products/" in (page.url or ""):
+        return
+    url = config.PRODUCT_URL.format(pid=product_id)
+    params = []
+    if item_id:
+        params.append(f"itemId={item_id}")
+    if vendor_item_id:
+        params.append(f"vendorItemId={vendor_item_id}")
+    if params:
+        url += "?" + "&".join(params)
+    _goto(page, url, None)
+    page.wait_for_timeout(1000)
+
+
 def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
-    """상품 페이지를 열지 않고 가격 API 만 호출해 쿠폰 적용 최종가를 얻는다 (쿠팡 탭 안에서)."""
+    """상품 페이지를 새로 열지 않고 가격 API 만 호출해 쿠폰 적용 최종가를 얻는다.
+    (탭이 상품 페이지가 아니면 처음 한 번만 연다)"""
     out = {"price": None, "source": ""}
-    _ensure_coupang(page)
+    ensure_product_context(page, product_id, item_id, vendor_item_id)
     _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
     return out
 
