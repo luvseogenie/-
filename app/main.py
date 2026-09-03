@@ -731,6 +731,9 @@ def make_demo() -> int:
     # 일부는 상세 확인(구매자 수)까지 된 상태로
     for p in db.products(run_id)[::3]:
         db.save_verified_price(run_id, p["product_id"], p["price"], rnd.choice([100, 500, 1000, 5000, 10000]), rnd.choice([1, 3, 9]))
+        if rnd.random() < 0.5:
+            opts = [{"option": f"옵션 {i + 1}", "vendor_item_id": p["product_id"] * 10 + i, "buyers_min": rnd.choice([100, 200, 300, 500]), "price": p["price"] + i * 500} for i in range(4)]
+            db.save_buyers_sum(run_id, p["product_id"], sum(o["buyers_min"] for o in opts), 4, opts)
     db.set_setting(f"seen_total_{run_id}", seen + 40)
     db.set_run_status(run_id, "analyzed", "데모")
     log.info("데모 데이터 생성")

@@ -72,6 +72,16 @@ def enrich(p: dict, cond: dict) -> dict:
     out["conversion_min"] = round(buyers / views * 100, 2) if buyers and views else None
     out["buyers_daily"] = round(buyers / 30, 1) if buyers else None
     out["revenue_min"] = buyers * price if buyers and price else None
+    detail = []
+    if p.get("buyers_detail"):
+        try:
+            import json as _json
+            detail = _json.loads(p["buyers_detail"]) or []
+        except Exception:  # noqa: BLE001
+            detail = []
+    out["buyers_detail_list"] = detail
+    vals = [d.get("buyers_min") or 0 for d in detail]
+    out["buyers_best"] = max(vals) if vals else None
     out["buyers_per_review"] = round(buyers / reviews, 1) if buyers and reviews else None
     out["mergeable_label"] = _mergeable_label(p.get("mergeable"), p.get("eligibility"))
     out["mergeable_ok"] = out["mergeable_label"] == "매칭 가능"

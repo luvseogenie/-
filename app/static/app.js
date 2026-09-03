@@ -282,7 +282,7 @@
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
       const salesCell = r.buyers_min
-        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개 · ${r.buyers_options ? '옵션 ' + r.buyers_options + '개 합' : '월 최소'}</div>`
+        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합${r.buyers_best ? ' · 최다 ' + fmt(r.buyers_best) + '+' : ''} <a class="optlink" data-id="${r.product_id}">옵션별</a>` : ' · 월 최소'}</div>`
         : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
       const wingSales = (r.sales_28 !== null && r.sales_28 !== undefined) ? `<div class="sub">윙 28일 판매 ${fmt(r.sales_28)}</div>` : '';
       const convCell = r.conversion_min !== null && r.conversion_min !== undefined
@@ -302,6 +302,16 @@
       </tr>`;
     }).join('');
     $$('.rowchk').forEach((el) => el.addEventListener('change', () => { const id = Number(el.dataset.id); if (el.checked) state.selected.add(id); else state.selected.delete(id); renderSel(); }));
+    $$('.optlink').forEach((el) => el.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const r = state.rows.find((x) => x.product_id === Number(el.dataset.id));
+      if (!r) return;
+      const list = (r.buyers_detail_list || []).slice().sort((a, b) => (b.buyers_min || 0) - (a.buyers_min || 0));
+      openModal(`옵션별 월 구매자 · ${r.name}`, `<p class="muted small">각 값은 상품 페이지의 "월 N명 이상 구매" 최소값입니다. 합계 ${fmt(r.buyers_min)}명+ · 확인한 옵션 ${r.buyers_options}개${r.option_total > r.buyers_options ? ` (전체 ${r.option_total}개 중)` : ''}</p>
+        <table class="grid"><thead><tr><th class="left">옵션</th><th>월 구매자</th><th>아이템위너가</th><th>vendorItemId</th></tr></thead><tbody>
+        ${list.map((d) => `<tr><td class="left">${esc(d.option || '-')}</td><td>${d.buyers_min ? '<b class="green">' + fmt(d.buyers_min) + '+</b>' : '<span class="muted">표시 없음</span>'}</td><td>${d.price ? won(d.price) : '-'}</td><td class="muted">${d.vendor_item_id || ''}</td></tr>`).join('')}
+        </tbody></table>`);
+    }));
     renderSel();
   }
   function renderSel() { $('#sel-info').textContent = state.selected.size ? `${state.selected.size}개 선택됨` : ''; }

@@ -394,7 +394,8 @@ class JobController:
                 r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
                 b = (r or {}).get("buyers_min")
                 human_delay(1.0, 2.2)
-            detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b})
+            detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b,
+                           "price": o.get("price"), "item_id": o.get("item_id")})
             if b:
                 total += b
                 any_found = True
