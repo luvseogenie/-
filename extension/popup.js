@@ -74,12 +74,25 @@ async function saveKindInner(kind) {
       let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload' }); } catch { /* 무시 */ }
       if (r?.ok) { msg(`다운로드를 눌렀습니다 (${r.clicked}). 엑셀이 받아지면 자동 저장됩니다. 안 되면 "장부 보기 → 붙여넣기로 저장" 을 써 주세요.`, 'ok'); return; }
     }
-    msg('광고 캠페인 표를 못 읽었습니다. 화면에서 캠페인 표를 드래그해 복사한 뒤 "장부 보기 → 붙여넣기로 저장" 에 붙여넣어 주세요. 아래 "찾은 표 보기" 내용을 보내 주시면 맞춰 드립니다.', 'err');
+    msg('광고 캠페인 표를 못 읽었습니다. 대안 1) 광고센터 왼쪽 메뉴 "광고보고서" 에서 어제 기간의 캠페인 보고서를 엑셀로 받으면 자동 저장됩니다. 대안 2) 캠페인 표를 드래그 복사해 "장부 보기 → 광고 입력 → 붙여넣기로 저장". 아래 "진단 정보 복사" 를 보내 주시면 화면에 맞춰 드립니다.', 'err');
+    await chrome.runtime.sendMessage({ type: 'expectReport', date: $('#date').value || dateFromUrl(tab.url) || null });
     return;
   }
   if (!best) { msg(`${label} 표를 찾지 못했습니다. 표가 보이는 화면인지 확인하세요. (아래 '찾은 표 보기')`, 'err'); return; }
   const date = $('#date').value || best.date || dateFromUrl(tab.url) || yesterdayIso();
   const rows = kind === 'sales' ? normalizeSales(best.records, date) : normalizeAds(best.records, date);
+  if (!rows.length && kind === 'sales') {
+    // 판매분석은 카드 목록이라 표로 못 읽는다 → 리포트 다운로드로
+    let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch { /* 무시 */ }
+    if (info?.hasExcelDownload) {
+      msg('엑셀 다운로드 → 상품별 판매 리포트 를 누르는 중…');
+      await chrome.runtime.sendMessage({ type: 'expectReport', date });
+      let r = null; try { r = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }); } catch { /* 무시 */ }
+      if (r?.ok) msg(`${date} 리포트를 다운로드했습니다. 잠시 후 자동으로 저장됩니다 (알림 확인). 안 되면 "📂 리포트 파일 올리기".`, 'ok');
+      else msg((r?.reason || '다운로드 버튼을 찾지 못했습니다') + '. 직접 엑셀 다운로드 → 상품별 판매 리포트 를 눌러 주세요. 2분 안에 받으면 자동 저장됩니다.', 'err');
+      return;
+    }
+  }
   if (!rows.length) { msg(`${label} 표는 찾았지만 인식된 행이 없습니다. 아래 '찾은 표 보기' 의 헤더를 알려주세요.`, 'err'); return; }
   const d = await S.load();
   const n = kind === 'sales' ? S.upsertSales(d, rows) : S.upsertAds(d, rows);
@@ -101,6 +114,8 @@ $('#diag').onclick = async () => {
     const tab = await activeTab(); lines.push(`tab ${tab?.id} ${tab?.url}`);
     let info = null; try { info = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }); } catch (e) { lines.push('content script: 응답 없음 (' + e.message + ')'); }
     if (info) lines.push('pageInfo ' + JSON.stringify(info));
+    try { const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id }); for (const f of frames || []) { let ok = false; try { ok = !!(await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }, { frameId: f.frameId })); } catch { /* 없음 */ } lines.push(`frame ${f.frameId} ${ok ? 'script OK' : 'script 없음'} ${(f.url || '').slice(0, 140)}`); } } catch (e) { lines.push('frames: ' + e.message); }
+    try { const st = await chrome.tabs.sendMessage(tab.id, { type: 'structure' }); lines.push('structure ' + JSON.stringify(st)); } catch (e) { lines.push('structure: ' + e.message); }
     try { const r = await chrome.tabs.sendMessage(tab.id, { type: 'read', kind: 'ads' }); lines.push('tables ' + JSON.stringify((r?.tables || []).slice(0, 8))); lines.push('date ' + r?.date); } catch (e) { lines.push('read: ' + e.message); }
   } catch (e) { lines.push('tab: ' + e.message); }
   try { const d = await S.load(); const ds = S.dates(d); lines.push(`data ${ds[0]} ~ ${ds[ds.length - 1]} days=${ds.length} options=${d.options.length} salesDays=${Object.keys(d.sales).length} adsDays=${Object.keys(d.ads).length} legacyDays=${Object.keys(d.legacy || {}).length} expenses=${(d.expenses || []).length}`); lines.push(`storage bytes ${await new Promise((r) => chrome.storage.local.getBytesInUse(null, r))}`); } catch (e) { lines.push('storage: ' + e.message); }

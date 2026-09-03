@@ -181,7 +181,7 @@
   }
 
   const KIND_RULES = {
-    sales: { must: ['옵션'], any: ['매출', '판매'] },
+    sales: { must: ['옵션id'], any: ['매출', '판매량'] },   // 판매분석의 필터 줄('판매된 옵션 (63)')이 표로 오인되지 않도록 옵션ID 헤더를 요구
     ads: { must: ['캠페인'], any: ['광고비', '노출', '예산', '클릭', '비용'] },
   };
 
@@ -291,6 +291,23 @@
     return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
       hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
+  // 구조 진단: 프레임, 커스텀 엘리먼트(shadow DOM), 반복 줄 그룹, 캠페인처럼 보이는 글자
+  function structureInfo() {
+    const all = [...document.querySelectorAll('*')];
+    const custom = all.filter((e) => e.tagName.includes('-'));
+    const openShadow = custom.filter((e) => e.shadowRoot).length;
+    const closedLike = custom.filter((e) => !e.shadowRoot && e.getBoundingClientRect().height > 100 && clean(e.innerText).length < 20).map((e) => e.tagName.toLowerCase()).slice(0, 10);
+    const groups = [];
+    for (const parent of all) {
+      if (parent.children.length < 5) continue;
+      const g = {}; for (const c of parent.children) { const k = c.tagName + '|' + c.className; g[k] = (g[k] || 0) + 1; }
+      const [k, n] = Object.entries(g).sort((x, y) => y[1] - x[1])[0];
+      if (n >= 5) groups.push({ parent: parent.tagName.toLowerCase() + (parent.className ? '.' + String(parent.className).split(' ')[0] : ''), child: k.slice(0, 60), n, text: clean(parent.innerText).slice(0, 80) });
+    }
+    groups.sort((a, b) => b.n - a.n);
+    const lines = clean(document.body.innerText).split(/(?=\s\d{1,3}\.\s)/).filter((l) => /^\s?\d{1,3}\.\s\S/.test(l)).slice(0, 5).map((l) => l.trim().slice(0, 120));
+    return { iframes: [...document.querySelectorAll('iframe')].map((f) => (f.src || '(no src)').slice(0, 120)), customElements: custom.length, openShadow, closedLike, groups: groups.slice(0, 8), campaignLikeLines: lines, url: location.href };
+  }
 
   // ---------- '어제' 버튼 클릭 (자동 수집용) ----------
   function clickYesterday() {
@@ -318,6 +335,8 @@
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'pageInfo') {
       sendResponse(pageInfo());
+    } else if (msg?.type === 'structure') {
+      sendResponse(structureInfo());
     }
     return true;
   });
