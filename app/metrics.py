@@ -90,8 +90,7 @@ def enrich(p: dict, cond: dict) -> dict:
             v = "below"
         if cond.get("views_max") and (views or 0) > cond["views_max"]:
             v = "below"
-        if cond.get("sales_min") and (sales or 0) < cond["sales_min"]:
-            v = "below"
+        # (예전 버전의 '28일 판매량' 조건은 더 이상 쓰지 않는다)
         if cond.get("buyers_min") and (buyers or 0) < cond["buyers_min"]:
             v = "below"
         if cond.get("conv_min") and (out["conversion"] or out["conversion_min"] or 0) < cond["conv_min"]:

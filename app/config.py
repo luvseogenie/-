@@ -38,8 +38,6 @@ DEFAULT_CONDITIONS = {
     "price_max": 100000,
     "review_min": 0,
     "review_max": 250,
-    "sales_min": 0,
-    "sales_max": 0,
     "views_min": 10000,
     "views_max": 0,
     "conv_min": 0,

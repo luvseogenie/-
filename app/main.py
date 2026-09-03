@@ -204,7 +204,9 @@ async def run_verify(req: Request):
     rows = [enrich(p, cond) for p in db.products(run_id)]
     # 조건에 맞는(가격·리뷰·조회수 통과) 상품만 확인한다. 체크한 상품이라도 조건에 안 맞으면 제외.
     eligible_ids = {r["product_id"] for r in rows if r.get("pre_pass")}
-    todo = {r["product_id"] for r in rows if r.get("pre_pass") and not r.get("verified_at")}
+    # 아직 확인 안 했거나, 최종가·배송 형태가 확정되지 않은 상품은 다시 연다
+    todo = {r["product_id"] for r in rows
+            if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure"))}
     if ids:
         skipped = len([i for i in ids if i not in eligible_ids])
         ids = [i for i in ids if i in eligible_ids]
