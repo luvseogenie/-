@@ -20,13 +20,16 @@ class BlockedError(Exception):
 # 페이지 안에서 같은 출처로 fetch 를 실행하는 스크립트 (윙·쿠팡 공용)
 FETCH_JS = """
 async (args) => {
-  const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {} };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), args.timeout_ms || 20000);
+  const opt = { method: args.method || 'GET', credentials: 'include', headers: args.headers || {}, signal: ctrl.signal };
   if (args.body !== undefined && args.body !== null) opt.body = args.body;
   try {
     const r = await fetch(args.url, opt);
     const text = await r.text();
+    clearTimeout(timer);
     return { status: r.status, url: r.url, ctype: r.headers.get('content-type') || '', text: text.slice(0, 2000000), redirected: r.redirected };
-  } catch (e) { return { status: 0, url: args.url, ctype: '', text: '', error: String(e) }; }
+  } catch (e) { clearTimeout(timer); return { status: 0, url: args.url, ctype: '', text: '', error: String(e).includes('abort') ? '응답 시간 초과(20초)' : String(e) }; }
 }
 """
 

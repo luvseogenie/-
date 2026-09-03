@@ -386,8 +386,11 @@ class JobController:
         total = 0
         any_found = False
         done_vid = p.get("vendor_item_id")
-        for o in options:
+        base_label = (p.get("name") or "")[:30]
+        log.info(f"  옵션 {len(options)}개 확인 시작" + (f" (전체 {len(options)}개 초과분은 생략)" if truncated else ""))
+        for idx, o in enumerate(options, 1):
             self._check()
+            self.progress["label"] = f"{base_label} · 옵션 {idx}/{len(options)}"
             if o["vendor_item_id"] == done_vid and primary is not None:
                 b = primary.get("buyers_min")
             else:
