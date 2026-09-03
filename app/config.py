@@ -5,6 +5,26 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("CS_DATA_DIR", BASE_DIR / "data"))
 PROFILE_DIR = DATA_DIR / "browser-profile"     # 로그인 상태가 저장되는 크롬 프로필
+USE_MY_PROFILE_FLAG = DATA_DIR / "use-my-profile.txt"   # 있으면 평소 쓰는 브라우저의 프로필로 실행
+
+
+def my_browser_profile():
+    """평소 쓰는 브라우저(웨일→엣지→크롬)의 사용자 데이터 폴더를 찾는다."""
+    la = os.environ.get("LOCALAPPDATA", "")
+    for name, path in (("whale", os.path.join(la, "Naver", "Naver Whale", "User Data")),
+                       ("msedge", os.path.join(la, "Microsoft", "Edge", "User Data")),
+                       ("chrome", os.path.join(la, "Google", "Chrome", "User Data"))):
+        if la and os.path.isdir(path):
+            return name, Path(path)
+    return None, None
+
+
+def profile_dir():
+    if USE_MY_PROFILE_FLAG.exists():
+        name, path = my_browser_profile()
+        if path:
+            return path
+    return PROFILE_DIR
 LOG_DIR = DATA_DIR / "logs"
 CAPTURE_DIR = DATA_DIR / "wing-capture"          # 윙 캡처 모드 결과
 DEBUG_DIR = DATA_DIR / "debug"                   # 수집 실패 시 화면/HTML 저장

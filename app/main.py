@@ -455,6 +455,23 @@ def tools(name: str):
             msg = "윙 연결 정상입니다 (정확한 조회수 조회 가능)." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
             log.info(msg)
             return {"ok": True, "message": msg, "text": "\n".join(lines)}
+        if name == "use_my_profile":
+            if job.is_running():
+                return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+            pname, ppath = config.my_browser_profile()
+            if not ppath:
+                return _err("평소 쓰는 브라우저(웨일·엣지·크롬)의 프로필 폴더를 찾지 못했습니다.")
+            if config.USE_MY_PROFILE_FLAG.exists():
+                config.USE_MY_PROFILE_FLAG.unlink()
+                mode_msg = "프로그램 전용 프로필로 되돌렸습니다."
+            else:
+                config.USE_MY_PROFILE_FLAG.write_text(str(ppath), encoding="utf-8")
+                mode_msg = f"평소 쓰는 {pname} 프로필을 쓰도록 설정했습니다: {ppath}"
+            try:
+                browser.call(lambda bt: bt.reset_profile_soft(), "브라우저 닫기", timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
+            return {"ok": True, "message": mode_msg + " 평소 쓰는 브라우저 창을 모두 닫은 뒤, 도구 › 브라우저 창 열기 를 눌러주세요. (윙 로그인은 그 브라우저에 되어 있는 상태를 그대로 씁니다)"}
         if name == "reset_profile":
             if job.is_running():
                 return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")

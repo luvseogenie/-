@@ -76,7 +76,7 @@ class BrowserThread(threading.Thread):
                 else:
                     kwargs["channel"] = channel
                     label = channel or "chromium"
-                self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
+                self.context = self.pw.chromium.launch_persistent_context(str(config.profile_dir()), **kwargs)
                 self.channel = label
                 self._closed = False
                 self.context.on("close", self._on_close)
@@ -107,7 +107,7 @@ class BrowserThread(threading.Thread):
                     else:
                         kwargs["channel"] = channel
                         label = channel or "chromium"
-                    self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
+                    self.context = self.pw.chromium.launch_persistent_context(str(config.profile_dir()), **kwargs)
                     self.channel = label
                     self._closed = False
                     self.context.on("close", self._on_close)
@@ -181,8 +181,15 @@ class BrowserThread(threading.Thread):
         proc = getattr(self, "proc", None)
         if not (port and self._port_alive(port)):
             name, exe = cands[0]
+            prof = config.profile_dir()
+            if prof != config.PROFILE_DIR:
+                pname, _ = config.my_browser_profile()
+                match = [c for c in cands if c[0] == pname]
+                if match:
+                    name, exe = match[0]
+                log.info(f"평소 쓰는 {name} 프로필로 실행합니다: {prof}")
             port = self._free_port()
-            args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={config.PROFILE_DIR}",
+            args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
                     "--no-first-run", "--no-default-browser-check", "--start-maximized", "--lang=ko-KR"]
             if _os.environ.get("CS_BROWSER_HEADLESS"):
                 args += ["--headless=new", "--no-sandbox"]
@@ -195,6 +202,8 @@ class BrowserThread(threading.Thread):
                     break
                 _t.sleep(0.2)
             else:
+                if prof != config.PROFILE_DIR:
+                    raise RuntimeError(f"{name} 이(가) 이미 열려 있어 프로필을 쓸 수 없습니다. 평소 쓰는 {name} 창을 모두 닫고 다시 시도해 주세요")
                 raise RuntimeError(f"{name} 실행 후 접속 포트가 열리지 않았습니다")
             port_file.write_text(str(port))
             self.channel = name
@@ -282,6 +291,34 @@ class BrowserThread(threading.Thread):
         self._closed = True
         self.context = None
         log.warn("브라우저 창이 닫혔습니다. 다음 작업 때 다시 엽니다.")
+
+    def reset_profile_soft(self):
+        """브라우저만 닫는다 (저장 데이터는 유지)."""
+        import time as _t
+        try:
+            if getattr(self, "mode", None) == "attach" and getattr(self, "browser", None) is not None:
+                try:
+                    self.browser.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                proc = getattr(self, "proc", None)
+                if proc is not None:
+                    try:
+                        proc.terminate()
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif self.context is not None and not self._closed:
+                self.context.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            (config.DATA_DIR / "browser-port.txt").unlink()
+        except Exception:  # noqa: BLE001
+            pass
+        self.context = None
+        self._closed = True
+        _t.sleep(1.0)
+        return True
 
     def reset_profile(self):
         """브라우저를 닫고 저장 데이터(쿠키·캐시·로그인)를 통째로 새로 만든다."""
