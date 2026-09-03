@@ -217,9 +217,14 @@ function renderLedgerTable() {
   if (m) cols.push({ sum: m });
   const metrics = led.metrics.filter((x) => shownMetrics.has(x.key));
   let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + '</tr></thead><tbody>';
-  h += '<tr><td class="camp" rowspan="3">전체</td><td class="lbl"><b>전체 순이익 (광고비 제외)</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + '</tr>';
-  h += '<tr><td class="lbl">광고 외 지출</td>' + cols.map((c) => { const v = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]; return `<td class="total num">${v ? '−' + fmtWon(v) : ''}</td>`; }).join('') + '</tr>';
-  h += '<tr><td class="lbl"><b>지출 차감 순이익</b></td>' + cols.map((c) => { const v = c.date ? (led.daily[c.date]?.profit_net) : led.month_profit_net[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + '</tr>';
+  // 전체 순이익 = 판매 마진 − 광고비 − 광고 외 지출 (한 줄로). 지출이 있는 날은 툴팁에 내역
+  h += '<tr><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => {
+    const v = c.date ? led.daily[c.date]?.profit_net : led.month_profit_net[c.sum];
+    const ex = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum];
+    const base = c.date ? led.total_profit[c.date] : led.month_profit[c.sum];
+    const title = ex ? `판매 마진 − 광고비 ${fmtWon(base || 0)} − 광고 외 지출 ${fmtWon(ex)}` : '';
+    return `<td class="total num ${v < 0 ? 'neg' : ''}" ${title ? `title="${esc(title)}"` : ''}>${v == null ? '' : fmtWon(v)}</td>`;
+  }).join('') + '</tr>';
   // 전날(광고 데이터가 있는 직전 날) 값과 비교하기 위한 준비
   const prevOf = (c, date) => { let p = null; for (const d of Object.keys(c.days).sort()) { if (d >= date) break; if (c.days[d].has_ads) p = c.days[d]; } return p; };
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
@@ -270,7 +275,7 @@ $('#lg-csv').onclick = () => {
   const led = ledgerCache; if (!led) return;
   const lines = [['캠페인', '항목', ...led.dates].map(csvEsc).join(',')];
   for (const c of led.campaigns) for (const mt of led.metrics) lines.push([c.campaign, mt.label, ...led.dates.map((d) => c.days[d] ? Math.round(c.days[d][mt.key] * 10000) / 10000 : '')].map(csvEsc).join(','));
-  lines.push(['전체', '순이익', ...led.dates.map((d) => Math.round((led.total_profit[d] || 0) * 100) / 100)].join(','));
+  lines.push(['전체', '전체 순이익 (광고비·광고 외 지출 차감)', ...led.dates.map((d) => Math.round((led.daily[d]?.profit_net || 0) * 100) / 100)].join(','));
   download(`광고장부_${led.start}_${led.end}.csv`, lines.join('\n'));
 };
 
