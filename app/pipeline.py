@@ -222,7 +222,7 @@ class JobController:
                 api_dead = True
                 break
             self.progress["done"] += 1
-            human_delay(0.4, 1.0)
+            human_delay(2.0, 4.0)          # 너무 빠르면 봇 방어에 걸린다
         if api_dead and pmax:
             # 예비 경로: 상한을 넘는 상품(쿠폰으로 조건에 들어올 수 있는 것)만 페이지를 열어 가격을 읽는다
             band = [p for p in targets if p["product_id"] not in done_ids and (p.get("price") or 0) > pmax]
@@ -239,7 +239,7 @@ class JobController:
                             moved_in += 1
                             log.info(f"쿠폰가로 조건 진입: {(p.get('name') or '')[:30]} 목록 {p.get('price'):,}원 → 최종 {d['price']:,}원")
                     self.progress["done"] += 1
-                    human_delay(1.5, 3.0)
+                    human_delay(3.0, 5.0)
         self.progress["done"] = self.progress["total"]
         log.info(f"쿠폰 적용가 확인 완료 · 쿠폰가로 새로 조건에 들어온 상품 {moved_in}개")
 
@@ -264,8 +264,8 @@ class JobController:
         self.blocked_streak = getattr(self, "blocked_streak", 0) + 1
         if self.blocked_streak >= 2:
             self.paused = True
-            self.message = ("쿠팡이 계속 접근을 막고 있습니다. 브라우저 창에서 쿠팡 상품 페이지를 하나 직접 열어 정상적으로 보이는지 확인한 뒤 "
-                            "[재개]를 눌러주세요. 계속 막히면 30분쯤 뒤에 다시 시도하세요.")
+            self.message = ("쿠팡이 계속 접근을 막고 있습니다(403). 30분~1시간 뒤에 브라우저 창에서 쿠팡 상품 페이지를 하나 직접 열어 "
+                            "정상적으로 보이는지 확인한 뒤 [재개]를 눌러주세요. 보안 확인 화면이 뜨면 직접 통과해 주세요.")
             log.warn(self.message)
             self.blocked_streak = 0
             self._check()
@@ -439,7 +439,7 @@ class JobController:
             else:
                 r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
                 b = (r or {}).get("buyers_min")
-                human_delay(1.0, 2.2)
+                human_delay(2.0, 3.5)
             detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b,
                            "price": o.get("price"), "item_id": o.get("item_id")})
             if b:
@@ -507,7 +507,7 @@ class JobController:
                         parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(1.5, 3.5)
+                human_delay(2.5, 4.5)
             log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----
