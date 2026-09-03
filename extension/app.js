@@ -191,9 +191,11 @@ function stepCamp(n) { const sel = $('#lg-camp'); const i = sel.selectedIndex + 
 $('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = () => stepCamp(1);
 
 /* ===== 광고 장부 (피벗) ===== */
-const DEFAULT_METRICS = ['target_roas', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
+const DEFAULT_METRICS = ['target_roas', 'budget', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
+const QTY_ROWS = new Set(['ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty']);
+const CHANGE_ROWS = { target_roas: (v) => Math.round(v * 100) + '%', budget: (v) => fmtWon(v) + '원' };
 let shownMetrics = new Set(DEFAULT_METRICS);
-try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
+try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
 function renderMetricPicker() {
   $('#metric-picker').innerHTML = METRICS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-m="${k}" ${shownMetrics.has(k) ? 'checked' : ''}> ${l}</label>`).join('') + `<button class="btn sm" id="metric-all">전체</button><button class="btn sm" id="metric-basic">기본</button>`;
   $$('#metric-picker input').forEach((i) => i.onchange = () => { if (i.checked) shownMetrics.add(i.dataset.m); else shownMetrics.delete(i.dataset.m); try { localStorage.setItem('cc-metrics', JSON.stringify([...shownMetrics])); } catch { /* 무시 */ } renderLedgerTable(); });
@@ -214,10 +216,12 @@ function renderLedgerTable() {
   dates.forEach((d) => { const mk = d.slice(0, 7); if (m && mk !== m) cols.push({ sum: m }); cols.push({ date: d }); m = mk; });
   if (m) cols.push({ sum: m });
   const metrics = led.metrics.filter((x) => shownMetrics.has(x.key));
-  let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + (showAction ? '<th class="l">ACTION</th>' : '') + '</tr></thead><tbody>';
-  h += '<tr><td class="camp" rowspan="3">전체</td><td class="lbl"><b>전체 순이익 (광고비 제외)</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
-  h += '<tr><td class="lbl">광고 외 지출</td>' + cols.map((c) => { const v = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]; return `<td class="total num">${v ? '−' + fmtWon(v) : ''}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
-  h += '<tr><td class="lbl"><b>지출 차감 순이익</b></td>' + cols.map((c) => { const v = c.date ? (led.daily[c.date]?.profit_net) : led.month_profit_net[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + (showAction ? '<td></td>' : '') + '</tr>';
+  let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + '</tr></thead><tbody>';
+  h += '<tr><td class="camp" rowspan="3">전체</td><td class="lbl"><b>전체 순이익 (광고비 제외)</b></td>' + cols.map((c) => { const v = c.date ? led.total_profit[c.date] : led.month_profit[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + '</tr>';
+  h += '<tr><td class="lbl">광고 외 지출</td>' + cols.map((c) => { const v = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]; return `<td class="total num">${v ? '−' + fmtWon(v) : ''}</td>`; }).join('') + '</tr>';
+  h += '<tr><td class="lbl"><b>지출 차감 순이익</b></td>' + cols.map((c) => { const v = c.date ? (led.daily[c.date]?.profit_net) : led.month_profit_net[c.sum]; return `<td class="total num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`; }).join('') + '</tr>';
+  // 전날(광고 데이터가 있는 직전 날) 값과 비교하기 위한 준비
+  const prevOf = (c, date) => { let p = null; for (const d of Object.keys(c.days).sort()) { if (d >= date) break; if (c.days[d].has_ads) p = c.days[d]; } return p; };
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
   const showHidden = $('#lg-show-hidden').checked;
   const allCamps = S.campaigns(DATA); const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
@@ -234,9 +238,10 @@ function renderLedgerTable() {
     if (v === 'hidden' && !showHidden) continue;
     const hasData = Object.keys(c.days).some((d) => dates.includes(d));
     if (v !== 'always' && !hasData) continue;
+    const rowCount = metrics.length + (showAction ? 1 : 0);
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
-      h += `<tr class="${isProfit ? 'profit' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${metrics.length}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
+      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';
@@ -245,11 +250,17 @@ function renderLedgerTable() {
         if (isProfit) cls += v < 0 ? 'neg' : 'pos';
         if (col.date && cell.unmapped_qty > 0 && (mt.key === 'margin_total' || isProfit)) cls += ' flag';
         const blank = adsOnly.has(mt.key) && (col.date ? !cell.has_ads : !cell.spend && !cell.impressions);
-        h += `<td class="${cls} num">${blank ? '' : fmt[mt.fmt](v)}</td>`;
+        let title = '', extra = '';
+        if (col.date && cell.has_ads && CHANGE_ROWS[mt.key]) {
+          const p = prevOf(c, col.date);
+          if (p && Math.abs((p[mt.key] || 0) - (v || 0)) > 1e-9) { cls += ' chg'; title = `전일 ${CHANGE_ROWS[mt.key](p[mt.key] || 0)} → ${CHANGE_ROWS[mt.key](v || 0)}`; }
+          if (mt.key === 'target_roas' && cell.action) { extra = ` <span class="memo" title="${esc(cell.action)}">📝</span>`; title = (title ? title + ' · ' : '') + '메모: ' + cell.action; }
+        }
+        h += `<td class="${cls} num" ${title ? `title="${esc(title)}"` : ''}>${blank ? '' : fmt[mt.fmt](v)}${extra}</td>`;
       }
-      if (showAction) h += i === 0 ? `<td class="l" rowspan="${metrics.length}" style="white-space:normal;max-width:260px;color:var(--text-2)">${Object.entries(c.days).filter(([, v]) => v.action).map(([d, v]) => `${d.slice(5)}: ${esc(v.action)}`).join('<br>')}</td>` : '';
       h += '</tr>';
     });
+    if (showAction) h += '<tr class="action"><td class="lbl">ACTION 메모</td>' + cols.map((col) => col.date ? `<td class="l memo-cell" title="${esc(c.days[col.date]?.action || '')}">${esc(c.days[col.date]?.action || '')}</td>` : '<td class="sum"></td>').join('') + '</tr>';
   }
   $('#lg-table').innerHTML = h + '</tbody>';
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
