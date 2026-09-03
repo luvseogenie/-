@@ -333,7 +333,7 @@ class JobController:
                         sure = data.get("delivery_how") in ("badge", "text", "seller")
                         db.set_delivery(run_id, pid, data["delivery"], sure)
                         bk = p.get("badge_key")
-                        if sure and bk and data.get("delivery_how") == "badge":
+                        if sure and bk and data.get("delivery_how") in ("badge", "seller"):
                             bm = db.get_setting("badge_map", {}) or {}
                             if bm.get(bk) != data["delivery"]:
                                 bm[bk] = data["delivery"]
@@ -346,7 +346,7 @@ class JobController:
                         parts.append(f"최종가 {data['price']:,}원{extra}")
                     parts.append(f"월 구매 {data['buyers_min']:,}명 이상" if data.get("buyers_min") else "구매자 문구 없음")
                     if data.get("delivery"):
-                        parts.append(f"배송 {data['delivery']}")
+                        parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']})" if data.get("seller_name") else ""))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
                 human_delay(1.5, 3.5)

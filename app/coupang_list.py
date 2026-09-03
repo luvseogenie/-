@@ -31,6 +31,7 @@ async (args) => {
 
 QUANTITY_URL = ("https://www.coupang.com/next-api/products/quantity-info?productId={pid}&vendorItemId={vid}"
                 "&deliveryToggle=true&landingItemId={iid}&landingProductId={pid}&landingVendorItemId={vid}")
+BTF_URL = "https://www.coupang.com/next-api/products/btf?productId={pid}&vendorItemId={vid}&itemId={iid}"
 _debug_budget = {"left": 3}
 
 
@@ -583,6 +584,41 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     out["delivery"] = data.get("delivery")
     out["delivery_how"] = data.get("delivery_how")
     out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
+    # 판매자 정보로 로켓배송(쿠팡 직매입)과 판매자로켓(로켓그로스)을 확실히 가른다
+    seller = None
+    if vendor_item_id:
+        try:
+            r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
+                                         "method": "GET", "headers": {"accept": "application/json"}})
+            if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
+                btf = json.loads(r["text"])
+                rp = (btf or {}).get("returnPolicyVo") or {}
+                seller = rp.get("sellerDetailInfo") or {}
+                notice = rp.get("vendorItemDeliveryNotice") or {}
+                out["seller_name"] = seller.get("vendorName")
+                out["seller_retail"] = bool(seller.get("retail"))
+                out["rocket_fresh"] = bool(notice.get("rocketFresh"))
+                out["rocket_install"] = bool(notice.get("rocketInstall"))
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
+    d = out.get("delivery") or "WING"
+    rocketish = d.startswith("ROCKET") or bool(re.search(r"도착\s*보장", data.get("title") or "")) 
+    if seller is not None and seller:
+        name = (out.get("seller_name") or "")
+        coupang_seller = out.get("seller_retail") or re.search(r"쿠팡", name) is not None
+        if out.get("rocket_fresh"):
+            out["delivery"] = "ROCKET_FRESH"
+        elif d == "ROCKET_GLOBAL":
+            out["delivery"] = "ROCKET_GLOBAL"
+        elif rocketish and coupang_seller:
+            out["delivery"] = "ROCKET"
+        elif rocketish and not coupang_seller:
+            out["delivery"] = "ROCKET_GROWTH"
+        elif not rocketish and coupang_seller:
+            out["delivery"] = "ROCKET"
+        else:
+            out["delivery"] = "WING"
+        out["delivery_how"] = "seller"
     if out["price"] is None:
         for c in data.get("candidates", []):
             out["price"] = c["value"]
