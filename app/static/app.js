@@ -15,7 +15,7 @@
 
   const state = {
     top: [], trees: {}, checked: new Set(), expanded: new Set(), kwScope: [],
-    conditions: {}, mode: 'category', filter: 'all', q: '', leaf: '', sort: 'sales', page: 1,
+    conditions: {}, mode: 'category', filter: 'pass', q: '', leaf: '', sort: 'sales', page: 1,
     rows: [], total: 0, all: 0, status: null, stats: null, run: null, selected: new Set(), lastState: null,
   };
 
@@ -267,7 +267,7 @@
   function renderRows() {
     const body = $('#grid-body');
     if (!state.rows.length) {
-      body.innerHTML = `<tr><td colspan="9" class="empty">${state.all ? '이 조건에 맞는 상품이 없습니다.' : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="9" class="empty">${state.all ? (state.filter === 'pass' ? '조건 통과 상품이 아직 없습니다. 위 칩에서 [전체]를 누르면 수집된 상품을 모두 볼 수 있고, 조건을 바꾼 뒤엔 [시작 / 이어하기]로 새로 들어온 상품을 분석하세요.' : '이 조건에 맞는 상품이 없습니다.') : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
       return;
     }
     const maxConv = Math.max(5, ...state.rows.map((r) => r.conversion_min || 0));
@@ -431,8 +431,11 @@
   $('#sort').addEventListener('change', () => { state.sort = $('#sort').value; loadProducts(true); });
   $$('#filter-chips .chip').forEach((el) => el.addEventListener('click', () => {
     $$('#filter-chips .chip').forEach((c) => c.classList.remove('active')); el.classList.add('active');
-    state.filter = el.dataset.f; loadProducts(true);
+    state.filter = el.dataset.f; try { localStorage.setItem('cs_filter', state.filter); } catch (e) { /* 무시 */ }
+    loadProducts(true);
   }));
+  try { const f = localStorage.getItem('cs_filter'); if (f && $(`#filter-chips .chip[data-f="${f}"]`)) state.filter = f; } catch (e) { /* 무시 */ }
+  $$('#filter-chips .chip').forEach((c) => c.classList.toggle('active', c.dataset.f === state.filter));
 
   // 도구 메뉴
   const dd = $('#tools-dd');
