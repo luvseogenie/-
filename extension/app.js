@@ -326,7 +326,7 @@ function renderOptions() {
     for (const o of list) { const pn = prod[o.option_id] || ''; if (!seen.has(pn)) { seen.add(pn); order.push(pn); } }
     for (const pn of order) {
       const g = groups[pn]; const members = list.filter((o) => (prod[o.option_id] || '') === pn);
-      const hdr = document.createElement('tr'); hdr.style.background = 'var(--surface-2)';
+      const hdr = document.createElement('tr'); hdr.className = 'grp';
       hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}</span><span class="grow"></span>
         <input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">이 상품의 캠페인 없는 옵션 모두에 적용</button></div></td>`;
       hdr.querySelector('[data-gapply]').onclick = async () => {

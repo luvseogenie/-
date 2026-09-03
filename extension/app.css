@@ -130,3 +130,8 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 .drawer { position: fixed; inset: 0 0 0 auto; width: min(960px, 92vw); background: var(--surface); box-shadow: -8px 0 30px rgba(0, 0, 0, .18); z-index: 20; padding: 20px 24px; overflow: auto; display: none; }
 .drawer.open { display: block; }
 .backdrop { position: fixed; inset: 0; background: rgba(16, 24, 40, .35); z-index: 19; display: none; } .backdrop.open { display: block; }
+#options-table tr.grp td { background: var(--surface-2); border-top: 2px solid var(--line); }
+#options-table tr.grp input { width: auto; min-width: 0; }
+#options-table tr.grp input[data-gk=campaign] { width: 220px; }
+#options-table tr.grp input[data-gk=margin] { width: 110px; }
+#options-table tr.grp .row { flex-wrap: nowrap; }
