@@ -526,13 +526,13 @@ $('#ex-add').onclick = async () => {
   const amount = parseNumber($('#ex-amount').value);
   if (!$('#ex-date').value || !cat || !amount) { msg('#ex-msg', '날짜 · 사유 · 금액을 넣어 주세요', 'err'); return; }
   const d = await reload(); S.addExpense(d, { date: $('#ex-date').value, category: cat, amount, memo: $('#ex-memo').value, mode: $('#ex-mode').value }); await S.save(d);
-  $('#ex-amount').value = ''; $('#ex-memo').value = ''; msg('#ex-msg', '추가됨', 'ok'); await reload(); renderExpense(); renderFoot();
+  $('#ex-amount').value = ''; $('#ex-memo').value = ''; msg('#ex-msg', '추가됨', 'ok'); await reload(); $('#ex-month').value = $('#ex-date').value.slice(0, 7); renderExpense(); renderFoot();
 };
 $('#ex-month').onchange = () => renderExpense();
 function renderExpense() {
   const d = DATA; const list = [...(d.expenses || [])].sort((a, b) => b.date.localeCompare(a.date));
   const months = [...new Set([...list.map((e) => e.date.slice(0, 7)), localIso(yday).slice(0, 7)])].sort().reverse();
-  const sel = $('#ex-month'); const cur = sel.value || months[0];
+  const sel = $('#ex-month'); const cur = sel.value || (list[0] ? list[0].date.slice(0, 7) : months[0]);
   sel.innerHTML = '<option value="">전체</option>' + months.map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m.replace('-', '년 ')}월</option>`).join('');
   const shown = list.filter((e) => !sel.value || e.date.startsWith(sel.value));
   $('#ex-sub').textContent = `${shown.length}건 · ${fmtWon(shown.reduce((a, e) => a + e.amount, 0))}원`;
