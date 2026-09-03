@@ -146,3 +146,4 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 .pivot .topscroll > div { height: 1px; }
 .pivot tr.traffic td.on { background: #f1ecfb; color: #4a3aa7; font-weight: 700; }
 .pill.traffic { background: #f1ecfb; color: #4a3aa7; }
+.chart .bar.on { fill: #4a3aa7; } .chart .bar.off { fill: #c3c9d4; }

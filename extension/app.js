@@ -4,6 +4,7 @@ import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
+import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
@@ -44,21 +45,21 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
   $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('main section').forEach((s) => s.style.display = s.id === 'page-' + page ? '' : 'none');
   $('#page-title').textContent = TITLES[page];
-  $('#range').style.display = (page === 'dash' || page === 'ledger') ? '' : 'none';
+  $('#range').style.display = (page === 'dash' || page === 'ledger' || page === 'traffic') ? '' : 'none';
   $('#notice').style.display = page === 'dash' ? '' : 'none';
   renderCurrent();
 }
 $$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'expense') renderExpense(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
 function renderFoot() {
@@ -156,6 +157,42 @@ function openCampaign(name, led) {
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#backdrop').classList.remove('open'); }
 $('#backdrop').onclick = closeDrawer;
 
+/* ===== 트래픽 효과 ===== */
+const TF_COLS = [['organic_qty', '자연 판매/일', 'int'], ['organic_revenue', '자연 매출/일', 'won'], ['revenue', '총 매출/일', 'won'], ['ad_orders', '광고 판매/일', 'int'], ['spend_vat', '광고비/일', 'won'], ['profit', '순이익/일', 'won']];
+const fmtDelta = (v) => { const p = Math.round(v * 100); return `<span class="${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}" style="font-weight:700">${p > 0 ? '+' : ''}${p}%</span>`; };
+let tfEffects = [];
+function renderTrafficEffect() {
+  const tr = DATA.traffic || [];
+  $('#tf-empty').style.display = tr.length ? 'none' : ''; $('#tf-body').style.display = tr.length ? '' : 'none';
+  if (!tr.length) return;
+  const led = computeLedger(DATA, range.start, range.end);
+  tfEffects = campaignEffects(led, tr);
+  let h = '<thead><tr><th class="l">캠페인</th><th>사용일</th><th>미사용일</th>' + TF_COLS.map(([, l]) => `<th>${l}<div class="sub">사용 / 미사용 / Δ</div></th>`).join('') + '<th>판정</th></tr></thead><tbody>';
+  for (const e of tfEffects) {
+    const verdict = e.on.days && e.off.days ? (e.delta.organic_qty > 0.15 && e.delta.revenue > 0 ? '<span class="pill good">효과 있음</span>' : e.delta.organic_qty < -0.15 ? '<span class="pill bad">효과 없음</span>' : '<span class="pill gray">비슷함</span>') : '<span class="pill gray">비교 불가</span>';
+    h += `<tr><td class="l link" data-tf="${esc(e.campaign)}">${esc(e.campaign)}</td><td class="num">${e.on.days}</td><td class="num">${e.off.days}</td>` + TF_COLS.map(([k, , f]) => `<td class="num">${fmt[f](e.on[k])} / ${fmt[f](e.off[k])} / ${e.on.days && e.off.days ? fmtDelta(e.delta[k]) : '-'}</td>`).join('') + `<td>${verdict}</td></tr>`;
+  }
+  $('#tf-table').innerHTML = h + '</tbody>';
+  $$('#tf-table td.link').forEach((td) => td.onclick = () => { $('#tf-camp').value = td.dataset.tf; renderTrafficDetail(); });
+  const sel = $('#tf-camp'); const cur = sel.value; sel.innerHTML = tfEffects.map((e) => `<option value="${esc(e.campaign)}">${esc(e.campaign)}</option>`).join(''); if (tfEffects.some((e) => e.campaign === cur)) sel.value = cur;
+  renderTrafficDetail();
+}
+function renderTrafficDetail() {
+  const e = tfEffects.find((x) => x.campaign === $('#tf-camp').value); if (!e) { $('#tf-chart').innerHTML = ''; $('#tf-ba').innerHTML = ''; return; }
+  const key = $('#tf-metric').value; const unit = key.includes('qty') || key.includes('orders') ? '개' : '원';
+  const days = e.days.slice().sort((a, b) => a.date.localeCompare(b.date));
+  barChart($('#tf-chart'), days.map((v) => v.date), days.map((v) => v[key] || 0), { label: $('#tf-metric').selectedOptions[0].textContent, classes: days.map((v) => v.traffic_slots > 0 ? 'on' : 'off'), unit, extra: (i) => `<div class="r"><span>트래픽</span><span>${days[i].traffic_slots > 0 ? days[i].traffic_slots + '슬롯' : '없음'}</span></div>` });
+  // 시작 전후 비교 (전체 데이터 기준)
+  const ledAll = computeLedger(DATA); const entries = (DATA.traffic || []).filter((t) => t.campaign === e.campaign).sort((a, b) => a.start.localeCompare(b.start));
+  let h = '<thead><tr><th class="l">트래픽 기간</th><th>슬롯</th><th class="l">비교 구간</th>' + TF_COLS.map(([, l]) => `<th>${l}<div class="sub">전 / 후 / Δ</div></th>`).join('') + '</tr></thead><tbody>';
+  for (const t of entries) {
+    const ba = beforeAfter(ledAll, e.campaign, t, 14, S.dates(DATA).pop()); if (!ba) continue;
+    h += `<tr><td class="l">${t.start} ~ ${t.end || '진행 중'}${t.memo ? `<div class="sub">${esc(t.memo)}</div>` : ''}</td><td class="num">${t.slots}</td><td class="l sub">전 ${ba.beforeFrom.slice(5)}~${ba.beforeTo.slice(5)} (${ba.before.days}일)<br>후 ${ba.afterFrom.slice(5)}~${ba.afterTo.slice(5)} (${ba.after.days}일)</td>` + TF_COLS.map(([k, , f]) => `<td class="num">${fmt[f](ba.before[k])} / ${fmt[f](ba.after[k])} / ${ba.before.days && ba.after.days ? fmtDelta(ba.delta[k]) : '-'}</td>`).join('') + '</tr>';
+  }
+  $('#tf-ba').innerHTML = h + '</tbody>';
+}
+$('#tf-camp').onchange = renderTrafficDetail; $('#tf-metric').onchange = renderTrafficDetail;
+
 /* ===== 캠페인 표시 설정 (자동 / 항상 / 숨김) ===== */
 let campVis = {}; // { 캠페인: 'always' | 'hidden' } (없으면 자동)
 async function loadCampVis() { const r = await chrome.storage.local.get('campaignVisibility'); campVis = r.campaignVisibility || {}; }
@@ -192,11 +229,11 @@ function stepCamp(n) { const sel = $('#lg-camp'); const i = sel.selectedIndex + 
 $('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = () => stepCamp(1);
 
 /* ===== 광고 장부 (피벗) ===== */
-const DEFAULT_METRICS = ['target_roas', 'budget', 'traffic_slots', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
+const DEFAULT_METRICS = ['target_roas', 'budget', 'traffic_slots', 'roas', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
 const QTY_ROWS = new Set(['ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty']);
 const CHANGE_ROWS = { target_roas: (v) => Math.round(v * 100) + '%', budget: (v) => fmtWon(v) + '원', traffic_slots: (v) => (v || 0) + '슬롯' };
 let shownMetrics = new Set(DEFAULT_METRICS);
-try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget') && saved.includes('traffic_slots')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
+try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget') && saved.includes('traffic_slots') && saved.includes('impressions')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
 function renderMetricPicker() {
   $('#metric-picker').innerHTML = METRICS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-m="${k}" ${shownMetrics.has(k) ? 'checked' : ''}> ${l}</label>`).join('') + `<button class="btn sm" id="metric-all">전체</button><button class="btn sm" id="metric-basic">기본</button>`;
   $$('#metric-picker input').forEach((i) => i.onchange = () => { if (i.checked) shownMetrics.add(i.dataset.m); else shownMetrics.delete(i.dataset.m); try { localStorage.setItem('cc-metrics', JSON.stringify([...shownMetrics])); } catch { /* 무시 */ } renderLedgerTable(); });

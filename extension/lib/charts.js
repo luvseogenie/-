@@ -39,12 +39,12 @@ function hover(f, dates, onIndex) {
 }
 
 // 부호별 색이 다른 막대 (순이익)
-export function barChart(container, dates, values, { label = '순이익' } = {}) {
+export function barChart(container, dates, values, { label = '순이익', classes = null, unit = '원', extra = null } = {}) {
   const f = frame(container); if (!dates.length) return;
   const ymin = Math.min(0, ...values), ymax = Math.max(0, ...values); const y = axes(f, ymin, ymax, dates);
   const n = dates.length; const bw = f.iw / n; const gap = Math.min(4, bw * 0.25);
-  values.forEach((v, i) => { const y0 = y(0), y1 = y(v); el('rect', { class: 'bar ' + (v < 0 ? 'neg' : 'pos'), x: f.m.l + i * bw + gap / 2, y: Math.min(y0, y1), width: Math.max(1, bw - gap), height: Math.max(1, Math.abs(y1 - y0)) }, f.svg); });
-  hover(f, dates, (i) => `<b>${dates[i]}</b><div class="r"><span><i style="background:${values[i] < 0 ? '#d03b3b' : '#2a78d6'}"></i>${label}</span><span>${fmtWon(values[i])}원</span></div>`);
+  values.forEach((v, i) => { const y0 = y(0), y1 = y(v); el('rect', { class: 'bar ' + (classes ? classes[i] : (v < 0 ? 'neg' : 'pos')), x: f.m.l + i * bw + gap / 2, y: Math.min(y0, y1), width: Math.max(1, bw - gap), height: Math.max(1, Math.abs(y1 - y0)) }, f.svg); });
+  hover(f, dates, (i) => `<b>${dates[i]}</b><div class="r"><span><i style="background:${classes ? (classes[i] === 'on' ? '#4a3aa7' : '#9aa3b2') : (values[i] < 0 ? '#d03b3b' : '#2a78d6')}"></i>${label}</span><span>${fmtWon(values[i])}${unit}</span></div>` + (extra ? extra(i) : ''));
 }
 // 누적 막대 (광고 매출 + 자연 매출)
 export function stackedChart(container, dates, series) {

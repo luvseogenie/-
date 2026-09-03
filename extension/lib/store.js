@@ -108,7 +108,7 @@ export function marginHistory(d, option_id) {
 }
 
 // ---- 광고 외 지출 (트래픽·마케팅 등 수기 입력) ----
-export const EXPENSE_CATEGORIES = ['트래픽', '마케팅', '체험단', '촬영·디자인', '포장·부자재', '기타'];
+export const EXPENSE_CATEGORIES = ['트래픽', '마케팅', '체험단', '택배', '포장·부자재', '인증', '기타'];
 export function addExpense(d, { date, category, amount, memo = '', mode = 'month', id = null }) {
   d.expenses ||= [];
   const e = { id: id || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date, category: String(category || '기타').trim(), amount: Number(amount) || 0, memo: String(memo || '').trim(), mode: mode === 'day' ? 'day' : 'month' };

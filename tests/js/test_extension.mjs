@@ -249,3 +249,23 @@ console.log('extension logic: all checks passed');
   S.deleteTraffic(d, d.traffic[0].id); assert.equal(S.trafficSlots(d, 'C', '2025-06-04'), 0);
   console.log('traffic slots: all checks passed');
 }
+
+// 트래픽 효과 계산
+{
+  const T = await import('../../extension/lib/traffic.js');
+  await S.replaceAll({}); const d = await S.load();
+  S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.setMargin(d, '1', 1000);
+  for (let day = 1; day <= 20; day++) { const date = `2025-06-${String(day).padStart(2, '0')}`; const q = day > 10 ? 8 : 4;   // 6/11 부터 트래픽, 판매 2배
+    S.upsertSales(d, [{ date, option_id: '1', option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: q * 1000, orders: q, quantity: q, visitors: 0, views: 0, carts: 0, conversion: null }]);
+    S.upsertAds(d, [{ date, campaign: 'C', target_roas: 3, budget: 0, spend: 100, ad_revenue: 1000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 1, action: '' }]); }
+  S.addTraffic(d, { campaign: 'C', start: '2025-06-11', end: '', slots: 2 }); await S.save(d);
+  const led = computeLedger(d, '2025-06-01', '2025-06-20');
+  const [e] = T.campaignEffects(led, d.traffic);
+  assert.equal(e.on.days, 10); assert.equal(e.off.days, 10); assert.equal(e.on.organic_qty, 7); assert.equal(e.off.organic_qty, 3); approx(e.delta.organic_qty, 4 / 3, 1e-9);
+  assert.equal(e.bySlot['2'].days, 10);
+  const ba = T.beforeAfter(computeLedger(d), 'C', d.traffic[0]);
+  assert.equal(ba.n, 14); assert.equal(ba.beforeFrom, '2025-05-28'); assert.equal(ba.afterTo, '2025-06-24'); assert.equal(ba.before.days, 10); assert.equal(ba.after.days, 10);
+  const ba2 = T.beforeAfter(computeLedger(d), 'C', d.traffic[0], 14, '2025-06-20'); assert.equal(ba2.n, 10); assert.equal(ba2.beforeFrom, '2025-06-01'); assert.equal(ba2.afterTo, '2025-06-20'); assert.equal(ba.before.organic_qty, 3); assert.equal(ba.after.organic_qty, 7); assert.equal(ba.before.revenue, 4000); assert.equal(ba.after.revenue, 8000);
+  assert.equal(T.campaignEffects(led, []).length, 0);
+  console.log('traffic effect: all checks passed');
+}
