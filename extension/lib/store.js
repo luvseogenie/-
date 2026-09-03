@@ -15,11 +15,17 @@ export async function replaceAll(d) { await chrome.storage.local.set({ [KEY]: { 
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 
-export function upsertOption(d, { option_id, product_name = '', campaign = '', product = null, sort_order = null }) {
+export function upsertOption(d, { option_id, product_name = '', campaign = '', product = null, source = null, sort_order = null }) {
   option_id = cleanId(option_id);
   const cur = d.options.find((o) => o.option_id === option_id);
-  if (cur) { cur.product_name = product_name.trim(); cur.campaign = campaign.trim(); if (product) cur.product = product.trim(); if (sort_order != null) cur.sort_order = sort_order; }
-  else d.options.push({ option_id, product_name: product_name.trim(), campaign: campaign.trim(), product: (product || '').trim(), sort_order: sort_order ?? (Math.max(0, ...d.options.map((o) => o.sort_order)) + 1) });
+  if (cur) { cur.product_name = product_name.trim(); cur.campaign = campaign.trim(); if (product) cur.product = product.trim(); if (source) cur.source = source; if (sort_order != null) cur.sort_order = sort_order; }
+  else d.options.push({ option_id, product_name: product_name.trim(), campaign: campaign.trim(), product: (product || '').trim(), source: source || 'manual', sort_order: sort_order ?? (Math.max(0, ...d.options.map((o) => o.sort_order)) + 1) });
+}
+// 목록에 없는데 판매된 옵션 (최근 N일). 목록은 엑셀 1번 시트/직접 추가한 옵션만 유지한다.
+export function unlistedSoldOptions(d, sinceIso) {
+  const listed = new Set(d.options.map((o) => o.option_id)); const out = {};
+  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
+  return Object.values(out).sort((a, b) => b.qty - a.qty);
 }
 // 옵션ID → 상품명(판매 리포트의 '상품명' 열). 옵션에 저장된 값이 없으면 판매 데이터에서 찾는다.
 export function productNames(d) {

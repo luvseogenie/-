@@ -104,7 +104,7 @@ async function renderDash() {
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
-  $('#notice').innerHTML = (led.unmapped_options.length ? `<div class="notice">캠페인이 없는 옵션 ${led.unmapped_options.length}개의 판매는 '(캠페인 없음)' 줄에 자연 판매로 들어갑니다(마진 0). 광고하는 상품의 다른 옵션이면 <a href="#options">캠페인 · 옵션</a>에서 "제안 모두 적용"으로 한 번에 연결하세요.</div>` : '')
+  $('#notice').innerHTML = ''
     + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일은 엑셀 4번 시트에서 가져온 확정 값입니다. 엑셀에는 옵션별 매출이 없어 그 날의 총 매출은 광고 매출로, 자연 매출은 0으로 표시됩니다 (자연 판매 수는 있습니다).</div>` : '');
 }
 let campSort = { key: 'profit', dir: 'desc' };
@@ -275,10 +275,7 @@ function suggestions() {
 }
 function renderOptions() {
   const d = DATA;
-  // 판매 데이터에만 있는 옵션은 자동으로 목록에 넣는다
-  let added = false;
-  for (const day of Object.values(d.sales)) for (const r of Object.values(day)) if (!d.options.find((o) => o.option_id === r.option_id)) { S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name, product: r.product_name }); added = true; }
-  if (added) S.save(d);
+  renderUnlisted();
   const lookup = S.marginLookup(d); const todayIso = localIso(today);
   const since = addDays(localIso(yday), -29); const soldRecently = new Set(); const soldQty = {};
   for (const [date, day] of Object.entries(d.sales)) for (const r of Object.values(day)) { if (date >= since && r.quantity > 0) { soldRecently.add(r.option_id); soldQty[r.option_id] = (soldQty[r.option_id] || 0) + r.quantity; } }
@@ -346,6 +343,37 @@ function renderOptions() {
   if (list.length > 400) tb.insertAdjacentHTML('beforeend', `<tr><td colspan="7" class="sub">400개까지만 표시합니다. 검색이나 필터로 줄여 주세요.</td></tr>`);
 }
 $('#opt-group').onchange = () => renderOptions();
+function renderUnlisted() {
+  const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
+  const list = S.unlistedSoldOptions(DATA, since); const q = ($('#unlisted-search').value || '').toLowerCase();
+  $('#unlisted-count').textContent = `— 최근 ${days}일에 팔렸지만 목록에 없는 옵션 ${list.length}개`;
+  const tb = $('#unlisted-table tbody'); tb.innerHTML = '';
+  for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td><td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button></td>`;
+    const [one, all] = tr.querySelectorAll('button');
+    one.onclick = async () => { const dd = await reload(); S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name, product: u.product, source: 'manual' }); await S.save(dd); await reload(); renderOptions(); };
+    all.onclick = async () => { const dd = await reload(); let k = 0; for (const x of list) if (x.product === u.product) { S.upsertOption(dd, { option_id: x.option_id, product_name: x.option_name, product: x.product, source: 'manual' }); k++; } await S.save(dd); await reload(); renderOptions(); msg('#opt-msg', `${k}개 옵션 추가`, 'ok'); };
+    tb.appendChild(tr);
+  }
+}
+$('#unlisted-days').onchange = renderUnlisted; $('#unlisted-search').oninput = renderUnlisted;
+// 정리: 마진 이력이 없고 직접 추가한 것도 아닌 옵션(= 예전 버전이 판매 리포트에서 자동 등록한 것)을 목록에서 뺀다. 되돌릴 수 있게 보관.
+function autoAddedOptions(d) { return d.options.filter((o) => !S.marginHistory(d, o.option_id).length && o.source !== 'manual' && o.source !== 'excel'); }
+$('#opt-cleanup').onclick = async () => {
+  const dd = await reload(); const victims = autoAddedOptions(dd);
+  if (!victims.length) { msg('#opt-msg', '정리할 옵션이 없습니다.', 'ok'); return; }
+  if (!confirm(`마진이 없고 엑셀·직접 추가가 아닌 옵션 ${victims.length}개를 목록에서 뺄까요? (판매 데이터는 그대로이고, 캠페인 연결만 사라져 '(캠페인 없음)'으로 집계됩니다. 데이터 · 설정의 백업에서 되돌릴 수 있습니다)`)) return;
+  const ids = new Set(victims.map((o) => o.option_id)); dd.removedOptions = [...(dd.removedOptions || []), ...victims]; dd.options = dd.options.filter((o) => !ids.has(o.option_id)); await S.save(dd);
+  msg('#opt-msg', `${victims.length}개 옵션을 목록에서 뺐습니다.`, 'ok'); await reload(); renderOptions(); renderFoot();
+};
+// 업데이트 후 한 번: 예전 버전이 자동 등록한 옵션을 정리한다
+async function migrateAutoOptions() {
+  const { migratedAutoOptions } = await chrome.storage.local.get('migratedAutoOptions'); if (migratedAutoOptions) return;
+  const dd = await reload(); const victims = autoAddedOptions(dd);
+  if (victims.length) { const ids = new Set(victims.map((o) => o.option_id)); dd.removedOptions = [...(dd.removedOptions || []), ...victims]; dd.options = dd.options.filter((o) => !ids.has(o.option_id)); await S.save(dd); await reload(); }
+  await chrome.storage.local.set({ migratedAutoOptions: true });
+}
 $('#opt-apply-suggest').onclick = async () => {
   const { sug } = suggestions(); const n = Object.keys(sug).length; if (!n) return;
   if (!confirm(`캠페인이 없는 옵션 ${n}개를 같은 상품의 다른 옵션과 같은 캠페인으로 연결할까요? (마진은 옵션마다 다를 수 있어 넣지 않습니다)`)) return;
@@ -559,7 +587,7 @@ renderUpdate();
 reloadIfFilesChanged();
 $('#ads-date').value = localIso(yday);
 (async () => {
-  await reload(); renderFoot();
+  await reload(); await migrateAutoOptions(); renderFoot();
   let p = '30'; try { p = localStorage.getItem('cc-range') || '30'; } catch { /* 무시 */ }
   if (p === 'custom') p = '30';
   range.preset = p; [range.start, range.end] = presetRange(p); $('#r-start').value = range.start; $('#r-end').value = range.end;

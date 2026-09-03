@@ -100,7 +100,7 @@ export async function applyLegacy(parsed, { withMapping = true } = {}) {
     for (const m of parsed.mapping) {
       const prev = d.options.find((o) => o.option_id === m.option_id);
       before.options.push(prev ? { ...prev } : { option_id: m.option_id, _absent: true });
-      S.upsertOption(d, { option_id: m.option_id, product_name: m.product_name || prev?.product_name || '', campaign: m.campaign || prev?.campaign || '' }); mappedOptions++;
+      S.upsertOption(d, { option_id: m.option_id, product_name: m.product_name || prev?.product_name || '', campaign: m.campaign || prev?.campaign || '', source: 'excel' }); mappedOptions++;
       if (m.margin != null) {
         const hist = S.marginHistory(d, m.option_id);
         const eff = hist.length ? parsed.marginFrom : ''; // 이력이 없으면 처음부터, 있으면 엑셀 다음 날부터

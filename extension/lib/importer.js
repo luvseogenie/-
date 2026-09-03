@@ -19,7 +19,6 @@ export async function importSalesFile(buf, filename, date) {
   if (!rows.length) throw new Error(`표는 찾았지만 인식된 행이 없습니다 (헤더: ${Object.keys(records[0]).join(', ')})`);
   const d = await S.load();
   const n = S.upsertSales(d, rows);
-  for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name, product: r.product_name });
   await S.save(d);
   return { date, saved: n, records, unmapped: S.unmappedOptionIds(d).length };
 }

@@ -140,13 +140,19 @@
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
           <button class="btn sm" id="opt-apply-suggest">제안 모두 적용</button>
+          <button class="btn sm" id="opt-cleanup">마진 없는 옵션 정리</button>
           <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>
         </div>
+        <p class="sub" style="margin:0 0 8px">이 목록은 엑셀 1번 시트에서 가져왔거나 직접 추가한 옵션만 담습니다. 판매 리포트에 나온 다른 옵션은 자동으로 들어오지 않고, 그 판매는 '(캠페인 없음)'으로 집계됩니다. 광고하는 상품의 옵션이 빠져 있으면 아래 <b>목록에 없는 판매 옵션</b>에서 골라 추가하세요.</p>
         <div id="new-option" class="row" style="display:none;margin-bottom:10px;padding:10px;background:var(--surface-2);border-radius:10px">
           <input id="no-id" class="short" placeholder="옵션ID"><input id="no-name" style="width:280px" placeholder="상품명 (옵션명 포함)"><input id="no-camp" style="width:180px" placeholder="광고 캠페인 이름"><input id="no-margin" class="tiny" type="number" placeholder="마진">
           <button class="btn primary sm" id="opt-new-save">추가</button>
         </div>
         <div class="msg" id="opt-msg"></div>
+        <details id="unlisted-details" style="margin-bottom:10px"><summary>목록에 없는 판매 옵션 <span class="sub" id="unlisted-count"></span></summary>
+          <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순. '추가'를 누르면 위 목록에 들어갑니다 (캠페인·마진은 그 다음에 입력).</span></div>
+          <div class="tablewrap" style="max-height:320px"><table id="unlisted-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>
+        </details>
         <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l">마진 변경 (새 마진 · 적용 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
     </section>
