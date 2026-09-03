@@ -135,9 +135,11 @@
         <h2>옵션 · 캠페인 · 마진 <span class="sub">옵션마다 광고 캠페인 이름(광고센터와 똑같이)과 마진을 넣으면 장부가 계산됩니다. 광고를 안 하는 옵션은 캠페인을 비워 두면 '자연 판매'로만 집계됩니다.</span></h2>
         <div class="row" style="margin-bottom:10px">
           <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:280px">
-          <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option></select>
+          <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
+          <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
+          <button class="btn sm" id="opt-apply-suggest">제안 모두 적용</button>
           <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>
         </div>
         <div id="new-option" class="row" style="display:none;margin-bottom:10px;padding:10px;background:var(--surface-2);border-radius:10px">

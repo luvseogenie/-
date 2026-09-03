@@ -79,7 +79,7 @@ async function saveKind(kind) {
   if (!rows.length) { msg(`${label} 표는 찾았지만 인식된 행이 없습니다. 아래 '찾은 표 보기' 의 헤더를 알려주세요.`, 'err'); return; }
   const d = await S.load();
   const n = kind === 'sales' ? S.upsertSales(d, rows) : S.upsertAds(d, rows);
-  if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name });
+  if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name, product: r.product_name });
   await S.save(d);
   const missing = kind === 'sales' ? S.unmappedOptionIds(d).length : 0;
   const pageNote = best.pages > 1 ? ` (${best.pages}페이지 합침)` : ''; const extra = best.notes?.length ? ` · ${best.notes.join(', ')}` : '';

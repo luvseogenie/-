@@ -23,7 +23,7 @@ async function saveLocal(kind, date, records) {
   if (!rows.length) throw new Error(`${kind === 'sales' ? '판매' : '광고'} 표는 찾았지만 인식된 행이 없습니다`);
   const d = await S.load();
   const n = kind === 'sales' ? S.upsertSales(d, rows) : S.upsertAds(d, rows);
-  if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name });
+  if (kind === 'sales') for (const r of rows) if (!d.options.find((o) => o.option_id === r.option_id)) S.upsertOption(d, { option_id: r.option_id, product_name: r.option_name || r.product_name, product: r.product_name });
   await S.save(d);
   return n;
 }

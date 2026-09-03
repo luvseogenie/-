@@ -2,6 +2,7 @@
 import { campaigns as campaignList, dates as allDates, marginLookup } from './store.js';
 
 export const VAT = 1.1;
+export const UNMAPPED = '(캠페인 없음)';
 export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['roas', '광고수익률', 'ratio'], ['budget', '광고예산', 'won'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
@@ -61,8 +62,8 @@ export function computeLedger(d, start, end) {
   for (const [date, day] of Object.entries(d.sales)) {
     if (date < start || date > end) continue;
     for (const s of Object.values(day)) {
-      const camp = campaignOf[s.option_id];
-      if (!camp) { unmapped.add(s.option_id); continue; }
+      let camp = campaignOf[s.option_id];
+      if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
       const c = get(camp, date); c.has_sales = true;
       const m = margin(s.option_id, date);
       c.actual_qty += s.quantity; c.margin_total += s.quantity * m; c.revenue += s.revenue || 0; c.visitors += s.visitors || 0; c.views += s.views || 0;
