@@ -77,12 +77,24 @@ export function upsertAds(d, rows) {
 export function deleteAds(d, date, campaign) { if (d.ads[date]) { delete d.ads[date][campaign]; if (!Object.keys(d.ads[date]).length) delete d.ads[date]; } }
 export function deleteSalesDate(d, date) { delete d.sales[date]; }
 export function sortedOptions(d) { return [...d.options].sort((a, b) => a.sort_order - b.sort_order); }
+// 캠페인 이름 앞의 번호(1., 2., … 43.) 순. 번호가 없으면 이름순, '(캠페인 없음)' 은 맨 뒤.
+export function campaignKey(name) {
+  const m = String(name).match(/^\s*(\d+)/);
+  return [m ? Number(m[1]) : Number.MAX_SAFE_INTEGER - 1, String(name)];
+}
+export function sortCampaigns(list) {
+  return [...list].sort((a, b) => {
+    if (a === '(캠페인 없음)') return 1; if (b === '(캠페인 없음)') return -1;
+    const [na, sa] = campaignKey(a), [nb, sb] = campaignKey(b);
+    return na - nb || sa.localeCompare(sb, 'ko');
+  });
+}
 export function campaigns(d) {
-  const out = [];
-  for (const o of sortedOptions(d)) if (o.campaign && !out.includes(o.campaign)) out.push(o.campaign);
-  for (const day of Object.values(d.ads)) for (const c of Object.keys(day)) if (!out.includes(c)) out.push(c);
-  for (const day of Object.values(d.legacy || {})) for (const c of Object.keys(day)) if (!out.includes(c)) out.push(c);
-  return out;
+  const out = new Set();
+  for (const o of d.options) if (o.campaign) out.add(o.campaign);
+  for (const day of Object.values(d.ads)) for (const c of Object.keys(day)) out.add(c);
+  for (const day of Object.values(d.legacy || {})) for (const c of Object.keys(day)) out.add(c);
+  return sortCampaigns([...out]);
 }
 export function dates(d) { return [...new Set([...Object.keys(d.sales), ...Object.keys(d.ads), ...Object.keys(d.legacy || {})])].sort(); }
 export function unmappedOptionIds(d) {

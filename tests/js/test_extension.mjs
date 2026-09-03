@@ -150,6 +150,8 @@ console.log('extension logic: all checks passed');
   await S.save(d); led = computeLedger(d, '2025-06-08', '2025-06-09');
   const c2 = led.campaigns.find((c) => c.campaign === '1_버킷햇_240%');
   assert.equal(c2.days['2025-06-08'].actual_qty, 12); assert.equal(c2.days['2025-06-08'].margin_total, 72000); assert.equal(c2.days['2025-06-08'].legacy, true); // 엑셀 값 유지
+  assert.equal(c2.days['2025-06-08'].revenue, 100000); // 매출은 판매 리포트에서 (광고 매출이 더 크면 자연 매출 0)
+  assert.equal(c2.days['2025-06-08'].organic_revenue, 0);
   assert.equal(c2.days['2025-06-09'].actual_qty, 5); assert.equal(c2.days['2025-06-09'].margin_total, 30000); assert.equal(c2.days['2025-06-09'].revenue, 50000); // 다음 날부터 확장 데이터
   assert.equal(led.legacyCutoff, '2025-06-08');
   // 되돌리기 → 가져오기 전 상태

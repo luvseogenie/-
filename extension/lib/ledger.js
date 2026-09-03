@@ -1,5 +1,5 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
@@ -15,7 +15,7 @@ export const METRICS = [
 const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'organic_qty', 'revenue', 'organic_revenue', 'margin_total', 'profit', 'visitors', 'views'];
 const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0, ad_revenue: 0, cpc: 0, impressions: 0, clicks: 0, ctr: 0,
   conversion: 0, ad_orders: 0, actual_qty: 0, organic_qty: 0, ad_share: 0, revenue: 0, organic_revenue: 0, visitors: 0, views: 0,
-  margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, unmapped_qty: 0 });
+  margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, has_revenue: false, unmapped_qty: 0 });
 export function finalizeCell(c) {
   c.profit = c.margin_total - c.spend_vat;
   c.organic_qty = Math.max(0, c.actual_qty - c.ad_orders);
@@ -64,13 +64,18 @@ export function computeLedger(d, start, end) {
   }
   const unmapped = new Set();
   for (const [date, day] of Object.entries(d.sales)) {
-    if (date < start || date > end || excelOnly(date)) continue;
+    if (date < start || date > end) continue;
+    const excel = excelOnly(date);
     for (const s of Object.values(day)) {
       let camp = campaignOf[s.option_id];
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
-      const c = get(camp, date); c.has_sales = true;
+      const c = get(camp, date);
+      // 엑셀 확정 구간: 판매 수·마진은 4번 시트 값을 쓰고, 판매 리포트에서는 매출(총 매출 → 자연 매출)과 방문·조회만 가져온다
+      c.revenue += s.revenue || 0; c.visitors += s.visitors || 0; c.views += s.views || 0; c.has_revenue = true;
+      if (excel) { if (camp === UNMAPPED) { c.has_sales = true; c.actual_qty += s.quantity; } continue; }
+      c.has_sales = true;
       const m = margin(s.option_id, date);
-      c.actual_qty += s.quantity; c.margin_total += s.quantity * m; c.revenue += s.revenue || 0; c.visitors += s.visitors || 0; c.views += s.views || 0;
+      c.actual_qty += s.quantity; c.margin_total += s.quantity * m;
       if (m === 0 && s.quantity) c.unmapped_qty += s.quantity;
     }
   }
@@ -86,14 +91,14 @@ export function computeLedger(d, start, end) {
         Object.assign(c, { has_ads: true, target_roas: L.target_roas || 0, budget: L.budget || 0, spend: L.spend || 0, spend_vat: L.spend_vat || 0, ad_revenue: L.ad_revenue || 0,
           roas: L.roas || 0, cpc: L.cpc || 0, impressions: L.impressions || 0, clicks: L.clicks || 0, ctr: L.ctr || 0, conversion: L.conversion || 0, ad_orders: L.ad_orders || 0 });
       }
-      if (salesFromLegacy && (L.actual_qty || L.margin_total)) { c.has_sales = true; c.actual_qty = L.actual_qty || 0; c.margin_total = L.margin_total || 0; c.revenue = c.ad_revenue; c.legacy = true; }
+      if (salesFromLegacy && (L.actual_qty || L.margin_total)) { c.has_sales = true; c.actual_qty = L.actual_qty || 0; c.margin_total = L.margin_total || 0; if (!c.has_revenue) c.revenue = c.ad_revenue; c.legacy = true; }
       if (adsFromLegacy && salesFromLegacy) c.legacy = true;
     }
   }
   const dates = dateRange(start, end);
   const total_profit = {}, month_profit = {};
   const result = [];
-  for (const camp of order) {
+  for (const camp of sortCampaigns(order)) {
     const days = {}, months = {};
     for (const date of dates) {
       const c = cells[camp]?.[date]; if (!c) continue;

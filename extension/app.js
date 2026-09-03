@@ -105,7 +105,7 @@ async function renderDash() {
   renderCampTable(led);
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
   $('#notice').innerHTML = ''
-    + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일(${led.legacyCutoff} 까지)은 엑셀 4번 시트 확정값만 씁니다. 엑셀에는 옵션별 매출이 없어 그 날의 총 매출은 광고 매출로, 자연 매출은 0으로 표시됩니다 (자연 판매 수는 있습니다).</div>` : '');
+    + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일(${led.legacyCutoff} 까지)은 광고비·판매 수·마진·순이익을 엑셀 4번 시트 확정값으로 씁니다. 총 매출·자연 매출은 판매 리포트 데이터가 있으면 거기서 가져오고, 없는 날은 총 매출 = 광고 매출로 표시됩니다.</div>` : '');
 }
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
@@ -225,7 +225,7 @@ function renderLedgerTable() {
   sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
   if (cur && !visibleCamps.includes(cur)) sel.value = '';
   const only = sel.value;
-  if (led.legacyCutoff && led.start <= led.legacyCutoff) $('#lg-warn').innerHTML += `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">${led.legacyCutoff} 까지는 엑셀 4번 시트 확정값만 씁니다 (그 구간에 ①②로 저장한 데이터는 무시).</div>`;
+  if (led.legacyCutoff && led.start <= led.legacyCutoff) $('#lg-warn').innerHTML += `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">${led.legacyCutoff} 까지는 광고비·판매 수·마진·순이익을 엑셀 4번 시트 확정값으로 씁니다 (매출은 판매 리포트에서).</div>`;
   for (const name of allCamps) {
     const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
     if (only && name !== only) continue;
