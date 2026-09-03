@@ -123,6 +123,14 @@ EXTRACT_JS = r"""
     else if (/로켓배송|로켓와우/.test(alts) || /rocket/i.test(srcs)) delivery = 'ROCKET';
     else if (/도착\s*보장/.test(alts)) delivery = 'ROCKET';
 
+    // 배송 뱃지 그림의 파일 이름 (나중에 상세 페이지 결과로 뱃지→배송형태 대응을 학습)
+    let badgeKey = null;
+    for (const im of li.querySelectorAll('img')) {
+      const src = im.getAttribute('src') || im.getAttribute('data-src') || '';
+      if (/badge|delivery|rocket|logo/i.test(src) && !/thumbnail|vendor_inventory|retail\/images/i.test(src)) {
+        badgeKey = src.split('?')[0].split('/').pop(); break;
+      }
+    }
     const isAd = !inUnit || /ad-badge|adbadge|__ad|\bad\b/.test(cls(li)) || !!li.querySelector('[class*="ad-badge"], [class*="adBadge"], [class*="AdMark"], [class*="ad-mark"], [class*="AdBadge"]') || /\bAD\b|광고/.test(txt(li).slice(0, 40));
     const soldOut = /일시품절|품절/.test(txt(li));
     const img = li.querySelector('img');
@@ -130,7 +138,7 @@ EXTRACT_JS = r"""
     rank += 1;
     out.push({ product_id: Number(m[1]), item_id: itemId ? Number(itemId) : null,
       vendor_item_id: vendorItemId ? Number(vendorItemId) : null, name, price, base_price: basePrice,
-      review_count: reviews, rating, delivery, is_ad: isAd, sold_out: soldOut, image,
+      review_count: reviews, rating, delivery, badge_key: badgeKey, is_ad: isAd, sold_out: soldOut, image,
       url: 'https://www.coupang.com' + url.pathname + url.search, rank });
   }
   const body = txt(document.body).slice(0, 4000);
@@ -241,12 +249,36 @@ DETAIL_PRICE_JS = r"""
   const body = txt(document.body);
   const blocked = /Access Denied|접근이 거부|비정상적인 접근|Reference #/.test(body.slice(0, 3000) + document.title);
   const cands = [];
-  const sels = ['.prod-sale-price .total-price strong', '.prod-coupon-price .total-price strong', '.total-price strong',
-    '[class*="finalPrice"]', '[class*="final-price"]', '[class*="salePrice"] strong', '[class*="sale-price"] strong',
-    '[class*="couponPrice"]', '[class*="coupon-price"]', '[class*="price"] strong'];
+  const sels = ['.prod-coupon-price .total-price strong', '[class*="couponPrice"]', '[class*="coupon-price"]',
+    '[class*="finalPrice"]', '[class*="final-price"]', '[class*="wowPrice"]', '[class*="memberPrice"]',
+    '.prod-sale-price .total-price strong', '.total-price strong',
+    '[class*="salePrice"] strong', '[class*="sale-price"] strong', '[class*="price"] strong'];
   for (const s of sels) { for (const el of document.querySelectorAll(s)) { const v = num(txt(el)); if (v && v > 100) cands.push({ sel: s, value: v, text: txt(el) }); } }
   const coupon = /쿠폰|와우할인|다운로드/.test(body.slice(0, 20000));
   const soldOut = /일시품절|품절된 상품/.test(body.slice(0, 20000));
+  // 배송 형태: 가격 근처(구매 영역)의 뱃지 그림과 글자로 판별
+  let delivery = null, deliveryHow = '';
+  const priceEl = document.querySelector('.prod-sale-price, [class*="finalPrice"], [class*="final-price"], [class*="salePrice"], [class*="sale-price"], .total-price');
+  let box = priceEl;
+  for (let i = 0; i < 6 && box && box.parentElement; i++) { box = box.parentElement; if (box.querySelectorAll('img').length >= 1 && box.textContent.length > 200) break; }
+  const scope = box || document.body;
+  const alts = Array.from(scope.querySelectorAll('img')).map(im => (im.getAttribute('alt') || '') + ' ' + (im.getAttribute('src') || '')).join(' ');
+  const near = txt(scope).slice(0, 3000);
+  const classify = (t) => {
+    if (/판매자\s*로켓|로켓그로스|rocket[_-]?growth|rocket[_-]?merchant|merchant/i.test(t)) return 'ROCKET_GROWTH';
+    if (/로켓직구|global/i.test(t)) return 'ROCKET_GLOBAL';
+    if (/로켓프레시|fresh/i.test(t)) return 'ROCKET_FRESH';
+    if (/로켓설치|install/i.test(t)) return 'ROCKET_INSTALL';
+    if (/로켓배송|로켓와우|rocket/i.test(t)) return 'ROCKET';
+    return null;
+  };
+  delivery = classify(alts); if (delivery) deliveryHow = 'badge';
+  if (!delivery) { delivery = classify(near); if (delivery) deliveryHow = 'text'; }
+  if (!delivery) {
+    // 판매자 정보에 "쿠팡" 이면 로켓배송(직매입), 그 외엔 판매자배송
+    if (/판매자\s*[:：]?\s*쿠팡\b/.test(body) || /쿠팡\s*주식회사/.test(near)) { delivery = 'ROCKET'; deliveryHow = 'seller'; }
+    else { delivery = 'WING'; deliveryHow = 'default'; }
+  }
   let sellers = null;
   const sm = body.match(/다른\s*판매자\s*(\d+)/) || body.match(/판매자\s*(\d+)\s*곳/);
   if (sm) sellers = Number(sm[1]);
@@ -256,7 +288,8 @@ DETAIL_PRICE_JS = r"""
     || (document.documentElement.outerHTML.match(/([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매/));
   if (bm) buyers = num(bm[1]);
   const buyersText = (body.match(/[^.]{0,20}[\d,]+\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
-  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText, title: document.title };
+  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText,
+    delivery, delivery_how: deliveryHow, title: document.title };
 }
 """
 
@@ -513,6 +546,7 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
                 data = json.loads(r["text"])
                 first = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
                 price = (first or {}).get("price") or {}
+                # finalPrice = 쿠폰·와우 즉시할인까지 모두 적용된 최종가, couponPrice = 쿠폰 적용가, salePrice = 판매가
                 final = _num(price.get("finalPrice")) or _num(price.get("couponPrice")) or _num(price.get("salePrice"))
                 if final:
                     out["price"] = final
@@ -520,6 +554,13 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
                     out["coupon"] = bool(price.get("hasNormalCouponDiscount") or price.get("hasWowCouponDiscount"))
                     out["wow_only"] = bool(price.get("hasWowInstantDiscount") or price.get("wowCouponDiscount"))
                     out["source"] = "api"
+                    # 일반(비회원·쿠폰 전) 판매가: priceList 의 SALES 항목
+                    for pl in (first or {}).get("priceList") or []:
+                        if (pl or {}).get("type") == "SALES":
+                            out["price_sale"] = _num(pl.get("priceAmount"))
+                            break
+                    if not out.get("price_sale"):
+                        out["price_sale"] = _num(price.get("salePrice"))
         except Exception as e:  # noqa: BLE001
             log.warn(f"가격 API 실패 {product_id}: {e}")
     # 2) 구매자 문구: 상품 페이지를 실제로 열어 읽는다 (HTML 을 몰래 받아오면 쿠팡이 막는다)
@@ -539,6 +580,8 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         raise BlockedError("상품 페이지 접근이 막혔습니다")
     out["buyers_min"] = data.get("buyers_min")
     out["sellers"] = data.get("sellers")
+    out["delivery"] = data.get("delivery")
+    out["delivery_how"] = data.get("delivery_how")
     out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
     if out["price"] is None:
         for c in data.get("candidates", []):

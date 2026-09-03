@@ -50,7 +50,8 @@ def enrich(p: dict, cond: dict) -> dict:
     out = dict(p)
     price = p.get("verified_price") or p.get("wing_price") or p.get("price") or 0
     if p.get("verified_price"):
-        src = "실제가 확인"
+        ps = p.get("price_sale")
+        src = "쿠폰·할인 적용 최종가" + (f" · 일반 {ps:,}원" if ps and ps != p.get("verified_price") else "")
     elif p.get("wing_price"):
         src = "Wing 수집가"
     else:
@@ -99,6 +100,14 @@ def enrich(p: dict, cond: dict) -> dict:
             v = "below"
     out["verdict"] = v
     out["verdict_label"] = VERDICT_LABEL[v]
+    # 구매자·전환율 조건은 상세 확인 후에야 알 수 있으므로, 그 전 단계 통과 여부를 따로 둔다
+    pre = db.eligible(p, cond) and bool(p.get("analyzed")) and bool(p.get("matched"))
+    if pre:
+        if cond.get("views_min") and (views or 0) < cond["views_min"]:
+            pre = False
+        if cond.get("views_max") and (views or 0) > cond["views_max"]:
+            pre = False
+    out["pre_pass"] = pre
     return out
 
 

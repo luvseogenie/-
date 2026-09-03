@@ -131,10 +131,15 @@ class JobController:
                     self.progress["label"] = f"{path} · {page_no}페이지"
                     data = self._with_retry(lambda: fetch_listing(bt.page(), kind, key, page_no))
                     items = data["items"] if data else []
+                    badge_map = db.get_setting("badge_map", {}) or {}
                     for it in items:
                         it["category_id"] = key if kind == "category" else None
                         it["category_path"] = path
                         it["page"] = page_no
+                        bk = it.get("badge_key")
+                        if bk and bk in badge_map:
+                            it["delivery"] = badge_map[bk]
+                            it["delivery_sure"] = True
                         restricted = restricted_reason(it.get("name"), path)
                         db.upsert_product(run_id, it, restricted)
                     cat_seen += len(items)
@@ -322,11 +327,26 @@ class JobController:
                 self.progress["label"] = (p.get("name") or str(pid))[:40]
                 data = self._with_retry(lambda: fetch_detail_price(bt.page(), pid, p.get("item_id"), p.get("vendor_item_id")))
                 if data:
-                    db.save_verified_price(run_id, pid, data.get("price"), data.get("buyers_min"), data.get("sellers"))
+                    db.save_verified_price(run_id, pid, data.get("price"), data.get("buyers_min"), data.get("sellers"),
+                                           data.get("price_sale"), data.get("origin_price"))
+                    if data.get("delivery"):
+                        sure = data.get("delivery_how") in ("badge", "text", "seller")
+                        db.set_delivery(run_id, pid, data["delivery"], sure)
+                        bk = p.get("badge_key")
+                        if sure and bk and data.get("delivery_how") == "badge":
+                            bm = db.get_setting("badge_map", {}) or {}
+                            if bm.get(bk) != data["delivery"]:
+                                bm[bk] = data["delivery"]
+                                db.set_setting("badge_map", bm)
+                                n = db.apply_badge_map(run_id, bk, data["delivery"])
+                                log.info(f"배송 뱃지 학습: {bk} → {data['delivery']} (같은 뱃지 {n}개 반영)")
                     parts = []
                     if data.get("price"):
-                        parts.append(f"실제가 {data['price']:,}원({data.get('source')})")
+                        extra = f", 일반가 {data['price_sale']:,}원" if data.get("price_sale") and data["price_sale"] != data["price"] else ""
+                        parts.append(f"최종가 {data['price']:,}원{extra}")
                     parts.append(f"월 구매 {data['buyers_min']:,}명 이상" if data.get("buyers_min") else "구매자 문구 없음")
+                    if data.get("delivery"):
+                        parts.append(f"배송 {data['delivery']}")
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
                 human_delay(1.5, 3.5)

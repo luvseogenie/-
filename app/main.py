@@ -200,12 +200,20 @@ async def run_verify(req: Request):
     body = await req.json()
     ids = [int(x) for x in body.get("product_ids") or []]
     run_id = _current_run_id()
+    cond = db.get_conditions()
+    rows = [enrich(p, cond) for p in db.products(run_id)]
+    # 조건에 맞는(가격·리뷰·조회수 통과) 상품만 확인한다. 체크한 상품이라도 조건에 안 맞으면 제외.
+    eligible_ids = {r["product_id"] for r in rows if r.get("pre_pass")}
+    todo = {r["product_id"] for r in rows if r.get("pre_pass") and not r.get("verified_at")}
+    if ids:
+        skipped = len([i for i in ids if i not in eligible_ids])
+        ids = [i for i in ids if i in eligible_ids]
+        if skipped:
+            log.info(f"조건에 맞지 않는 {skipped}개는 확인에서 제외했습니다")
+    else:
+        ids = sorted(todo)
     if not ids:
-        cond = db.get_conditions()
-        rows = [enrich(p, cond) for p in db.products(run_id)]
-        ids = [r["product_id"] for r in rows if r["verdict"] == "pass" and not (r.get("verified_price") and r.get("buyers_min"))]
-    if not ids:
-        return _err("확인할 상품이 없습니다. 조건 통과 상품이 있거나 상품을 체크한 뒤 눌러주세요.")
+        return _err("확인할 상품이 없습니다. 조건에 맞고 아직 확인하지 않은 상품이 없습니다.")
     try:
         job.start_verify(run_id, ids)
         return {"ok": True, "count": len(ids)}
@@ -237,12 +245,13 @@ def status():
         if cond.get("hide_ads"):
             rows = [r for r in rows if not r.get("is_ad")]
         stats = summarize(rows, db.run_categories(run["id"]), seen)
+    excluded_n = sum(1 for r in rows if r["verdict"] == "excluded") if run else 0
     return {"status": st, "run": dict(run) if run else None, "stats": stats, "restricted": restricted,
-            "logs": log.recent(60)}
+            "excluded": excluded_n, "logs": log.recent(60)}
 
 
 def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
-    if cond.get("exclude_restricted"):
+    if cond.get("exclude_restricted") and flt != "restricted":
         rows = [r for r in rows if not r.get("restricted")]
     if cond.get("hide_ads"):
         rows = [r for r in rows if not r.get("is_ad")]
@@ -250,6 +259,9 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
         rows = [r for r in rows if r.get("hidden")]
     else:
         rows = [r for r in rows if not r.get("hidden")]
+        if flt == "all":
+            # "전체"는 조건에 맞는 상품 전체 (가격·리뷰 조건 제외 상품은 전용 칩에서만)
+            rows = [r for r in rows if r["verdict"] != "excluded"]
         if flt in ("pass", "below", "excluded", "unmatched", "pending"):
             rows = [r for r in rows if r["verdict"] == flt]
         elif flt == "coupon":

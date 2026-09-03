@@ -235,6 +235,7 @@
     const rTotal = Object.values(r).reduce((a, b) => a + b, 0);
     const parts = [`${fmt(state.total)}개 표시 중 (전체 ${fmt(s.unique)}개)`, '같은 상품의 옵션은 한 줄로 묶음'];
     if (rTotal && state.conditions.exclude_restricted) parts.push(`못 파는 물건 ${rTotal}개 뺌 (${Object.entries(r).map(([k, v]) => `${k} ${v}`).join(', ')})`);
+    if (d.excluded) parts.push(`가격·리뷰 조건에 안 맞는 ${fmt(d.excluded)}개는 숨김`);
     $('#results-sub').textContent = parts.join(' · ');
     // 작업 상태가 바뀌면 표를 다시 그린다
     const sig = `${st.state}:${st.paused}:${p.done}`;
@@ -263,7 +264,7 @@
     const sel = $('#leaf');
     sel.innerHTML = `<option value="">전체 (${list.length})</option>` + list.map((l) => `<option value="${esc(l.id || l.path)}" ${String(state.leaf) === String(l.id || l.path) ? 'selected' : ''}>${esc((l.path || '').split(' > ').slice(-1)[0] || l.path)} (${l.count})</option>`).join('');
   }
-  function deliveryLabel(d) { return { ROCKET_GROWTH: '판매자로켓', ROCKET: '로켓배송', ROCKET_GLOBAL: '로켓직구', ROCKET_FRESH: '로켓프레시', WING: '판매자배송' }[d] || d || ''; }
+  function deliveryLabel(d) { return { ROCKET_GROWTH: '판매자로켓(로켓그로스)', ROCKET: '로켓배송', ROCKET_GLOBAL: '로켓직구', ROCKET_FRESH: '로켓프레시', ROCKET_INSTALL: '로켓설치', WING: '판매자배송' }[d] || d || ''; }
   function renderRows() {
     const body = $('#grid-body');
     if (!state.rows.length) {
@@ -296,7 +297,7 @@
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
         <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
         <td class="num"><b>${r.revenue_min ? wonShort(r.revenue_min) : '-'}</b><div class="sub">${r.revenue_min ? (r.revenue_min < 1e8 ? won(r.revenue_min) + ' 최소' : '최소') : ''}</div></td>
-        <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}</b><div class="sub">${esc(deliveryLabel(r.delivery))}</div></td>
+        <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}${r.delivery_sure ? '' : ' <span class="muted" title="상세 확인 전 추정값">?</span>'}</b><div class="sub">${esc(deliveryLabel(r.delivery))}${r.delivery_sure ? '' : ' (추정)'}</div></td>
       </tr>`;
     }).join('');
     $$('.rowchk').forEach((el) => el.addEventListener('change', () => { const id = Number(el.dataset.id); if (el.checked) state.selected.add(id); else state.selected.delete(id); renderSel(); }));

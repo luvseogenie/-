@@ -108,7 +108,8 @@ def init_db():
     extra = [("pv_low", "INTEGER"), ("pv_high", "INTEGER"), ("pv_rank", "INTEGER"),
              ("mergeable", "TEXT"), ("eligibility", "TEXT"), ("wing_category", "TEXT"),
              ("wing_rating", "REAL"), ("wing_review", "INTEGER"), ("pv_exact", "INTEGER"),
-             ("option_total", "INTEGER"), ("buyers_min", "INTEGER")]
+             ("option_total", "INTEGER"), ("buyers_min", "INTEGER"), ("badge_key", "TEXT"),
+             ("delivery_sure", "INTEGER"), ("price_sale", "INTEGER"), ("price_origin", "INTEGER")]
     have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
     for col, typ in extra:
         if col not in have:
@@ -244,12 +245,14 @@ def upsert_product(run_id, p: dict, restricted: str | None):
     if row is None:
         c.execute(
             """INSERT INTO products(run_id, product_id, item_id, vendor_item_id, name, url, image, price, base_price,
-               review_count, rating, delivery, is_ad, sold_out, category_id, category_path, rank, page, restricted, first_seen)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               review_count, rating, delivery, is_ad, sold_out, category_id, category_path, rank, page, restricted, first_seen,
+               badge_key, delivery_sure)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, p["product_id"], p.get("item_id"), p.get("vendor_item_id"), p.get("name"), p.get("url"),
              p.get("image"), p.get("price"), p.get("base_price"), p.get("review_count"), p.get("rating"),
              p.get("delivery"), int(bool(p.get("is_ad"))), int(bool(p.get("sold_out"))), p.get("category_id"),
-             p.get("category_path"), p.get("rank"), p.get("page"), restricted, now()),
+             p.get("category_path"), p.get("rank"), p.get("page"), restricted, now(),
+             p.get("badge_key"), int(bool(p.get("delivery_sure")))),
         )
         c.commit()
         return True
@@ -266,13 +269,26 @@ def products(run_id):
     return [dict(r) for r in conn().execute("SELECT * FROM products WHERE run_id=?", (run_id,)).fetchall()]
 
 
+def eligible(p: dict, cond: dict) -> bool:
+    """가격·리뷰 조건에 맞고, 못 파는 물건/광고 제외 설정에 걸리지 않는 상품만 True."""
+    if not price_review_ok(p, cond):
+        return False
+    if cond.get("exclude_restricted") and p.get("restricted"):
+        return False
+    if cond.get("hide_ads") and p.get("is_ad"):
+        return False
+    if p.get("hidden"):
+        return False
+    return True
+
+
 def pending_products(run_id, include_excluded: bool, cond: dict):
     rows = products(run_id)
     out = []
     for p in rows:
         if p["analyzed"]:
             continue
-        if not include_excluded and not price_review_ok(p, cond):
+        if not include_excluded and not eligible(p, cond):
             continue
         out.append(p)
     return out
@@ -321,14 +337,31 @@ def reset_unmatched(run_id) -> int:
     return cur.rowcount
 
 
-def save_verified_price(run_id, product_id, price: int | None, buyers_min: int | None = None, sellers: int | None = None):
+def save_verified_price(run_id, product_id, price: int | None, buyers_min: int | None = None, sellers: int | None = None,
+                        price_sale: int | None = None, price_origin: int | None = None):
     c = conn()
     c.execute("""UPDATE products SET verified_price=COALESCE(?, verified_price), verified_at=?,
                  buyers_min=COALESCE(?, buyers_min), seller_count=COALESCE(?, seller_count),
+                 price_sale=COALESCE(?, price_sale), price_origin=COALESCE(?, price_origin),
                  coupon_flag=CASE WHEN ? IS NOT NULL THEN 0 ELSE coupon_flag END
                  WHERE run_id=? AND product_id=?""",
-              (price, now(), buyers_min, sellers, price, run_id, product_id))
+              (price, now(), buyers_min, sellers, price_sale, price_origin, price, run_id, product_id))
     c.commit()
+
+
+def set_delivery(run_id, product_id, delivery: str, sure: bool = True):
+    c = conn()
+    c.execute("UPDATE products SET delivery=?, delivery_sure=? WHERE run_id=? AND product_id=?", (delivery, int(sure), run_id, product_id))
+    c.commit()
+
+
+def apply_badge_map(run_id, badge_key: str, delivery: str) -> int:
+    """같은 뱃지 그림을 쓰는 상품들의 배송 형태를 한 번에 맞춘다 (확정된 것은 건드리지 않음)."""
+    c = conn()
+    cur = c.execute("UPDATE products SET delivery=? WHERE run_id=? AND badge_key=? AND COALESCE(delivery_sure,0)=0",
+                    (delivery, run_id, badge_key))
+    c.commit()
+    return cur.rowcount
 
 
 def set_hidden(run_id, product_ids, hidden: bool):
