@@ -231,3 +231,21 @@ console.log('extension logic: all checks passed');
   const m = computeLedger(d, '2025-06-08', '2025-06-09').campaigns[0].months['2025-06']; assert.equal(m.returns_cancels, 4); // 일별 합
   console.log('returns/cancels: all checks passed');
 }
+
+// 트래픽 슬롯
+{
+  await S.replaceAll({}); const d = await S.load();
+  S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.setMargin(d, '1', 1000);
+  for (let day = 1; day <= 10; day++) S.upsertSales(d, [{ date: `2025-06-${String(day).padStart(2, '0')}`, option_id: '1', option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: 1000, orders: 1, quantity: 1, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  S.addTraffic(d, { campaign: 'C', start: '2025-06-03', end: '2025-06-05', slots: 2, memo: '테스트' });
+  S.addTraffic(d, { campaign: 'C', start: '2025-06-05', end: '', slots: 1 });   // 진행 중 (겹치는 5일은 3슬롯)
+  await S.save(d);
+  assert.equal(S.trafficSlots(d, 'C', '2025-06-02'), 0); assert.equal(S.trafficSlots(d, 'C', '2025-06-03'), 2); assert.equal(S.trafficSlots(d, 'C', '2025-06-05'), 3); assert.equal(S.trafficSlots(d, 'C', '2025-07-01'), 1);
+  assert.deepEqual(S.trafficStatus(d, 'C', '2025-06-10'), { slots: 1, since: '2025-06-05', memo: '' }); assert.equal(S.trafficStatus(d, 'X', '2025-06-10'), null);
+  const led = computeLedger(d, '2025-06-01', '2025-06-30'); const c = led.campaigns[0];
+  assert.equal(c.days['2025-06-02'].traffic_slots, 0); assert.equal(c.days['2025-06-04'].traffic_slots, 2); assert.equal(c.days['2025-06-05'].traffic_slots, 3);
+  assert.equal(c.days['2025-06-20'].traffic_slots, 1); // 판매 데이터 없는 날도 트래픽은 표시
+  assert.equal(c.months['2025-06'].traffic_slots, 3);
+  S.deleteTraffic(d, d.traffic[0].id); assert.equal(S.trafficSlots(d, 'C', '2025-06-04'), 0);
+  console.log('traffic slots: all checks passed');
+}

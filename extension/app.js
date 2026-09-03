@@ -110,7 +110,7 @@ async function renderDash() {
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
   const hideZero = $('#camp-hide-zero').checked;
-  const cols = [['campaign', '캠페인', 'l'], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['returns_cancels', '반품·취소', 'int'], ['actual_qty', '실제 판매', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
+  const cols = [['campaign', '캠페인', 'l'], ['traffic', '트래픽', ''], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['returns_cancels', '반품·취소', 'int'], ['actual_qty', '실제 판매', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
   let rows = led.campaigns.map((c) => { const t = { ...c.total, campaign: c.campaign, days: c.days }; const lastDay = Object.keys(c.days).sort().pop(); t.target_roas = lastDay ? c.days[lastDay].target_roas : 0; return t; }).filter((t) => t.days && Object.keys(t.days).length);
   if (hideZero) rows = rows.filter((t) => t.spend_vat > 0 || t.ad_orders > 0);
   const hiddenN = rows.filter((t) => visOf(t.campaign) === 'hidden').length;
@@ -123,13 +123,14 @@ function renderCampTable(led) {
     h += `<tr>` + cols.map(([k, , f]) => {
       if (k === 'campaign') return `<td class="l link" data-camp="${esc(t.campaign)}">${esc(t.campaign)}</td>`;
       if (k === 'trend') { const ds = Object.keys(t.days).sort(); return `<td>${sparkline(ds.slice(-30).map((d) => t.days[d].profit), 90, 22, '#4a3aa7')}</td>`; }
+      if (k === 'traffic') { const st = S.trafficStatus(DATA, t.campaign, led.end); return `<td class="num">${st ? `<span class="pill traffic" title="${esc(st.memo)}">🚦 ${st.slots} (${st.since.slice(5).replace('-', '/')}~)</span>` : ''}</td>`; }
       if (k === 'roas') return `<td class="num ${roasCls}">${fmt.ratio(t.roas)}</td>`;
       if (k === 'profit') return `<td class="num ${t.profit < 0 ? 'neg' : 'pos'}">${fmtWon(t.profit)}</td>`;
       return `<td class="num">${fmt[f](t[k])}</td>`;
     }).join('') + '</tr>';
   }
   const g = led.grand;
-  h += `</tbody><tfoot><tr><td class="l">합계</td><td class="num">${fmtWon(g.spend_vat)}</td><td class="num">${fmtWon(g.ad_revenue)}</td><td class="num">${fmt.ratio(g.roas)}</td><td></td><td class="num">${fmtInt(g.ad_orders)}</td><td class="num">${fmtInt(g.organic_qty)}</td><td class="num">${fmtInt(g.returns_cancels)}</td><td class="num">${fmtInt(g.actual_qty)}</td><td class="num">${fmtWon(g.revenue)}</td><td class="num">${fmtWon(g.margin_total)}</td><td class="num ${g.profit < 0 ? 'neg' : 'pos'}">${fmtWon(g.profit)}</td><td></td></tr></tfoot>`;
+  h += `</tbody><tfoot><tr><td class="l">합계</td><td></td><td class="num">${fmtWon(g.spend_vat)}</td><td class="num">${fmtWon(g.ad_revenue)}</td><td class="num">${fmt.ratio(g.roas)}</td><td></td><td class="num">${fmtInt(g.ad_orders)}</td><td class="num">${fmtInt(g.organic_qty)}</td><td class="num">${fmtInt(g.returns_cancels)}</td><td class="num">${fmtInt(g.actual_qty)}</td><td class="num">${fmtWon(g.revenue)}</td><td class="num">${fmtWon(g.margin_total)}</td><td class="num ${g.profit < 0 ? 'neg' : 'pos'}">${fmtWon(g.profit)}</td><td></td></tr></tfoot>`;
   $('#camp-table').innerHTML = h;
   $$('#camp-table th.sort').forEach((th) => th.onclick = () => { const k = th.dataset.k; campSort = { key: k, dir: campSort.key === k && campSort.dir === 'desc' ? 'asc' : 'desc' }; renderCampTable(led); });
   $$('#camp-table td.link').forEach((td) => td.onclick = () => openCampaign(td.dataset.camp, led));
@@ -191,11 +192,11 @@ function stepCamp(n) { const sel = $('#lg-camp'); const i = sel.selectedIndex + 
 $('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = () => stepCamp(1);
 
 /* ===== 광고 장부 (피벗) ===== */
-const DEFAULT_METRICS = ['target_roas', 'budget', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
+const DEFAULT_METRICS = ['target_roas', 'budget', 'traffic_slots', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
 const QTY_ROWS = new Set(['ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty']);
-const CHANGE_ROWS = { target_roas: (v) => Math.round(v * 100) + '%', budget: (v) => fmtWon(v) + '원' };
+const CHANGE_ROWS = { target_roas: (v) => Math.round(v * 100) + '%', budget: (v) => fmtWon(v) + '원', traffic_slots: (v) => (v || 0) + '슬롯' };
 let shownMetrics = new Set(DEFAULT_METRICS);
-try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
+try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget') && saved.includes('traffic_slots')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
 function renderMetricPicker() {
   $('#metric-picker').innerHTML = METRICS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-m="${k}" ${shownMetrics.has(k) ? 'checked' : ''}> ${l}</label>`).join('') + `<button class="btn sm" id="metric-all">전체</button><button class="btn sm" id="metric-basic">기본</button>`;
   $$('#metric-picker input').forEach((i) => i.onchange = () => { if (i.checked) shownMetrics.add(i.dataset.m); else shownMetrics.delete(i.dataset.m); try { localStorage.setItem('cc-metrics', JSON.stringify([...shownMetrics])); } catch { /* 무시 */ } renderLedgerTable(); });
@@ -203,7 +204,7 @@ function renderMetricPicker() {
   $('#metric-basic').onclick = () => { shownMetrics = new Set(DEFAULT_METRICS); renderMetricPicker(); renderLedgerTable(); };
 }
 let ledgerCache = null;
-async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderLedgerTable(); }
+async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); }
 function renderLedgerTable() {
   const led = ledgerCache; if (!led) return;
   const hideEmpty = $('#lg-hide-empty').checked, showAction = $('#lg-action').checked;
@@ -246,12 +247,14 @@ function renderLedgerTable() {
     const rowCount = metrics.length + (showAction ? 1 : 0);
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
-      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
+      const trNow = i === 0 ? S.trafficStatus(DATA, name, led.end) : null;
+      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';
         if (!cell || (col.sum && mt.key === 'target_roas')) { h += `<td class="${cls}"></td>`; continue; }
         const v = cell[mt.key];
+        if (mt.key === 'traffic_slots') { const on = v > 0; let t = ''; if (col.date && on) { const p = prevOf(c, col.date); const pv = p ? (p.traffic_slots || 0) : 0; if (pv !== v) { cls += ' chg'; t = `전일 ${pv}슬롯 → ${v}슬롯`; } } h += `<td class="${cls} num ${on ? 'on' : ''}" ${t ? `title="${esc(t)}"` : ''}>${on ? v : ''}</td>`; continue; }
         if (isProfit) cls += v < 0 ? 'neg' : 'pos';
         if (col.date && cell.unmapped_qty > 0 && (mt.key === 'margin_total' || isProfit)) cls += ' flag';
         const blank = adsOnly.has(mt.key) && (col.date ? !cell.has_ads : !cell.spend && !cell.impressions);
@@ -270,6 +273,35 @@ function renderLedgerTable() {
   $('#lg-table').innerHTML = h + '</tbody>';
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
+  $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-panel').style.display = ''; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
+}
+
+/* ===== 트래픽 슬롯 설정 ===== */
+$('#tr-toggle').onclick = () => { const e = $('#tr-panel'); e.style.display = e.style.display === 'none' ? '' : 'none'; if (e.style.display !== 'none') renderTrafficPanel(); };
+$('#tr-add').onclick = async () => {
+  const camp = $('#tr-camp').value.trim(), start = $('#tr-start').value, end = $('#tr-end').value, slots = Number($('#tr-slots').value);
+  if (!camp || !start || !slots) { msg('#tr-msg', '캠페인 · 시작일 · 슬롯 수를 넣어 주세요', 'err'); return; }
+  if (end && end < start) { msg('#tr-msg', '종료일이 시작일보다 빠릅니다', 'err'); return; }
+  const d = await reload(); S.addTraffic(d, { campaign: camp, start, end, slots, memo: $('#tr-memo').value }); await S.save(d); await reload();
+  msg('#tr-msg', '추가됨', 'ok'); $('#tr-memo').value = ''; renderTrafficPanel(); ledgerCache = computeLedger(DATA, range.start, range.end); renderLedgerTable();
+};
+function renderTrafficPanel() {
+  const d = DATA; const list = [...(d.traffic || [])].sort((a, b) => (b.end ? 0 : 1) - (a.end ? 0 : 1) || b.start.localeCompare(a.start));
+  $('#camp-list-tr').innerHTML = S.campaigns(d).map((c) => `<option value="${esc(c)}">`).join('');
+  if (!$('#tr-start').value) $('#tr-start').value = localIso(yday);
+  const active = list.filter((t) => !t.end || t.end >= localIso(yday));
+  $('#tr-summary').textContent = active.length ? `진행 중 ${active.length}건 · ${active.reduce((a, t) => a + t.slots, 0)}슬롯` : '설정 없음';
+  const tb = $('#tr-table tbody'); tb.innerHTML = '';
+  for (const t of list) {
+    const tr = document.createElement('tr'); const ongoing = !t.end;
+    tr.innerHTML = `<td class="l">${esc(t.campaign)}</td><td class="l"><input type="date" data-k="start" value="${t.start}"></td><td class="l"><input type="date" data-k="end" value="${t.end}"> ${ongoing ? '<span class="pill traffic">진행 중</span>' : ''}</td><td><input type="number" data-k="slots" value="${t.slots}" class="tiny" min="1"></td><td class="l"><input type="text" data-k="memo" value="${esc(t.memo)}" style="width:180px"></td><td class="actions"><button class="btn primary sm">저장</button> ${ongoing ? '<button class="btn sm" data-stop>어제부로 종료</button>' : ''} <button class="btn danger sm">삭제</button></td>`;
+    const btns = tr.querySelectorAll('button'); const save = btns[0], del = btns[btns.length - 1], stop = tr.querySelector('[data-stop]');
+    const g = (k) => tr.querySelector(`[data-k=${k}]`).value;
+    save.onclick = async () => { const dd = await reload(); S.addTraffic(dd, { id: t.id, campaign: t.campaign, start: g('start'), end: g('end'), slots: Number(g('slots')), memo: g('memo') }); await S.save(dd); await reload(); renderTrafficPanel(); ledgerCache = computeLedger(DATA, range.start, range.end); renderLedgerTable(); msg('#tr-msg', '저장됨', 'ok'); };
+    if (stop) stop.onclick = async () => { const dd = await reload(); S.addTraffic(dd, { ...t, end: localIso(yday) }); await S.save(dd); await reload(); renderTrafficPanel(); ledgerCache = computeLedger(DATA, range.start, range.end); renderLedgerTable(); };
+    del.onclick = async () => { if (confirm('이 트래픽 설정을 삭제할까요?')) { const dd = await reload(); S.deleteTraffic(dd, t.id); await S.save(dd); await reload(); renderTrafficPanel(); ledgerCache = computeLedger(DATA, range.start, range.end); renderLedgerTable(); } };
+    tb.appendChild(tr);
+  }
 }
 // 위쪽 가로 스크롤바(아래 표와 동기화) + 렌더 후 가장 최근 날짜(오른쪽 끝)가 보이도록
 function syncLedgerScroll(toEnd) {

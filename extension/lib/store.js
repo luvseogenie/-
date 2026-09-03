@@ -4,7 +4,7 @@
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [] });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [] });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -126,4 +126,24 @@ export function expensesByDay(d, start, end) {
     for (let day = 1; day <= days; day++) { const iso = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`; if (iso >= start && iso <= end) out[iso] = (out[iso] || 0) + per; }
   }
   return out;
+}
+
+// ---- 트래픽 슬롯 (캠페인별 사용 기간과 슬롯 수, 수기 입력) ----
+export function addTraffic(d, { id = null, campaign, start, end = '', slots, memo = '' }) {
+  d.traffic ||= [];
+  const t = { id: id || 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), campaign: String(campaign || '').trim(), start, end: end || '', slots: Number(slots) || 0, memo: String(memo || '').trim() };
+  const i = d.traffic.findIndex((x) => x.id === t.id); if (i >= 0) d.traffic[i] = t; else d.traffic.push(t);
+  return t;
+}
+export function deleteTraffic(d, id) { d.traffic = (d.traffic || []).filter((x) => x.id !== id); }
+// 캠페인·날짜의 슬롯 수 (겹치면 합산)
+export function trafficSlots(d, campaign, date) {
+  let n = 0; for (const t of d.traffic || []) if (t.campaign === campaign && t.start && date >= t.start && (!t.end || date <= t.end)) n += t.slots;
+  return n;
+}
+// 캠페인별 현재(또는 지정일) 상태 요약: { slots, since }
+export function trafficStatus(d, campaign, date) {
+  const active = (d.traffic || []).filter((t) => t.campaign === campaign && t.start && date >= t.start && (!t.end || date <= t.end));
+  if (!active.length) return null;
+  return { slots: active.reduce((a, t) => a + t.slots, 0), since: active.map((t) => t.start).sort()[0], memo: active.map((t) => t.memo).filter(Boolean).join(' / ') };
 }

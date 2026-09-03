@@ -1,10 +1,10 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
 export const METRICS = [
-  ['target_roas', '목표효율', 'ratio'], ['roas', '광고수익률', 'ratio'], ['budget', '광고예산', 'won'],
+  ['target_roas', '목표효율', 'ratio'], ['budget', '광고예산', 'won'], ['traffic_slots', '트래픽 슬롯', 'int'], ['roas', '광고수익률', 'ratio'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
   ['ctr', '클릭률', 'pct2'], ['conversion', '전환율', 'pct1'],
   ['ad_orders', '광고 전환 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['returns_cancels', '반품·취소 수', 'int'], ['actual_qty', '실제 판매 수', 'int'],
@@ -16,7 +16,7 @@ export const METRICS = [
 const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'organic_qty', 'returns', 'cancels', 'returns_cancels', 'net_qty', 'organic_net', 'revenue', 'organic_revenue', 'margin_total', 'profit', 'visitors', 'views'];
 const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0, ad_revenue: 0, cpc: 0, impressions: 0, clicks: 0, ctr: 0,
   conversion: 0, ad_orders: 0, actual_qty: 0, organic_qty: 0, returns: 0, cancels: 0, returns_cancels: 0, net_qty: 0, organic_net: 0, has_returns: false, ad_share: 0, revenue: 0, organic_revenue: 0, visitors: 0, views: 0,
-  margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, has_revenue: false, unmapped_qty: 0 });
+  margin_total: 0, profit: 0, traffic_slots: 0, action: '', has_ads: false, has_sales: false, has_revenue: false, unmapped_qty: 0 });
 export function finalizeCell(c) {
   c.profit = c.margin_total - c.spend_vat;
   c.organic_qty = Math.max(0, c.actual_qty - c.ad_orders);
@@ -107,14 +107,18 @@ export function computeLedger(d, start, end) {
   for (const camp of sortCampaigns(order)) {
     const days = {}, months = {};
     for (const date of dates) {
-      const c = cells[camp]?.[date]; if (!c) continue;
+      let c = cells[camp]?.[date];
+      const slots = trafficSlots(d, camp, date);
+      if (!c && slots) { c = get(camp, date); }   // 데이터가 없는 날도 트래픽 표시는 유지
+      if (!c) continue;
+      c.traffic_slots = slots;
       finalizeCell(c); days[date] = c;
       total_profit[date] = (total_profit[date] || 0) + c.profit;
       const mk = date.slice(0, 7); month_profit[mk] = (month_profit[mk] || 0) + c.profit;
       const ma = (months[mk] ||= cell());
       for (const k of SUM) ma[k] += c[k];
     }
-    for (const ma of Object.values(months)) finalizeSum(ma);
+    for (const [mk, ma] of Object.entries(months)) { finalizeSum(ma); ma.traffic_slots = Math.max(0, ...Object.entries(days).filter(([dd]) => dd.startsWith(mk)).map(([, v]) => v.traffic_slots || 0)); }
     const total = cell(); for (const c of Object.values(days)) for (const k of SUM) total[k] += c[k];
     finalizeSum(total); total.days = Object.keys(days).length;
     result.push({ campaign: camp, days, months, total });

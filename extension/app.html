@@ -121,6 +121,20 @@
           <span class="sub">한 캠페인만 골라 보면 스크롤 없이 바로 볼 수 있습니다.</span>
         </div>
         <div class="row" style="margin-top:6px">
+          <b>트래픽 슬롯</b><span class="sub" id="tr-summary"></span>
+          <button class="btn sm" id="tr-toggle">트래픽 슬롯 설정</button>
+          <span class="sub">캠페인별로 어느 날부터 몇 슬롯을 쓰는지 적어 두면 장부에 표시됩니다.</span>
+        </div>
+        <div id="tr-panel" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:10px">
+          <div class="row">
+            <label class="sub">캠페인</label><input type="text" id="tr-camp" list="camp-list-tr" style="width:240px" placeholder="캠페인 이름"><datalist id="camp-list-tr"></datalist>
+            <label class="sub">시작일</label><input type="date" id="tr-start"><label class="sub">종료일</label><input type="date" id="tr-end"><span class="sub">(비우면 진행 중)</span>
+            <label class="sub">슬롯</label><input type="number" id="tr-slots" class="tiny" min="1" value="1"><input type="text" id="tr-memo" class="short" placeholder="메모(선택)">
+            <button class="btn primary sm" id="tr-add">추가</button><span id="tr-msg" class="msg"></span>
+          </div>
+          <div class="tablewrap" style="max-height:300px;margin-top:8px"><table id="tr-table"><thead><tr><th class="l">캠페인</th><th class="l">시작일</th><th class="l">종료일</th><th>슬롯</th><th class="l">메모</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+        <div class="row" style="margin-top:6px">
           <b>캠페인 표시</b><span class="sub" id="vis-summary"></span>
           <button class="btn sm" id="vis-toggle">캠페인 표시 설정</button>
           <label class="chk"><input type="checkbox" id="lg-show-hidden"> 숨긴 캠페인도 표시</label>
@@ -131,7 +145,7 @@
         </div>
         <div id="lg-warn"></div>
         <div class="pivot"><div class="topscroll" id="lg-topscroll"><div id="lg-topscroll-inner"></div></div><div class="tablewrap" id="lg-wrap"><table id="lg-table"></table></div></div>
-        <p class="sub" style="margin:8px 0 0">캠페인 순이익 = 판매 마진(Σ 판매량 × 그 날짜의 옵션 마진) − 집행 광고비 × 1.1. 맨 위 <b>전체 순이익</b> 은 여기서 광고 외 지출까지 뺀 진짜 순이익(지출이 있는 날은 마우스를 올리면 내역). 자연 판매 = 실제 판매 − 광고 전환 판매. 월 합계 열의 비율은 월 누계로 다시 계산. <span style="background:#fff1e6;border:2px solid #f6b26b;padding:0 4px">주황 칸</span> = 전날과 예산·목표효율이 달라진 날(마우스를 올리면 전일 값), 📝 = 그날 ACTION 메모(올리면 내용). 붉은 칸은 마진 미등록 옵션의 판매가 섞인 날.</p>
+        <p class="sub" style="margin:8px 0 0">캠페인 순이익 = 판매 마진(Σ 판매량 × 그 날짜의 옵션 마진) − 집행 광고비 × 1.1. 맨 위 <b>전체 순이익</b> 은 여기서 광고 외 지출까지 뺀 진짜 순이익(지출이 있는 날은 마우스를 올리면 내역). 자연 판매 = 실제 판매 − 광고 전환 판매. 월 합계 열의 비율은 월 누계로 다시 계산. <span style="background:#f1ecfb;padding:0 4px">보라 칸</span> = 트래픽 슬롯 사용 중(숫자 = 슬롯 수), <span style="background:#fff1e6;border:2px solid #f6b26b;padding:0 4px">주황 칸</span> = 전날과 예산·목표효율·슬롯이 달라진 날(마우스를 올리면 전일 값), 📝 = 그날 ACTION 메모(올리면 내용). 붉은 칸은 마진 미등록 옵션의 판매가 섞인 날.</p>
       </div>
     </section>
 
