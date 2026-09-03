@@ -455,6 +455,17 @@ def tools(name: str):
             msg = "윙 연결 정상입니다 (정확한 조회수 조회 가능)." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
             log.info(msg)
             return {"ok": True, "message": msg, "text": "\n".join(lines)}
+        if name in ("browser_msedge", "browser_chrome", "browser_whale"):
+            if job.is_running():
+                return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+            pick = name.split("_", 1)[1]
+            config.BROWSER_PREF_FILE.write_text(pick, encoding="utf-8")
+            try:
+                browser.call(lambda bt: bt.reset_profile_soft(), "브라우저 닫기", timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
+            label = {"msedge": "엣지", "chrome": "크롬", "whale": "웨일"}[pick]
+            return {"ok": True, "message": f"프로그램이 쓸 브라우저를 {label}로 정했습니다. 도구 › 브라우저 창 열기 를 누르면 {label}가 열립니다."}
         if name == "use_my_profile":
             if job.is_running():
                 return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")

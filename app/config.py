@@ -9,13 +9,16 @@ USE_MY_PROFILE_FLAG = DATA_DIR / "use-my-profile.txt"   # 있으면 평소 쓰�
 
 
 def my_browser_profile():
-    """평소 쓰는 브라우저(웨일→엣지→크롬)의 사용자 데이터 폴더를 찾는다."""
+    """선택한 브라우저(기본: 엣지→크롬→웨일)의 평소 사용자 데이터 폴더를 찾는다."""
     la = os.environ.get("LOCALAPPDATA", "")
-    for name, path in (("whale", os.path.join(la, "Naver", "Naver Whale", "User Data")),
-                       ("msedge", os.path.join(la, "Microsoft", "Edge", "User Data")),
-                       ("chrome", os.path.join(la, "Google", "Chrome", "User Data"))):
-        if la and os.path.isdir(path):
-            return name, Path(path)
+    paths = {"msedge": os.path.join(la, "Microsoft", "Edge", "User Data"),
+             "chrome": os.path.join(la, "Google", "Chrome", "User Data"),
+             "whale": os.path.join(la, "Naver", "Naver Whale", "User Data")}
+    pref = browser_pref()
+    order = ([pref] if pref in paths else []) + [k for k in ("msedge", "chrome", "whale") if k != pref]
+    for name in order:
+        if la and os.path.isdir(paths[name]):
+            return name, Path(paths[name])
     return None, None
 
 
@@ -54,6 +57,17 @@ DELAY_MIN = 1.5
 DELAY_MAX = 3.0
 BLOCK_COOLDOWN = 120
 BROWSER = os.environ.get("CS_BROWSER", "auto")   # auto | whale | msedge | chrome
+BROWSER_PREF_FILE = DATA_DIR / "browser.txt"      # 도구에서 고른 브라우저 (msedge/chrome/whale)
+
+
+def browser_pref() -> str:
+    try:
+        v = BROWSER_PREF_FILE.read_text(encoding="utf-8").strip().lower()
+        if v in ("msedge", "chrome", "whale"):
+            return v
+    except Exception:
+        pass
+    return BROWSER
 LIGHT_MODE = False           # 이미지·폰트 차단 (봇으로 보일 수 있어 기본 끔)
 REST_EVERY = 20              # 페이지 N개마다 잠깐 쉼
 REST_SECONDS = (20, 40)          # 차단 감지 시 쉬는 시간(초)

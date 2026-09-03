@@ -139,8 +139,8 @@ class BrowserThread(threading.Thread):
                        _os.path.join(pfx, "Google", "Chrome", "Application", "chrome.exe"),
                        _os.path.join(la, "Google", "Chrome", "Application", "chrome.exe")],
         }
-        pref = (config.BROWSER or "auto").lower()
-        order = [pref] + [k for k in ("whale", "msedge", "chrome") if k != pref] if pref in cands else ["whale", "msedge", "chrome"]
+        pref = (config.browser_pref() or "auto").lower()
+        order = [pref] + [k for k in ("msedge", "chrome", "whale") if k != pref] if pref in cands else ["msedge", "chrome", "whale"]
         out = []
         for name in order:
             for path in cands[name]:
@@ -236,18 +236,19 @@ class BrowserThread(threading.Thread):
 
     def _candidates(self):
         """설정(BROWSER)에 따라 시도 순서를 정한다. auto: 웨일 → 엣지 → 크롬 → 크로미움"""
-        pref = (config.BROWSER or "auto").lower()
+        pref = (config.browser_pref() or "auto").lower()
         whale = self._whale_path()
         order = []
         if pref == "whale" and whale:
             order.append(("whale", whale))
         elif pref in ("chrome", "msedge"):
             order.append(pref)
-        if whale and ("whale", whale) not in order:
-            order.append(("whale", whale))
-        for ch in ("msedge", "chrome", None):
+        for ch in ("msedge", "chrome"):
             if ch not in order:
                 order.append(ch)
+        if whale and ("whale", whale) not in order:
+            order.append(("whale", whale))
+        order.append(None)
         return order
 
     _STEALTH_JS = """
