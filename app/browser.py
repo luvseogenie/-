@@ -62,6 +62,7 @@ class BrowserThread(threading.Thread):
                 self.channel = channel or "chromium"
                 self._closed = False
                 self.context.on("close", self._on_close)
+                self._install_stealth()
                 if config.LIGHT_MODE:
                     self._install_lightweight_routes()
                 log.info(f"브라우저 창을 열었습니다 ({self.channel})")
@@ -69,6 +70,31 @@ class BrowserThread(threading.Thread):
             except Exception as e:  # noqa: BLE001
                 last = e
         raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
+
+    _STEALTH_JS = """
+(() => {
+  try {
+    // 자동 조작 흔적 줄이기: webdriver 표시 제거, 플러그인/언어/권한을 일반 크롬처럼
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    if (!navigator.plugins || navigator.plugins.length === 0) {
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    }
+    Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+    if (!window.chrome) { window.chrome = { runtime: {}, loadTimes: function () {}, csi: function () {} }; }
+    const origQuery = window.navigator.permissions && window.navigator.permissions.query;
+    if (origQuery) {
+      window.navigator.permissions.query = (p) => (p && p.name === 'notifications')
+        ? Promise.resolve({ state: Notification.permission }) : origQuery(p);
+    }
+  } catch (e) {}
+})();
+"""
+
+    def _install_stealth(self):
+        try:
+            self.context.add_init_script(self._STEALTH_JS)
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"위장 스크립트 설정 실패: {e}")
 
     _BLOCK_HOSTS = ("mercury.coupang.com", "ljc.coupang.com", "asset.coupang.com/ad", "ads.coupang.com",
                     "googletagmanager.com", "google-analytics.com", "doubleclick.net", "facebook.net", "criteo")
