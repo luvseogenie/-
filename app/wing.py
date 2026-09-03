@@ -254,7 +254,15 @@ def _fetch_json(page, url: str, method: str = "GET", body=None, headers=None):
     if body is not None:
         data = json.dumps(body, ensure_ascii=False)
         hdrs["content-type"] = "application/json"
-    r = page.evaluate(FETCH_JS, {"url": url, "method": method, "body": data, "headers": hdrs})
+    try:
+        r = page.evaluate(FETCH_JS, {"url": url, "method": method, "body": data, "headers": hdrs})
+    except Exception as e:  # noqa: BLE001
+        # 탭이 페이지를 넘기는 중이면 실행 문맥이 사라진다 → 잠깐 기다렸다 한 번 더
+        if "Execution context" in str(e) or "navigation" in str(e):
+            page.wait_for_timeout(1500)
+            r = page.evaluate(FETCH_JS, {"url": url, "method": method, "body": data, "headers": hdrs})
+        else:
+            raise
     if r.get("error"):
         raise RuntimeError(f"요청 실패: {r['error'][:120]}")
     if r["status"] == 401 or _is_login_url(r.get("url")):
