@@ -268,16 +268,25 @@ DETAIL_PRICE_JS = r"""
   const imgs = Array.from(scope.querySelectorAll('img')).filter(im => box ? true : topOnly(im));
   const alts = imgs.map(im => (im.getAttribute('alt') || '') + ' ' + (im.getAttribute('src') || '')).join(' ');
   const near = (box ? txt(scope) : txt(document.body)).slice(0, box ? 3000 : 1500);
+  // 글자(alt·본문)로만 판정한다. 그림 파일명은 다른 상품 뱃지가 섞여 있어 쓰지 않는다.
   const classify = (t) => {
-    if (/판매자\s*로켓|로켓그로스|rocket[_-]?growth|rocket[_-]?merchant|merchant/i.test(t)) return 'ROCKET_GROWTH';
-    if (/로켓직구|global/i.test(t)) return 'ROCKET_GLOBAL';
-    if (/로켓프레시|fresh/i.test(t)) return 'ROCKET_FRESH';
-    if (/로켓설치|install/i.test(t)) return 'ROCKET_INSTALL';
-    if (/로켓배송|로켓와우|rocket/i.test(t)) return 'ROCKET';
+    if (/판매자\s*로켓|로켓그로스/.test(t)) return 'ROCKET_GROWTH';
+    if (/로켓직구/.test(t)) return 'ROCKET_GLOBAL';
+    if (/로켓프레시/.test(t)) return 'ROCKET_FRESH';
+    if (/로켓설치/.test(t)) return 'ROCKET_INSTALL';
+    if (/로켓배송|로켓와우/.test(t)) return 'ROCKET';
     return null;
   };
-  delivery = classify(alts); if (delivery) deliveryHow = 'badge';
+  const altOnly = imgs.map(im => im.getAttribute('alt') || '').join(' ');
+  delivery = classify(altOnly); if (delivery) deliveryHow = 'badge';
   if (!delivery) { delivery = classify(near); if (delivery) deliveryHow = 'text'; }
+  // 페이지에 내장된 데이터(스크립트)에서 가격 읽기
+  const scriptPrices = {};
+  try {
+    const scripts = Array.from(document.querySelectorAll('script')).map(sc => sc.textContent || '').filter(t => /finalPrice|couponPrice|salePrice/.test(t));
+    const grab = (key) => { for (const t of scripts) { const m = t.match(new RegExp('\\"' + key + '\\"\\s*:\\s*\\"?([\\d,]+)')); if (m) return num(m[1]); } return null; };
+    scriptPrices.final = grab('finalPrice'); scriptPrices.coupon = grab('couponPrice'); scriptPrices.sale = grab('salePrice'); scriptPrices.origin = grab('originPrice');
+  } catch (e) {}
   if (!delivery) {
     // 판매자 정보에 "쿠팡" 이면 로켓배송(직매입), 그 외엔 판매자배송
     if (/판매자\s*[:：]?\s*쿠팡\b/.test(body) || /쿠팡\s*주식회사/.test(near)) { delivery = 'ROCKET'; deliveryHow = 'seller'; }
@@ -293,7 +302,7 @@ DETAIL_PRICE_JS = r"""
   if (bm) buyers = num(bm[1]);
   const buyersText = (body.match(/[^.]{0,20}[\d,]+\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
   return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText,
-    delivery, delivery_how: deliveryHow, title: document.title };
+    delivery, delivery_how: deliveryHow, script_prices: scriptPrices, title: document.title };
 }
 """
 
@@ -533,41 +542,70 @@ def _ensure_coupang(page):
         pass
 
 
-def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
-    """실제 판매가와 '월 구매 N명 이상' 문구를 읽는다.
+def _fetch_price_api(page, product_id, item_id, vendor_item_id, out):
+    """쿠팡 가격 API: 쿠폰·와우 할인까지 적용된 최종가."""
+    if not vendor_item_id:
+        return
+    url = QUANTITY_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or "")
+    r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
+                                                                         "x-requested-with": "XMLHttpRequest"}})
+    ctype = (r.get("ctype") or "")
+    if r.get("status") != 200 or "json" not in ctype:
+        log.warn(f"가격 API 응답 이상 {product_id}: HTTP {r.get('status')} {ctype[:30]} {(r.get('text') or '')[:80]!r}")
+        return
+    data = json.loads(r["text"])
+    first = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
+    price = (first or {}).get("price") or {}
+    final = _num(price.get("finalPrice")) or _num(price.get("couponPrice")) or _num(price.get("salePrice"))
+    if not final:
+        log.warn(f"가격 API 에 가격이 없음 {product_id}: {str(price)[:120]}")
+        return
+    out["price"] = final
+    out["origin_price"] = _num(price.get("originPrice"))
+    out["coupon"] = bool(price.get("hasNormalCouponDiscount") or price.get("hasWowCouponDiscount"))
+    out["source"] = "api"
+    for pl in (first or {}).get("priceList") or []:
+        if (pl or {}).get("type") == "SALES":
+            out["price_sale"] = _num(pl.get("priceAmount"))
+            break
+    if not out.get("price_sale"):
+        out["price_sale"] = _num(price.get("salePrice"))
 
-    1) 가격: 쿠팡 공개 가격 API (quantity-info) - 빠르고 정확
-    2) 구매자 문구: 상품 페이지 HTML 을 받아 찾고, 없으면 화면을 직접 열어 한 번 더 찾는다
+
+def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
+    """판매자 정보 API: 쿠팡 직매입 여부, 판매자로켓(goldFish) 여부."""
+    if not vendor_item_id:
+        return None
+    r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
+                                 "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
+                                                              "x-requested-with": "XMLHttpRequest"}})
+    if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
+        log.warn(f"판매자 API 응답 이상 {product_id}: HTTP {r.get('status')}")
+        return None
+    btf = json.loads(r["text"]) or {}
+    rp = btf.get("returnPolicyVo") or {}
+    seller = rp.get("sellerDetailInfo")
+    notice = rp.get("vendorItemDeliveryNotice") or {}
+    out["rocket_fresh"] = bool(notice.get("rocketFresh"))
+    out["rocket_install"] = bool(notice.get("rocketInstall"))
+    out["delivery_charge_text"] = (notice.get("deliveryCharge") or "")[:120]
+    out["btf_ok"] = True
+    if not seller:
+        return {}            # 판매자 정보가 아예 없음 = 쿠팡 직매입(로켓배송)
+    out["seller_name"] = seller.get("vendorName")
+    out["seller_retail"] = bool(seller.get("retail"))
+    out["seller_goldfish"] = bool(seller.get("goldFish"))
+    out["seller_3pm"] = bool(seller.get("threePM"))
+    out["seller_3pc"] = bool(seller.get("threePC"))
+    return seller
+
+
+def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
+    """실제 판매가(쿠폰·와우 적용 최종가), '월 N명 이상 구매', 배송 형태를 읽는다.
+
+    상품 페이지를 실제로 연 뒤, 그 페이지 안에서 쿠팡의 가격 API 와 판매자 API 를 호출한다.
     """
     out = {"price": None, "buyers_min": None, "coupon": False, "sold_out": False, "sellers": None, "source": ""}
-    _ensure_coupang(page)
-    # 1) 가격
-    if vendor_item_id:
-        try:
-            url = QUANTITY_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or "")
-            r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json"}})
-            if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
-                data = json.loads(r["text"])
-                first = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
-                price = (first or {}).get("price") or {}
-                # finalPrice = 쿠폰·와우 즉시할인까지 모두 적용된 최종가, couponPrice = 쿠폰 적용가, salePrice = 판매가
-                final = _num(price.get("finalPrice")) or _num(price.get("couponPrice")) or _num(price.get("salePrice"))
-                if final:
-                    out["price"] = final
-                    out["origin_price"] = _num(price.get("originPrice"))
-                    out["coupon"] = bool(price.get("hasNormalCouponDiscount") or price.get("hasWowCouponDiscount"))
-                    out["wow_only"] = bool(price.get("hasWowInstantDiscount") or price.get("wowCouponDiscount"))
-                    out["source"] = "api"
-                    # 일반(비회원·쿠폰 전) 판매가: priceList 의 SALES 항목
-                    for pl in (first or {}).get("priceList") or []:
-                        if (pl or {}).get("type") == "SALES":
-                            out["price_sale"] = _num(pl.get("priceAmount"))
-                            break
-                    if not out.get("price_sale"):
-                        out["price_sale"] = _num(price.get("salePrice"))
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"가격 API 실패 {product_id}: {e}")
-    # 2) 구매자 문구: 상품 페이지를 실제로 열어 읽는다 (HTML 을 몰래 받아오면 쿠팡이 막는다)
     url = config.PRODUCT_URL.format(pid=product_id)
     params = []
     if item_id:
@@ -586,55 +624,56 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     out["sellers"] = data.get("sellers")
     out["delivery"] = data.get("delivery")
     out["delivery_how"] = data.get("delivery_how")
-    out["sold_out"] = out["sold_out"] or bool(data.get("sold_out"))
-    # 판매자 정보로 로켓배송(쿠팡 직매입)과 판매자로켓(로켓그로스)을 확실히 가른다
-    seller = None
-    if vendor_item_id:
-        try:
-            r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
-                                         "method": "GET", "headers": {"accept": "application/json"}})
-            if r.get("status") == 200 and "json" in (r.get("ctype") or ""):
-                btf = json.loads(r["text"])
-                rp = (btf or {}).get("returnPolicyVo") or {}
-                seller = rp.get("sellerDetailInfo") or {}
-                notice = rp.get("vendorItemDeliveryNotice") or {}
-                out["seller_name"] = seller.get("vendorName")
-                out["seller_retail"] = bool(seller.get("retail"))
-                out["seller_goldfish"] = bool(seller.get("goldFish"))
-                out["seller_3pm"] = bool(seller.get("threePM"))
-                out["seller_3pc"] = bool(seller.get("threePC"))
-                out["rocket_fresh"] = bool(notice.get("rocketFresh"))
-                out["rocket_install"] = bool(notice.get("rocketInstall"))
-                out["delivery_charge_text"] = (notice.get("deliveryCharge") or "")[:120]
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
-    d = out.get("delivery") or "WING"
-    if seller is not None and seller:
-        name = (out.get("seller_name") or "")
-        coupang_seller = out.get("seller_retail") or re.search(r"쿠팡", name) is not None
-        charge = out.get("delivery_charge_text") or ""
-        rocket_in_notice = "로켓" in charge
-        if out.get("rocket_fresh"):
-            out["delivery"] = "ROCKET_FRESH"
-        elif d == "ROCKET_GLOBAL":
-            out["delivery"] = "ROCKET_GLOBAL"
-        elif coupang_seller:
-            out["delivery"] = "ROCKET"                       # 쿠팡 직매입 = 로켓배송
-        elif out.get("seller_goldfish") or out.get("seller_3pc"):
-            out["delivery"] = "ROCKET_GROWTH"                # 판매자 상품을 쿠팡 물류로 = 판매자로켓(로켓그로스)
-        elif out.get("seller_3pm"):
-            out["delivery"] = "WING"                         # 판매자 직접 배송
-        elif rocket_in_notice or d.startswith("ROCKET"):
-            out["delivery"] = "ROCKET_GROWTH"
-        else:
-            out["delivery"] = "WING"
-        out["delivery_how"] = "seller"
-        out["seller_flags"] = "retail" if out.get("seller_retail") else ("goldFish" if out.get("seller_goldfish") else ("3PC" if out.get("seller_3pc") else ("3PM" if out.get("seller_3pm") else "-")))
+    out["sold_out"] = bool(data.get("sold_out"))
+    # 1) 가격: API → 페이지 내장 데이터 → 화면 요소
+    try:
+        _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"가격 API 실패 {product_id}: {e}")
+    if out["price"] is None:
+        sp = data.get("script_prices") or {}
+        final = sp.get("final") or sp.get("coupon") or sp.get("sale")
+        if final:
+            out["price"] = final
+            out["price_sale"] = sp.get("sale")
+            out["origin_price"] = sp.get("origin")
+            out["source"] = "script"
     if out["price"] is None:
         for c in data.get("candidates", []):
             out["price"] = c["value"]
             out["source"] = "page"
             break
+    # 2) 배송: 판매자 정보 기준
+    seller = None
+    try:
+        seller = _fetch_seller(page, product_id, item_id, vendor_item_id, out)
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
+    d = out.get("delivery") or "WING"
+    if out.get("btf_ok"):
+        name = (out.get("seller_name") or "")
+        coupang_seller = (seller == {}) or out.get("seller_retail") or (re.search(r"쿠팡", name) is not None)
+        charge = out.get("delivery_charge_text") or ""
+        if out.get("rocket_fresh"):
+            out["delivery"] = "ROCKET_FRESH"
+        elif d == "ROCKET_GLOBAL" and out.get("delivery_how") in ("badge", "text"):
+            out["delivery"] = "ROCKET_GLOBAL"
+        elif coupang_seller:
+            out["delivery"] = "ROCKET"
+        elif out.get("seller_goldfish") or out.get("seller_3pc"):
+            out["delivery"] = "ROCKET_GROWTH"
+        elif out.get("seller_3pm"):
+            out["delivery"] = "WING"
+        elif "로켓" in charge or d.startswith("ROCKET"):
+            out["delivery"] = "ROCKET_GROWTH"
+        else:
+            out["delivery"] = "WING"
+        out["delivery_how"] = "seller"
+        if seller == {}:
+            out["seller_name"] = "쿠팡"
+            out["seller_flags"] = "직매입"
+        else:
+            out["seller_flags"] = "retail" if out.get("seller_retail") else ("goldFish" if out.get("seller_goldfish") else ("3PC" if out.get("seller_3pc") else ("3PM" if out.get("seller_3pm") else "-")))
     if out["price"] is None and out["buyers_min"] is None and _debug_budget["left"] > 0:
         _debug_budget["left"] -= 1
         _dump_debug(page, f"detail_{product_id}")
