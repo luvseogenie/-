@@ -58,18 +58,19 @@ class BrowserThread(threading.Thread):
             self.pw = sync_playwright().start()
             log.info(f"브라우저 구동: {self.driver}")
         last = None
-        for channel in ("chrome", "msedge", None):
+        for channel in self._candidates():
             try:
-                self.context = self.pw.chromium.launch_persistent_context(
-                    str(config.PROFILE_DIR),
-                    headless=False,
-                    channel=channel,
-                    viewport=None,
-                    locale="ko-KR",
-                    args=["--disable-blink-features=AutomationControlled", "--start-maximized", "--lang=ko-KR"],
-                    ignore_default_args=["--enable-automation"],
-                )
-                self.channel = channel or "chromium"
+                kwargs = dict(headless=False, viewport=None, locale="ko-KR",
+                              args=["--disable-blink-features=AutomationControlled", "--start-maximized", "--lang=ko-KR"],
+                              ignore_default_args=["--enable-automation"])
+                if isinstance(channel, tuple):          # (이름, 실행파일 경로)
+                    kwargs["executable_path"] = channel[1]
+                    label = channel[0]
+                else:
+                    kwargs["channel"] = channel
+                    label = channel or "chromium"
+                self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
+                self.channel = label
                 self._closed = False
                 self.context.on("close", self._on_close)
                 self._install_stealth()
@@ -88,13 +89,19 @@ class BrowserThread(threading.Thread):
             from playwright.sync_api import sync_playwright as _sp
             self.pw = _sp().start()
             self.driver = "playwright"
-            for channel in ("chrome", "msedge", None):
+            for channel in self._candidates():
                 try:
-                    self.context = self.pw.chromium.launch_persistent_context(
-                        str(config.PROFILE_DIR), headless=False, channel=channel, viewport=None, locale="ko-KR",
-                        args=["--disable-blink-features=AutomationControlled", "--start-maximized", "--lang=ko-KR"],
-                        ignore_default_args=["--enable-automation"])
-                    self.channel = channel or "chromium"
+                    kwargs = dict(headless=False, viewport=None, locale="ko-KR",
+                                  args=["--disable-blink-features=AutomationControlled", "--start-maximized", "--lang=ko-KR"],
+                                  ignore_default_args=["--enable-automation"])
+                    if isinstance(channel, tuple):
+                        kwargs["executable_path"] = channel[1]
+                        label = channel[0]
+                    else:
+                        kwargs["channel"] = channel
+                        label = channel or "chromium"
+                    self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
+                    self.channel = label
                     self._closed = False
                     self.context.on("close", self._on_close)
                     self._install_stealth()
@@ -103,6 +110,32 @@ class BrowserThread(threading.Thread):
                 except Exception as e:  # noqa: BLE001
                     last = e
         raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
+
+    @staticmethod
+    def _whale_path():
+        import os as _os
+        for p in (_os.path.join(_os.environ.get("LOCALAPPDATA", ""), "Naver", "Naver Whale", "Application", "whale.exe"),
+                  _os.path.join(_os.environ.get("PROGRAMFILES", ""), "Naver", "Naver Whale", "Application", "whale.exe"),
+                  _os.path.join(_os.environ.get("PROGRAMFILES(X86)", ""), "Naver", "Naver Whale", "Application", "whale.exe")):
+            if p and _os.path.exists(p):
+                return p
+        return None
+
+    def _candidates(self):
+        """설정(BROWSER)에 따라 시도 순서를 정한다. auto: 웨일 → 엣지 → 크롬 → 크로미움"""
+        pref = (config.BROWSER or "auto").lower()
+        whale = self._whale_path()
+        order = []
+        if pref == "whale" and whale:
+            order.append(("whale", whale))
+        elif pref in ("chrome", "msedge"):
+            order.append(pref)
+        if whale and ("whale", whale) not in order:
+            order.append(("whale", whale))
+        for ch in ("msedge", "chrome", None):
+            if ch not in order:
+                order.append(ch)
+        return order
 
     _STEALTH_JS = """
 (() => {
@@ -145,6 +178,28 @@ class BrowserThread(threading.Thread):
         self._closed = True
         self.context = None
         log.warn("브라우저 창이 닫혔습니다. 다음 작업 때 다시 엽니다.")
+
+    def reset_profile(self):
+        """브라우저를 닫고 저장 데이터(쿠키·캐시·로그인)를 통째로 새로 만든다."""
+        import shutil, time as _t
+        try:
+            if self.context is not None and not self._closed:
+                self.context.close()
+        except Exception:  # noqa: BLE001
+            pass
+        self.context = None
+        self._closed = True
+        _t.sleep(1.0)
+        old = config.PROFILE_DIR
+        bak = old.parent / f"browser-profile-old-{int(_t.time())}"
+        try:
+            if old.exists():
+                old.rename(bak)
+        except Exception:  # noqa: BLE001
+            shutil.rmtree(old, ignore_errors=True)
+        old.mkdir(parents=True, exist_ok=True)
+        log.info("브라우저 저장 데이터를 초기화했습니다 (윙 로그인 다시 필요)")
+        return True
 
     def page(self):
         ctx = self.ensure_context()

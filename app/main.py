@@ -455,6 +455,12 @@ def tools(name: str):
             msg = "윙 연결 정상입니다 (정확한 조회수 조회 가능)." if ok else "윙 조회가 되지 않습니다. 결과 창 내용을 보내주세요."
             log.info(msg)
             return {"ok": True, "message": msg, "text": "\n".join(lines)}
+        if name == "reset_profile":
+            if job.is_running():
+                return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+            browser.call(lambda bt: bt.reset_profile(), "브라우저 초기화", timeout=60)
+            browser.call(lambda bt: bt.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000), "브라우저 열기", timeout=90)
+            return {"ok": True, "message": f"브라우저 저장 데이터를 새로 만들고 다시 열었습니다 ({browser.channel}). 윙은 다시 로그인해야 합니다: 도구 › 윙 로그인 창 열기"}
         if name == "unblock":
             if job.is_running():
                 return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")

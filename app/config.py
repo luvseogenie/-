@@ -33,6 +33,7 @@ SEARCH_LIST_SIZE = 72        # 검색 페이지는 최대 72개
 DELAY_MIN = 1.5
 DELAY_MAX = 3.0
 BLOCK_COOLDOWN = 120
+BROWSER = os.environ.get("CS_BROWSER", "auto")   # auto | whale | msedge | chrome
 LIGHT_MODE = False           # 이미지·폰트 차단 (봇으로 보일 수 있어 기본 끔)
 REST_EVERY = 20              # 페이지 N개마다 잠깐 쉼
 REST_SECONDS = (20, 40)          # 차단 감지 시 쉬는 시간(초)
