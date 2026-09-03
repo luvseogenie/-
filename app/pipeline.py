@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, reset_debug_budget
+from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_quick_price, reset_debug_budget
 from .metrics import restricted_reason
 
 
@@ -153,6 +153,7 @@ class JobController:
             db.set_setting(f"seen_total_{run_id}", seen_total)
             db.set_run_status(run_id, "collected")
             log.info(f"수집 완료: 상품 {seen_total}개 훑음")
+            self._quick_prices(bt, run_id, cond)
             if cond.get("auto_continue") and wing.is_configured():
                 self._analyze(bt, run_id, cond)
             elif cond.get("auto_continue"):
@@ -167,6 +168,56 @@ class JobController:
             self.message = f"오류: {e}"
             log.error(f"수집 오류: {e}")
             self._finish()
+
+    def _quick_prices(self, bt, run_id, cond):
+        """수집 직후, 목록 가격이 조건 근처인 상품의 쿠폰 적용 최종가를 API 로 받아 온다 (페이지 안 열음)."""
+        pmin = int(cond.get("price_min") or 0)
+        pmax = int(cond.get("price_max") or 0)
+        targets = []
+        for p in db.products(run_id):
+            if p.get("verified_price") or not p.get("vendor_item_id"):
+                continue
+            if cond.get("exclude_restricted") and p.get("restricted"):
+                continue
+            if cond.get("hide_ads") and p.get("is_ad"):
+                continue
+            lp = p.get("price") or 0
+            if pmin and lp < pmin:          # 쿠폰은 가격을 내릴 뿐이므로 하한 미달은 그대로 제외
+                continue
+            if pmax and lp > pmax * 1.6:    # 상한의 1.6배를 넘으면 쿠폰으로도 못 들어온다고 본다
+                continue
+            targets.append(p)
+        if not targets:
+            return
+        self._set("collecting", "쿠폰 적용가 확인 중", len(targets))
+        log.info(f"쿠폰 적용가 확인: {len(targets)}개 (페이지 열지 않고 가격 API 만)")
+        fails = 0
+        moved_in = 0
+        for p in targets:
+            self._check()
+            self.progress["label"] = (p.get("name") or "")[:38]
+            try:
+                r = fetch_quick_price(bt.page(), p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
+                if r.get("price"):
+                    db.save_quick_price(run_id, p["product_id"], r["price"], r.get("price_sale"), r.get("origin_price"))
+                    if pmax and (p.get("price") or 0) > pmax >= r["price"]:
+                        moved_in += 1
+                        log.info(f"쿠폰가로 조건 진입: {(p.get('name') or '')[:30]} 목록 {p.get('price'):,}원 → 최종 {r['price']:,}원")
+                    fails = 0
+                else:
+                    fails += 1
+            except BlockedError:
+                log.warn("가격 API 가 막혀 쿠폰 적용가 확인을 건너뜁니다. 목록 가격으로 판정합니다")
+                break
+            except Exception as e:  # noqa: BLE001
+                fails += 1
+                log.warn(f"쿠폰 적용가 확인 실패 {p['product_id']}: {e}")
+            if fails >= 10:
+                log.warn("가격 API 실패가 계속되어 쿠폰 적용가 확인을 중단합니다. 목록 가격으로 판정합니다")
+                break
+            self.progress["done"] += 1
+            human_delay(0.4, 1.0)
+        log.info(f"쿠폰 적용가 확인 완료 · 쿠폰가로 새로 조건에 들어온 상품 {moved_in}개")
 
     def _with_retry(self, fn, tries=3):
         for attempt in range(1, tries + 1):

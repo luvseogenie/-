@@ -51,7 +51,7 @@ def enrich(p: dict, cond: dict) -> dict:
     price = p.get("verified_price") or p.get("wing_price") or p.get("price") or 0
     if p.get("verified_price"):
         ps = p.get("price_sale")
-        src = "쿠폰·할인 적용 최종가" + (f" · 일반 {ps:,}원" if ps and ps != p.get("verified_price") else "")
+        src = ("쿠폰·할인 적용 최종가" if p.get("verified_at") else "쿠폰 적용가") + (f" · 일반 {ps:,}원" if ps and ps != p.get("verified_price") else "")
     elif p.get("wing_price"):
         src = "Wing 수집가"
     else:

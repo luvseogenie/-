@@ -456,6 +456,7 @@
     if (el.dataset.action === 'diag') return runDiag();
     if (el.dataset.action === 'diag_site') return runDiagSite();
     if (el.dataset.action === 'update') return runUpdate();
+    if (el.dataset.action === 'quick_prices') { await api('/api/run/quick_prices', {}); toast('쿠폰 적용가를 확인합니다 (페이지는 열지 않습니다).'); await refreshAll(); return; }
     const tool = el.dataset.tool;
     if (tool === 'clear_run' && !confirm('현재 결과를 모두 비울까요? (보관함은 유지됩니다)')) return;
     toast('실행 중…');

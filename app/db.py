@@ -298,7 +298,8 @@ def pending_products(run_id, include_excluded: bool, cond: dict):
 
 
 def price_review_ok(p: dict, cond: dict) -> bool:
-    price = p.get("price") or 0
+    # 쿠폰·할인 적용 최종가를 알면 그걸로, 모르면 목록 가격으로 판정
+    price = p.get("verified_price") or p.get("price") or 0
     reviews = p.get("review_count") or 0
     if cond.get("price_min") and price < cond["price_min"]:
         return False
@@ -349,6 +350,16 @@ def save_verified_price(run_id, product_id, price: int | None, buyers_min: int |
                  coupon_flag=CASE WHEN ? IS NOT NULL THEN 0 ELSE coupon_flag END
                  WHERE run_id=? AND product_id=?""",
               (price, now(), buyers_min, sellers, price_sale, price_origin, price, run_id, product_id))
+    c.commit()
+
+
+def save_quick_price(run_id, product_id, price: int | None, price_sale: int | None = None, price_origin: int | None = None):
+    """가격 API 로 얻은 쿠폰 적용가. 상세 확인(구매자·배송)은 아직이므로 verified_at 은 건드리지 않는다."""
+    if not price:
+        return
+    c = conn()
+    c.execute("""UPDATE products SET verified_price=?, price_sale=COALESCE(?, price_sale), price_origin=COALESCE(?, price_origin),
+                 coupon_flag=0 WHERE run_id=? AND product_id=?""", (price, price_sale, price_origin, run_id, product_id))
     c.commit()
 
 

@@ -168,6 +168,28 @@ async def run_analyze(req: Request):
         return _err(e)
 
 
+@app.post("/api/run/quick_prices")
+def run_quick_prices():
+    try:
+        run_id = _current_run_id()
+        with job.lock:
+            if job.is_running():
+                return _err("이미 작업이 진행 중입니다.")
+            cond = db.get_conditions()
+            job.run_id = run_id
+            job._set("collecting", "쿠폰 적용가 확인 준비")
+
+            def task(bt):
+                try:
+                    job._quick_prices(bt, run_id, cond)
+                finally:
+                    job._finish()
+            job.future = browser.submit(task, "쿠폰 적용가 확인")
+        return {"ok": True}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
 @app.post("/api/run/pause")
 def run_pause():
     job.pause()

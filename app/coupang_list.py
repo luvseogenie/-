@@ -601,6 +601,14 @@ def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
     return seller
 
 
+def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
+    """상품 페이지를 열지 않고 가격 API 만 호출해 쿠폰 적용 최종가를 얻는다 (쿠팡 탭 안에서)."""
+    out = {"price": None, "source": ""}
+    _ensure_coupang(page)
+    _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
+    return out
+
+
 def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
     """실제 판매가(쿠폰·와우 적용 최종가), '월 N명 이상 구매', 배송 형태를 읽는다.
 
