@@ -283,7 +283,7 @@
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
       let salesCell;
       if (r.sales_est !== null && r.sales_est !== undefined) {
-        salesCell = `<b class="green">≈ ${fmt(r.sales_est)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}개×${r.review_multiplier} · 일 ${fmt(Math.round(r.sales_est / 28))}개${r.buyers_min ? ` · 확인 ${fmt(r.buyers_min)}명+` : ''}</div>`;
+        salesCell = `<b class="green">≈ ${fmt(r.sales_est)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}×${r.review_multiplier} · 일 ${fmt(Math.round(r.sales_est / 28))}${r.buyers_min ? ` · 확인 ${fmt(r.buyers_min)}+` : ''}</div>`;
       } else if (r.buyers_min) {
         salesCell = `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">월 구매자 최소${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합` : ''}</div>`;
       } else {
