@@ -212,3 +212,16 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(Object.keys(S.expensesByDay(d, '2025-07-01', '2025-07-31')), []);
   console.log('expenses: all checks passed');
 }
+
+// 반품·취소·순 판매
+{
+  const rows = normalizeSales([{ '옵션ID': '1', '옵션명': 'a', '매출': '10,000', '판매량': '10', '반품 수량': '2', '취소 수량': '1' }, { '옵션ID': '2', '옵션명': 'b', '매출': '5,000', '판매량': '5' }], '2025-06-08');
+  assert.equal(rows[0].returns, 2); assert.equal(rows[0].cancels, 1); assert.equal(rows[1].returns, 0); assert.equal(rows[0].quantity, 10);
+  const none = normalizeSales([{ '옵션ID': '3', '판매량': '4', '매출': '1' }], '2025-06-08'); assert.equal(none[0].returns, null);
+  await S.replaceAll({}); const d = await S.load();
+  S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.upsertOption(d, { option_id: '2', product_name: 'b', campaign: 'C' }); S.setMargin(d, '1', 1000); S.setMargin(d, '2', 1000);
+  S.upsertSales(d, rows); S.upsertAds(d, [{ date: '2025-06-08', campaign: 'C', target_roas: 3, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 4, action: '' }]); await S.save(d);
+  const c = computeLedger(d, '2025-06-08', '2025-06-08').campaigns[0].days['2025-06-08'];
+  assert.equal(c.actual_qty, 15); assert.equal(c.returns, 2); assert.equal(c.cancels, 1); assert.equal(c.returns_cancels, 3); assert.equal(c.net_qty, 12); assert.equal(c.organic_qty, 11); assert.equal(c.organic_net, 8);
+  console.log('returns/cancels: all checks passed');
+}

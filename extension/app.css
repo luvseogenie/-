@@ -135,3 +135,6 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 #options-table tr.grp input[data-gk=campaign] { width: 220px; }
 #options-table tr.grp input[data-gk=margin] { width: 110px; }
 #options-table tr.grp .row { flex-wrap: nowrap; }
+.pivot table { width: max-content; min-width: 0; }
+.pivot td.camp, .pivot th.camp { min-width: 150px; max-width: 190px; }
+.pivot td.lbl, .pivot th.lbl { left: 170px; }

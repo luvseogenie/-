@@ -92,7 +92,7 @@ async function renderDash() {
     { k: '자연 매출 (광고 외)', v: fmtWon(g.organic_revenue) + '원', d: `매출의 ${Math.round(organicShare * 100)}% · ${delta(organicShare, prevOrganicShare, true)}`, color: '#1baf7a' },
     { k: '광고비 (부가세 포함)', v: fmtWon(g.spend_vat) + '원', d: delta(g.spend_vat, pg.spend_vat), color: '#eb6834' },
     { k: '광고수익률 (ROAS)', v: Math.round(g.roas * 100) + '%', d: delta(g.roas, pg.roas, true), color: '#2a78d6' },
-    { k: '판매 마진', v: fmtWon(g.margin_total) + '원', d: `판매 ${fmtInt(g.actual_qty)}개 · 광고 ${fmtInt(g.ad_orders)} / 자연 ${fmtInt(g.organic_qty)}`, color: '#4a3aa7' },
+    { k: '판매 마진', v: fmtWon(g.margin_total) + '원', d: `판매 ${fmtInt(g.actual_qty)}개 · 광고 ${fmtInt(g.ad_orders)} / 자연 ${fmtInt(g.organic_qty)}` + (g.returns_cancels ? ` · 반품·취소 ${fmtInt(g.returns_cancels)} → 순 ${fmtInt(g.net_qty)}` : ''), color: '#4a3aa7' },
   ];
   $('#kpis').innerHTML = kpis.map((x) => `<div class="kpi"><div class="k"><span class="dot" style="background:${x.color}"></span>${x.k}</div><div class="v num ${x.bad ? 'bad' : ''}">${x.v}</div><div class="d">${x.d}</div></div>`).join('');
 
@@ -110,7 +110,7 @@ async function renderDash() {
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
   const hideZero = $('#camp-hide-zero').checked;
-  const cols = [['campaign', '캠페인', 'l'], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
+  const cols = [['campaign', '캠페인', 'l'], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['returns_cancels', '반품·취소', 'int'], ['organic_net', '자연(순)', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
   let rows = led.campaigns.map((c) => { const t = { ...c.total, campaign: c.campaign, days: c.days }; const lastDay = Object.keys(c.days).sort().pop(); t.target_roas = lastDay ? c.days[lastDay].target_roas : 0; return t; }).filter((t) => t.days && Object.keys(t.days).length);
   if (hideZero) rows = rows.filter((t) => t.spend_vat > 0 || t.ad_orders > 0);
   const hiddenN = rows.filter((t) => visOf(t.campaign) === 'hidden').length;
@@ -129,7 +129,7 @@ function renderCampTable(led) {
     }).join('') + '</tr>';
   }
   const g = led.grand;
-  h += `</tbody><tfoot><tr><td class="l">합계</td><td class="num">${fmtWon(g.spend_vat)}</td><td class="num">${fmtWon(g.ad_revenue)}</td><td class="num">${fmt.ratio(g.roas)}</td><td></td><td class="num">${fmtInt(g.ad_orders)}</td><td class="num">${fmtInt(g.organic_qty)}</td><td class="num">${fmtWon(g.revenue)}</td><td class="num">${fmtWon(g.margin_total)}</td><td class="num ${g.profit < 0 ? 'neg' : 'pos'}">${fmtWon(g.profit)}</td><td></td></tr></tfoot>`;
+  h += `</tbody><tfoot><tr><td class="l">합계</td><td class="num">${fmtWon(g.spend_vat)}</td><td class="num">${fmtWon(g.ad_revenue)}</td><td class="num">${fmt.ratio(g.roas)}</td><td></td><td class="num">${fmtInt(g.ad_orders)}</td><td class="num">${fmtInt(g.organic_qty)}</td><td class="num">${fmtInt(g.returns_cancels)}</td><td class="num">${fmtInt(g.organic_net)}</td><td class="num">${fmtWon(g.revenue)}</td><td class="num">${fmtWon(g.margin_total)}</td><td class="num ${g.profit < 0 ? 'neg' : 'pos'}">${fmtWon(g.profit)}</td><td></td></tr></tfoot>`;
   $('#camp-table').innerHTML = h;
   $$('#camp-table th.sort').forEach((th) => th.onclick = () => { const k = th.dataset.k; campSort = { key: k, dir: campSort.key === k && campSort.dir === 'desc' ? 'asc' : 'desc' }; renderCampTable(led); });
   $$('#camp-table td.link').forEach((td) => td.onclick = () => openCampaign(td.dataset.camp, led));
@@ -191,7 +191,7 @@ function stepCamp(n) { const sel = $('#lg-camp'); const i = sel.selectedIndex + 
 $('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = () => stepCamp(1);
 
 /* ===== 광고 장부 (피벗) ===== */
-const DEFAULT_METRICS = ['target_roas', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'actual_qty', 'organic_qty', 'margin_total', 'profit'];
+const DEFAULT_METRICS = ['target_roas', 'roas', 'spend_vat', 'cpc', 'ad_orders', 'actual_qty', 'organic_qty', 'returns_cancels', 'net_qty', 'organic_net', 'margin_total', 'profit'];
 let shownMetrics = new Set(DEFAULT_METRICS);
 try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length) shownMetrics = new Set(saved); } catch { /* 무시 */ }
 function renderMetricPicker() {

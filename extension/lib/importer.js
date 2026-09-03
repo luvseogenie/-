@@ -1,7 +1,9 @@
 // 판매 리포트 파일(xlsx/csv) → 저장. 팝업, 앱 페이지, 백그라운드에서 공통으로 쓴다.
 import * as S from './store.js';
 import { fileToRecords } from './xlsx.js';
-import { normalizeSales, normalizeAds, parseDate, yesterdayIso } from './parse.js';
+import { normalizeSales, normalizeAds, parseDate, yesterdayIso, lastHeaders } from './parse.js';
+export { lastHeaders };
+export async function logHeaders(kind, filename) { try { const { logs = [] } = await chrome.storage.local.get('logs'); logs.push(`${new Date().toLocaleString('ko-KR')} [파일 헤더] ${kind} ${filename || ''}: ${(lastHeaders[kind] || []).join(' | ')}`); await chrome.storage.local.set({ logs: logs.slice(-100) }); } catch { /* 무시 */ } }
 
 // 파일명에 '20250901~20250901' 처럼 기간이 있고 시작=끝이면 그 날짜가 데이터 날짜다.
 // (파일명의 단독 날짜는 다운로드한 날일 수 있어 사용자가 고른 날짜보다 뒤로 둔다)
@@ -16,6 +18,7 @@ export async function importSalesFile(buf, filename, date) {
   if (!records.length) throw new Error('파일에서 옵션ID·매출 열이 있는 표를 찾지 못했습니다. "상품별 판매 리포트" 파일이 맞는지 확인하세요.');
   date = dateFromReportName(filename) || date || parseDate(filename) || yesterdayIso();
   const rows = normalizeSales(records, date);
+  await logHeaders('sales', filename);
   if (!rows.length) throw new Error(`표는 찾았지만 인식된 행이 없습니다 (헤더: ${Object.keys(records[0]).join(', ')})`);
   const d = await S.load();
   const n = S.upsertSales(d, rows);

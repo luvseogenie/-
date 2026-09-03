@@ -64,8 +64,13 @@ export const SALES_FIELDS = [
   ['views', ['조회', '조회수', '상품조회']],
   ['carts', ['장바구니', '장바구니수']],
   ['conversion', ['구매전환율', '구매 전환율', '전환율']],
+  ['returns', ['반품수', '반품 수량', '반품량', '반품 상품 수', '반품']],
+  ['cancels', ['취소수', '취소 수량', '취소량', '취소 상품 수', '취소']],
+  ['net_qty', ['순 판매 상품 수', '순판매량', '순 판매량', '순판매']],
 ];
 const SALES_TEXT = new Set(['option_id', 'option_name', 'product_name', 'product_id', 'category', 'sales_type']);
+const SALES_OPTIONAL = new Set(['returns', 'cancels', 'net_qty']); // 파일에 있을 때만 (없으면 0)
+export const lastHeaders = { sales: [], ads: [] };
 
 // [필드, 별칭, 파서, 제외어]
 export const ADS_FIELDS = [
@@ -90,9 +95,10 @@ const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s
 export function normalizeSales(records, date) {
   if (!records.length) return [];
   const headers = Object.keys(records[0]);
+  lastHeaders.sales = headers;
   const normed = headers.map(normHeader);
   const idx = {};
-  for (const [f, aliases] of SALES_FIELDS) idx[f] = firstMatch(normed, aliases);
+  for (const [f, aliases] of SALES_FIELDS) idx[f] = firstMatch(normed, aliases, f === 'returns' ? ['율', '금액'] : f === 'cancels' ? ['율', '금액'] : f === 'quantity' ? ['순', '취소', '반품'] : []);
   if (idx.option_id == null) return [];
   const out = [];
   for (const rec of records) {
@@ -107,6 +113,7 @@ export function normalizeSales(records, date) {
       if (f === 'option_id') continue;
       if (SALES_TEXT.has(f)) row[f] = f === 'product_id' ? cleanId(get(f)) : String(get(f) ?? '').trim();
       else if (f === 'conversion') row[f] = parsePercent(get(f));
+      else if (SALES_OPTIONAL.has(f)) row[f] = idx[f] == null ? null : (parseNumber(get(f)) ?? 0);
       else row[f] = parseNumber(get(f)) ?? 0;
     }
     out.push(row);
@@ -117,6 +124,7 @@ export function normalizeSales(records, date) {
 // {헤더: 값} 목록 → 광고 행 목록. percentUnits: 화면 입력처럼 숫자를 % 단위로 볼지.
 export function normalizeAds(records, date, percentUnits = false) {
   const out = [];
+  if (records.length) lastHeaders.ads = Object.keys(records[0]);
   for (const rec of records) {
     const headers = Object.keys(rec);
     const normed = headers.map(normHeader);

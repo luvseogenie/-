@@ -7,18 +7,22 @@ export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['roas', '광고수익률', 'ratio'], ['budget', '광고예산', 'won'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
   ['ctr', '클릭률', 'pct2'], ['conversion', '전환율', 'pct1'], ['ad_orders', '광고 전환 판매 수', 'int'],
-  ['actual_qty', '실제 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['ad_share', '광고 판매 비중', 'pct0'],
+  ['actual_qty', '전체 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['returns_cancels', '반품·취소 수', 'int'],
+  ['net_qty', '순 판매 수 (반품·취소 제외)', 'int'], ['organic_net', '자연 판매 (순)', 'int'], ['ad_share', '광고 판매 비중', 'pct0'],
   ['revenue', '총 매출', 'won'], ['ad_revenue', '광고 매출', 'won'], ['organic_revenue', '자연 매출', 'won'],
   ['margin_total', '판매 마진', 'won'], ['profit', '순이익 (광고비제외)', 'won'],
 ];
 // 합계로 더하는 항목. 비율(roas, cpc, ctr, conversion, ad_share)은 합계에서 다시 계산한다.
-const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'organic_qty', 'revenue', 'organic_revenue', 'margin_total', 'profit', 'visitors', 'views'];
+const SUM = ['spend_vat', 'spend', 'ad_revenue', 'budget', 'impressions', 'clicks', 'ad_orders', 'actual_qty', 'organic_qty', 'returns', 'cancels', 'returns_cancels', 'net_qty', 'organic_net', 'revenue', 'organic_revenue', 'margin_total', 'profit', 'visitors', 'views'];
 const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0, ad_revenue: 0, cpc: 0, impressions: 0, clicks: 0, ctr: 0,
-  conversion: 0, ad_orders: 0, actual_qty: 0, organic_qty: 0, ad_share: 0, revenue: 0, organic_revenue: 0, visitors: 0, views: 0,
+  conversion: 0, ad_orders: 0, actual_qty: 0, organic_qty: 0, returns: 0, cancels: 0, returns_cancels: 0, net_qty: 0, organic_net: 0, has_returns: false, ad_share: 0, revenue: 0, organic_revenue: 0, visitors: 0, views: 0,
   margin_total: 0, profit: 0, action: '', has_ads: false, has_sales: false, has_revenue: false, unmapped_qty: 0 });
 export function finalizeCell(c) {
   c.profit = c.margin_total - c.spend_vat;
   c.organic_qty = Math.max(0, c.actual_qty - c.ad_orders);
+  c.returns_cancels = (c.returns || 0) + (c.cancels || 0);
+  c.net_qty = Math.max(0, c.actual_qty - c.returns_cancels);
+  c.organic_net = Math.max(0, c.net_qty - c.ad_orders);
   c.organic_revenue = Math.max(0, c.revenue - c.ad_revenue);
   c.ad_share = c.actual_qty ? Math.min(1, c.ad_orders / c.actual_qty) : 0;
   return c;
@@ -76,6 +80,7 @@ export function computeLedger(d, start, end) {
       c.has_sales = true;
       const m = margin(s.option_id, date);
       c.actual_qty += s.quantity; c.margin_total += s.quantity * m;
+      if (s.returns != null) { c.returns += s.returns; c.has_returns = true; } if (s.cancels != null) { c.cancels += s.cancels; c.has_returns = true; }
       if (m === 0 && s.quantity) c.unmapped_qty += s.quantity;
     }
   }
