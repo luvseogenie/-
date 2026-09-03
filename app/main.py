@@ -106,7 +106,7 @@ async def set_conditions(req: Request):
     for k in config.DEFAULT_CONDITIONS:
         if k in body:
             v = body[k]
-            if k in ("exclude_restricted", "hide_ads", "auto_continue", "only_mergeable", "fetch_rank"):
+            if k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options"):
                 cond[k] = bool(v)
             elif k == "conv_min":
                 cond[k] = float(v or 0)
@@ -233,7 +233,8 @@ async def run_verify(req: Request):
     eligible_ids = {r["product_id"] for r in rows if r.get("pre_pass")}
     # 아직 확인 안 했거나, 최종가·배송 형태가 확정되지 않은 상품은 다시 연다
     todo = {r["product_id"] for r in rows
-            if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure"))}
+            if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
+                                      or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))}
     if ids:
         skipped = len([i for i in ids if i not in eligible_ids])
         ids = [i for i in ids if i in eligible_ids]

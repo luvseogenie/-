@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'sales28_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'sales28_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -282,7 +282,7 @@
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
       const salesCell = r.buyers_min
-        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개 · 월 최소</div>`
+        ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개 · ${r.buyers_options ? '옵션 ' + r.buyers_options + '개 합' : '월 최소'}</div>`
         : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
       const wingSales = (r.sales_28 !== null && r.sales_28 !== undefined) ? `<div class="sub">윙 28일 판매 ${fmt(r.sales_28)}</div>` : '';
       const convCell = r.conversion_min !== null && r.conversion_min !== undefined
@@ -383,6 +383,7 @@
   $('#c-pages').addEventListener('change', saveConditions);
   $('#c-auto_continue').addEventListener('change', saveConditions);
   $('#c-exclude_restricted').addEventListener('change', saveConditions);
+  $('#c-sum_options') && $('#c-sum_options').addEventListener('change', saveConditions);
       $('#c-hide_ads').addEventListener('change', saveConditions);
 
   $('#btn-start').addEventListener('click', guard(async () => {

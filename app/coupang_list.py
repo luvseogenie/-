@@ -609,6 +609,24 @@ def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) 
     return out
 
 
+def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
+    """옵션 페이지를 열어 '월 N명 이상 구매' 문구만 읽는다 (가격·판매자 API 호출 없음)."""
+    url = config.PRODUCT_URL.format(pid=product_id)
+    params = []
+    if item_id:
+        params.append(f"itemId={item_id}")
+    if vendor_item_id:
+        params.append(f"vendorItemId={vendor_item_id}")
+    if params:
+        url += "?" + "&".join(params)
+    _goto(page, url, None)
+    page.wait_for_timeout(900)
+    data = page.evaluate(DETAIL_PRICE_JS)
+    if data.get("blocked"):
+        raise BlockedError("상품 페이지 접근이 막혔습니다")
+    return {"buyers_min": data.get("buyers_min"), "sold_out": bool(data.get("sold_out"))}
+
+
 def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
     """실제 판매가(쿠폰·와우 적용 최종가), '월 N명 이상 구매', 배송 형태를 읽는다.
 

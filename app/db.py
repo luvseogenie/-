@@ -109,7 +109,8 @@ def init_db():
              ("mergeable", "TEXT"), ("eligibility", "TEXT"), ("wing_category", "TEXT"),
              ("wing_rating", "REAL"), ("wing_review", "INTEGER"), ("pv_exact", "INTEGER"),
              ("option_total", "INTEGER"), ("buyers_min", "INTEGER"), ("badge_key", "TEXT"),
-             ("delivery_sure", "INTEGER"), ("price_sale", "INTEGER"), ("price_origin", "INTEGER")]
+             ("delivery_sure", "INTEGER"), ("price_sale", "INTEGER"), ("price_origin", "INTEGER"),
+             ("buyers_options", "INTEGER"), ("buyers_detail", "TEXT")]
     have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
     for col, typ in extra:
         if col not in have:
@@ -360,6 +361,13 @@ def save_quick_price(run_id, product_id, price: int | None, price_sale: int | No
     c = conn()
     c.execute("""UPDATE products SET verified_price=?, price_sale=COALESCE(?, price_sale), price_origin=COALESCE(?, price_origin),
                  coupon_flag=0 WHERE run_id=? AND product_id=?""", (price, price_sale, price_origin, run_id, product_id))
+    c.commit()
+
+
+def save_buyers_sum(run_id, product_id, total: int | None, n_options: int, detail: list):
+    c = conn()
+    c.execute("UPDATE products SET buyers_min=?, buyers_options=?, buyers_detail=? WHERE run_id=? AND product_id=?",
+              (total, n_options, json.dumps(detail, ensure_ascii=False), run_id, product_id))
     c.commit()
 
 

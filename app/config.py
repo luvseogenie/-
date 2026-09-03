@@ -42,7 +42,9 @@ DEFAULT_CONDITIONS = {
     "views_max": 0,
     "conv_min": 0,
     "buyers_min": 0,
-    "sales28_min": 0,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)
+    "sales28_min": 0,
+    "sum_options": True,          # 월 구매자 수를 옵션 전체 합산 (옵션마다 페이지를 열어야 해서 느림)
+    "sum_options_max": 12,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)
     "only_mergeable": False,
     "fetch_rank": False,          # 판매 순위도 조회 (인기상품검색 화면 이용, 느림)
     "pages": 1,

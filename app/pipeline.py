@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_quick_price, reset_debug_budget
+from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, reset_debug_budget
 from .metrics import restricted_reason
 
 
@@ -366,9 +366,48 @@ class JobController:
             self.message = ""
             self.future = browser.submit(lambda bt: self._verify(bt, run_id, product_ids), "실제가격 확인")
 
+    def _sum_option_buyers(self, bt, run_id, p: dict, primary: dict, cond: dict):
+        """옵션이 여러 개인 상품: 윙에서 옵션 목록을 받아 옵션마다 '월 N명 이상 구매'를 읽어 합산한다."""
+        cap = int(cond.get("sum_options_max") or 12)
+        try:
+            options = wing.product_options(bt, p)
+        except wing.WingLoginRequired:
+            log.warn("옵션 목록을 받으려면 윙 로그인이 필요합니다. 이 상품은 첫 옵션 값만 씁니다")
+            return
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"옵션 목록 조회 실패 {p['product_id']}: {e}")
+            return
+        options = [o for o in options if o.get("vendor_item_id")]
+        if len(options) <= 1:
+            return
+        truncated = len(options) > cap
+        options = options[:cap]
+        detail = []
+        total = 0
+        any_found = False
+        done_vid = p.get("vendor_item_id")
+        for o in options:
+            self._check()
+            if o["vendor_item_id"] == done_vid and primary is not None:
+                b = primary.get("buyers_min")
+            else:
+                r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
+                b = (r or {}).get("buyers_min")
+                human_delay(1.0, 2.2)
+            detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b})
+            if b:
+                total += b
+                any_found = True
+        if any_found:
+            db.save_buyers_sum(run_id, p["product_id"], total, len(options), detail)
+            log.info(f"  옵션 {len(options)}개 합산: 월 구매 {total:,}명 이상" + (f" (옵션 {cap}개까지만 확인)" if truncated else ""))
+        else:
+            db.save_buyers_sum(run_id, p["product_id"], None, len(options), detail)
+
     def _verify(self, bt, run_id, product_ids):
         try:
             reset_debug_budget(3)
+            cond = db.get_conditions()
             rows = {p["product_id"]: p for p in db.products(run_id)}
             for pid in product_ids:
                 self._check()
@@ -391,6 +430,8 @@ class JobController:
                                 db.set_setting("badge_map", bm)
                                 n = db.apply_badge_map(run_id, bk, data["delivery"])
                                 log.info(f"배송 뱃지 학습: {bk} → {data['delivery']} (같은 뱃지 {n}개 반영)")
+                    if cond.get("sum_options") and (p.get("option_total") or p.get("option_count") or 1) > 1:
+                        self._sum_option_buyers(bt, run_id, p, data, cond)
                     parts = []
                     if data.get("price"):
                         extra = f", 일반가 {data['price_sale']:,}원" if data.get("price_sale") and data["price_sale"] != data["price"] else ""
