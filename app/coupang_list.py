@@ -673,17 +673,40 @@ def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) 
     return out
 
 
-def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
-    """옵션 페이지를 열어 '월 N명 이상 구매' 문구만 읽는다 (가격·판매자 API 호출 없음)."""
-    url = config.PRODUCT_URL.format(pid=product_id)
+_mobile_mode = {"on": False, "since": 0}
+
+
+def _product_url(product_id, item_id=None, vendor_item_id=None, mobile: bool = False) -> str:
+    base = config.PRODUCT_URL_MOBILE if mobile else config.PRODUCT_URL
+    url = base.format(pid=product_id)
     params = []
     if item_id:
         params.append(f"itemId={item_id}")
     if vendor_item_id:
         params.append(f"vendorItemId={vendor_item_id}")
-    if params:
-        url += "?" + "&".join(params)
-    _goto(page, url, None)
+    return url + ("?" + "&".join(params) if params else "")
+
+
+def _goto_product(page, product_id, item_id=None, vendor_item_id=None):
+    """상품 페이지를 연다. www 가 막혀 있으면 모바일 페이지(m.coupang.com)로 대체한다."""
+    if _mobile_mode["on"] and time.time() - _mobile_mode["since"] < 3600:
+        _goto(page, _product_url(product_id, item_id, vendor_item_id, mobile=True), None)
+        return "mobile"
+    try:
+        _goto(page, _product_url(product_id, item_id, vendor_item_id), None)
+        return "www"
+    except BlockedError:
+        log.warn("www 상품 페이지가 막혀 모바일 페이지로 대체합니다 (1시간 동안)")
+        _mobile_mode.update({"on": True, "since": time.time()})
+        _goto(page, _product_url(product_id, item_id, vendor_item_id, mobile=True), None)
+        return "mobile"
+
+
+def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
+    """옵션 페이지를 열어 '월 N명 이상 구매' 문구만 읽는다 (가격·판매자 API 호출 없음)."""
+    _goto_product(page, product_id, item_id, vendor_item_id)
+    if False:
+        _goto(page, "", None)
     page.wait_for_timeout(300)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
@@ -701,15 +724,8 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     상품 페이지를 실제로 연 뒤, 그 페이지 안에서 쿠팡의 가격 API 와 판매자 API 를 호출한다.
     """
     out = {"price": None, "buyers_min": None, "coupon": False, "sold_out": False, "sellers": None, "source": ""}
-    url = config.PRODUCT_URL.format(pid=product_id)
-    params = []
-    if item_id:
-        params.append(f"itemId={item_id}")
-    if vendor_item_id:
-        params.append(f"vendorItemId={vendor_item_id}")
-    if params:
-        url += "?" + "&".join(params)
-    _goto(page, url, None)
+    mode = _goto_product(page, product_id, item_id, vendor_item_id)
+    out["page_mode"] = mode
     page.wait_for_timeout(300)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
@@ -723,11 +739,12 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     out["delivery"] = data.get("delivery")
     out["delivery_how"] = data.get("delivery_how")
     out["sold_out"] = bool(data.get("sold_out"))
-    # 1) 가격: API → 페이지 내장 데이터 → 화면 요소
-    try:
-        _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
-    except Exception as e:  # noqa: BLE001
-        log.warn(f"가격 API 실패 {product_id}: {e}")
+    # 1) 가격: API → 페이지 내장 데이터 → 화면 요소 (모바일 페이지에서는 API 를 건너뜀)
+    if mode == "www":
+        try:
+            _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"가격 API 실패 {product_id}: {e}")
     if out["price"] is None:
         sp = data.get("script_prices") or {}
         final = sp.get("final") or sp.get("coupon") or sp.get("sale")
@@ -743,10 +760,11 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
             break
     # 2) 배송: 판매자 정보 기준
     seller = None
-    try:
-        seller = _fetch_seller(page, product_id, item_id, vendor_item_id, out)
-    except Exception as e:  # noqa: BLE001
-        log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
+    if mode == "www":
+        try:
+            seller = _fetch_seller(page, product_id, item_id, vendor_item_id, out)
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
     d = out.get("delivery") or "WING"
     if out.get("btf_ok"):
         # 판매자 정보가 있으면 화면 판정은 쓰지 않는다 (판매자 정보가 정답)

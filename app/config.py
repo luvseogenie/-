@@ -23,6 +23,7 @@ CATEGORY_PAGE = "https://www.coupang.com/np/categories/{cid}"
 CATEGORY_URL = "https://www.coupang.com/np/categories/{cid}?listSize={size}&sorter=saleCountDesc&page={page}"
 SEARCH_URL = "https://www.coupang.com/np/search?q={q}&listSize=72&sorter=saleCountDesc&page={page}"
 PRODUCT_URL = "https://www.coupang.com/vp/products/{pid}"
+PRODUCT_URL_MOBILE = "https://m.coupang.com/vm/products/{pid}"
 WING_HOME = "https://wing.coupang.com/"
 
 CATEGORY_LIST_SIZE = 120     # 카테고리 페이지 한 번에 120개
