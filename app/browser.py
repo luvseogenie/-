@@ -57,6 +57,13 @@ class BrowserThread(threading.Thread):
                 self.driver = "playwright"
             self.pw = sync_playwright().start()
             log.info(f"브라우저 구동: {self.driver}")
+        # 1) 브라우저를 손으로 켠 것과 같은 상태로 직접 실행하고, 프로그램은 거기에 접속해 조종한다 (차단 회피)
+        try:
+            ctx = self._attach_launch()
+            if ctx is not None:
+                return ctx
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"일반 실행 방식 실패, 기존 방식으로 엽니다: {e}")
         last = None
         for channel in self._candidates():
             try:
@@ -110,6 +117,103 @@ class BrowserThread(threading.Thread):
                 except Exception as e:  # noqa: BLE001
                     last = e
         raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
+
+    # ---------- 일반 실행 + 접속 ----------
+    @staticmethod
+    def _exe_candidates():
+        """설치된 브라우저 실행파일을 찾는다: 웨일 → 엣지 → 크롬 (설정으로 순서 변경 가능)"""
+        import os as _os
+        env = _os.environ.get("CS_BROWSER_EXE")
+        if env and _os.path.exists(env):
+            return [("custom", env)]
+        la = _os.environ.get("LOCALAPPDATA", "")
+        pf = _os.environ.get("PROGRAMFILES", "C:\\Program Files")
+        pfx = _os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")
+        cands = {
+            "whale": [_os.path.join(la, "Naver", "Naver Whale", "Application", "whale.exe"),
+                      _os.path.join(pf, "Naver", "Naver Whale", "Application", "whale.exe"),
+                      _os.path.join(pfx, "Naver", "Naver Whale", "Application", "whale.exe")],
+            "msedge": [_os.path.join(pfx, "Microsoft", "Edge", "Application", "msedge.exe"),
+                       _os.path.join(pf, "Microsoft", "Edge", "Application", "msedge.exe")],
+            "chrome": [_os.path.join(pf, "Google", "Chrome", "Application", "chrome.exe"),
+                       _os.path.join(pfx, "Google", "Chrome", "Application", "chrome.exe"),
+                       _os.path.join(la, "Google", "Chrome", "Application", "chrome.exe")],
+        }
+        pref = (config.BROWSER or "auto").lower()
+        order = [pref] + [k for k in ("whale", "msedge", "chrome") if k != pref] if pref in cands else ["whale", "msedge", "chrome"]
+        out = []
+        for name in order:
+            for path in cands[name]:
+                if path and _os.path.exists(path):
+                    out.append((name, path))
+                    break
+        return out
+
+    @staticmethod
+    def _free_port():
+        import socket
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def _port_alive(self, port) -> bool:
+        from urllib.request import urlopen
+        try:
+            urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1).read()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _attach_launch(self):
+        """브라우저를 자동화 옵션 없이 직접 실행(원격 디버깅 포트만 열어서)하고 접속한다."""
+        import os as _os
+        import subprocess
+        import time as _t
+        cands = self._exe_candidates()
+        if not cands:
+            return None
+        port_file = config.DATA_DIR / "browser-port.txt"
+        port = None
+        try:
+            port = int(port_file.read_text().strip())
+        except Exception:  # noqa: BLE001
+            port = None
+        proc = getattr(self, "proc", None)
+        if not (port and self._port_alive(port)):
+            name, exe = cands[0]
+            port = self._free_port()
+            args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={config.PROFILE_DIR}",
+                    "--no-first-run", "--no-default-browser-check", "--start-maximized", "--lang=ko-KR"]
+            if _os.environ.get("CS_BROWSER_HEADLESS"):
+                args += ["--headless=new", "--no-sandbox"]
+            args.append("about:blank")
+            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+            self.proc = proc
+            for _ in range(100):
+                if self._port_alive(port):
+                    break
+                _t.sleep(0.2)
+            else:
+                raise RuntimeError(f"{name} 실행 후 접속 포트가 열리지 않았습니다")
+            port_file.write_text(str(port))
+            self.channel = name
+            log.info(f"브라우저를 일반 방식으로 실행했습니다 ({name})")
+        else:
+            self.channel = getattr(self, "channel", None) or cands[0][0]
+            log.info("이미 실행 중인 브라우저에 다시 접속합니다")
+        browser = self.pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=30000)
+        self.browser = browser
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        self.context = ctx
+        self._closed = False
+        self.mode = "attach"
+        ctx.on("close", self._on_close)
+        browser.on("disconnected", self._on_close)
+        self._install_stealth()
+        if config.LIGHT_MODE:
+            self._install_lightweight_routes()
+        return ctx
 
     @staticmethod
     def _whale_path():
@@ -183,13 +287,28 @@ class BrowserThread(threading.Thread):
         """브라우저를 닫고 저장 데이터(쿠키·캐시·로그인)를 통째로 새로 만든다."""
         import shutil, time as _t
         try:
-            if self.context is not None and not self._closed:
+            if getattr(self, "mode", None) == "attach" and getattr(self, "browser", None) is not None:
+                try:
+                    self.browser.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                proc = getattr(self, "proc", None)
+                if proc is not None:
+                    try:
+                        proc.terminate()
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif self.context is not None and not self._closed:
                 self.context.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            (config.DATA_DIR / "browser-port.txt").unlink()
         except Exception:  # noqa: BLE001
             pass
         self.context = None
         self._closed = True
-        _t.sleep(1.0)
+        _t.sleep(1.5)
         old = config.PROFILE_DIR
         bak = old.parent / f"browser-profile-old-{int(_t.time())}"
         try:
