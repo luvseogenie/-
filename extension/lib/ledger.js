@@ -6,9 +6,9 @@ export const UNMAPPED = '(캠페인 없음)';
 export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['roas', '광고수익률', 'ratio'], ['budget', '광고예산', 'won'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
-  ['ctr', '클릭률', 'pct2'], ['conversion', '전환율', 'pct1'], ['ad_orders', '광고 전환 판매 수', 'int'],
-  ['actual_qty', '전체 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['returns_cancels', '반품·취소 수', 'int'],
-  ['net_qty', '순 판매 수 (반품·취소 제외)', 'int'], ['organic_net', '자연 판매 (순)', 'int'], ['ad_share', '광고 판매 비중', 'pct0'],
+  ['ctr', '클릭률', 'pct2'], ['conversion', '전환율', 'pct1'],
+  ['ad_orders', '광고 전환 판매 수', 'int'], ['organic_qty', '자연 판매 수', 'int'], ['returns_cancels', '반품·취소 수', 'int'], ['actual_qty', '실제 판매 수', 'int'],
+  ['ad_share', '광고 판매 비중', 'pct0'],
   ['revenue', '총 매출', 'won'], ['ad_revenue', '광고 매출', 'won'], ['organic_revenue', '자연 매출', 'won'],
   ['margin_total', '판매 마진', 'won'], ['profit', '순이익 (광고비제외)', 'won'],
 ];
@@ -20,8 +20,9 @@ const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0
 export function finalizeCell(c) {
   c.profit = c.margin_total - c.spend_vat;
   c.organic_qty = Math.max(0, c.actual_qty - c.ad_orders);
-  c.returns_cancels = (c.returns || 0) + (c.cancels || 0);
-  c.net_qty = Math.max(0, c.actual_qty - c.returns_cancels);
+  // 반품·취소 수: 리포트에 열이 있으면 그 합, 없으면 광고 전환 판매 수가 실제 판매 수보다 많은 만큼 (= 반품·취소로 빠진 수)
+  c.returns_cancels = c.has_returns ? (c.returns || 0) + (c.cancels || 0) : Math.max(0, c.ad_orders - c.actual_qty);
+  c.net_qty = Math.max(0, c.actual_qty - (c.has_returns ? c.returns_cancels : 0));
   c.organic_net = Math.max(0, c.net_qty - c.ad_orders);
   c.organic_revenue = Math.max(0, c.revenue - c.ad_revenue);
   c.ad_share = c.actual_qty ? Math.min(1, c.ad_orders / c.actual_qty) : 0;

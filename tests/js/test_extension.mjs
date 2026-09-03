@@ -222,6 +222,12 @@ console.log('extension logic: all checks passed');
   S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.upsertOption(d, { option_id: '2', product_name: 'b', campaign: 'C' }); S.setMargin(d, '1', 1000); S.setMargin(d, '2', 1000);
   S.upsertSales(d, rows); S.upsertAds(d, [{ date: '2025-06-08', campaign: 'C', target_roas: 3, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 4, action: '' }]); await S.save(d);
   const c = computeLedger(d, '2025-06-08', '2025-06-08').campaigns[0].days['2025-06-08'];
-  assert.equal(c.actual_qty, 15); assert.equal(c.returns, 2); assert.equal(c.cancels, 1); assert.equal(c.returns_cancels, 3); assert.equal(c.net_qty, 12); assert.equal(c.organic_qty, 11); assert.equal(c.organic_net, 8);
+  assert.equal(c.actual_qty, 15); assert.equal(c.returns, 2); assert.equal(c.cancels, 1); assert.equal(c.returns_cancels, 3); assert.equal(c.organic_qty, 11);
+  // 열이 없을 때: 광고 전환 판매 5, 실제 판매 4 → 반품·취소 1, 자연 0 (사용자 스크린샷의 9/1 사례)
+  S.upsertSales(d, [{ date: '2025-06-09', option_id: '1', option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: 1, orders: 4, quantity: 4, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  S.upsertAds(d, [{ date: '2025-06-09', campaign: 'C', target_roas: 3.5, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 5, action: '' }]); await S.save(d);
+  const c9 = computeLedger(d, '2025-06-09', '2025-06-09').campaigns[0].days['2025-06-09'];
+  assert.equal(c9.ad_orders, 5); assert.equal(c9.actual_qty, 4); assert.equal(c9.organic_qty, 0); assert.equal(c9.returns_cancels, 1);
+  const m = computeLedger(d, '2025-06-08', '2025-06-09').campaigns[0].months['2025-06']; assert.equal(m.returns_cancels, 4); // 일별 합
   console.log('returns/cancels: all checks passed');
 }
