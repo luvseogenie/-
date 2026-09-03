@@ -222,7 +222,7 @@ class JobController:
                 api_dead = True
                 break
             self.progress["done"] += 1
-            human_delay(2.0, 4.0)          # 너무 빠르면 봇 방어에 걸린다
+            human_delay(1.5, 2.5)          # 연타(0.5초)는 봇 방어에 걸린다
         if api_dead and pmax:
             # 예비 경로: 상한을 넘는 상품(쿠폰으로 조건에 들어올 수 있는 것)만 페이지를 열어 가격을 읽는다
             band = [p for p in targets if p["product_id"] not in done_ids and (p.get("price") or 0) > pmax]
@@ -239,7 +239,7 @@ class JobController:
                             moved_in += 1
                             log.info(f"쿠폰가로 조건 진입: {(p.get('name') or '')[:30]} 목록 {p.get('price'):,}원 → 최종 {d['price']:,}원")
                     self.progress["done"] += 1
-                    human_delay(3.0, 5.0)
+                    human_delay(1.5, 3.0)
         self.progress["done"] = self.progress["total"]
         log.info(f"쿠폰 적용가 확인 완료 · 쿠폰가로 새로 조건에 들어온 상품 {moved_in}개")
 
@@ -439,7 +439,7 @@ class JobController:
             else:
                 r = self._with_retry(lambda o=o: fetch_option_buyers(bt.page(), p["product_id"], o["item_id"], o["vendor_item_id"]))
                 b = (r or {}).get("buyers_min")
-                human_delay(2.0, 3.5)
+                human_delay(1.2, 2.5)
             detail.append({"option": o.get("name") or str(o["item_id"]), "vendor_item_id": o["vendor_item_id"], "buyers_min": b,
                            "price": o.get("price"), "item_id": o.get("item_id")})
             if b:
@@ -507,7 +507,7 @@ class JobController:
                         parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(2.5, 4.5)
+                human_delay(1.5, 3.0)
             log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----

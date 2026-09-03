@@ -29,8 +29,8 @@ CATEGORY_LIST_SIZE = 120     # 카테고리 페이지 한 번에 120개
 SEARCH_LIST_SIZE = 72        # 검색 페이지는 최대 72개
 
 # 요청 사이 대기 시간(초). 차단을 피하기 위해 무작위로 섞는다.
-DELAY_MIN = 2.0
-DELAY_MAX = 4.0
+DELAY_MIN = 1.5
+DELAY_MAX = 3.0
 BLOCK_COOLDOWN = 120          # 차단 감지 시 쉬는 시간(초)
 
 DEFAULT_CONDITIONS = {

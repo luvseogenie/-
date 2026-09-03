@@ -62,11 +62,34 @@ class BrowserThread(threading.Thread):
                 self.channel = channel or "chromium"
                 self._closed = False
                 self.context.on("close", self._on_close)
+                self._install_lightweight_routes()
                 log.info(f"브라우저 창을 열었습니다 ({self.channel})")
                 return self.context
             except Exception as e:  # noqa: BLE001
                 last = e
         raise RuntimeError(f"브라우저를 열 수 없습니다. 1_install.bat 을 다시 실행해 주세요. ({last})")
+
+    _BLOCK_HOSTS = ("mercury.coupang.com", "ljc.coupang.com", "asset.coupang.com/ad", "ads.coupang.com",
+                    "googletagmanager.com", "google-analytics.com", "doubleclick.net", "facebook.net", "criteo")
+
+    def _install_lightweight_routes(self):
+        """이미지·동영상·폰트·광고 요청을 막아 페이지 로딩을 가볍게 한다 (글자·가격·문구는 그대로)."""
+        def handler(route, request):
+            try:
+                rt = request.resource_type
+                url = request.url
+                if rt in ("image", "media", "font"):
+                    return route.abort()
+                if any(h in url for h in self._BLOCK_HOSTS):
+                    return route.abort()
+            except Exception:  # noqa: BLE001
+                pass
+            return route.continue_()
+        try:
+            self.context.route("**/*", handler)
+            log.info("가벼운 모드: 이미지·동영상·광고 요청을 차단합니다")
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"가벼운 모드 설정 실패: {e}")
 
     def _on_close(self, *_):
         self._closed = True

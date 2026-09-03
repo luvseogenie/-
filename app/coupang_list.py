@@ -494,9 +494,9 @@ def _goto(page, url: str, wait_selector: str | None = None):
     # 지연 렌더링(스크롤해야 나오는 카드) 대비
     try:
         page.mouse.wheel(0, 2500)
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(350)
         page.mouse.wheel(0, 4000)
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(300)
     except Exception:  # noqa: BLE001
         pass
     return status
@@ -640,13 +640,13 @@ def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None
     if params:
         url += "?" + "&".join(params)
     _goto(page, url, None)
-    page.wait_for_timeout(1300)
+    page.wait_for_timeout(800)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
         raise BlockedError("상품 페이지 접근이 막혔습니다")
     if data.get("buyers_min") is None:
         # 문구가 늦게 뜨는 경우가 있어 한 번 더 기다렸다가 다시 읽는다
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(1000)
         data = page.evaluate(DETAIL_PRICE_JS)
     return {"buyers_min": data.get("buyers_min"), "sold_out": bool(data.get("sold_out"))}
 
@@ -666,11 +666,14 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     if params:
         url += "?" + "&".join(params)
     _goto(page, url, None)
-    page.wait_for_timeout(1200)
+    page.wait_for_timeout(800)
     data = page.evaluate(DETAIL_PRICE_JS)
     if data.get("blocked"):
         _dump_debug(page, f"blocked_detail_{product_id}")
         raise BlockedError("상품 페이지 접근이 막혔습니다")
+    if data.get("buyers_min") is None:
+        page.wait_for_timeout(1000)
+        data = page.evaluate(DETAIL_PRICE_JS)
     out["buyers_min"] = data.get("buyers_min")
     out["sellers"] = data.get("sellers")
     out["delivery"] = data.get("delivery")
