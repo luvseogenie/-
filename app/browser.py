@@ -16,6 +16,7 @@ class BrowserThread(threading.Thread):
         self.pw = None
         self.context = None
         self.channel = None
+        self.driver = None
         self.busy = None
         self._closed = True
 
@@ -45,8 +46,17 @@ class BrowserThread(threading.Thread):
         if self.context is not None and not self._closed:
             return self.context
         if self.pw is None:
-            from playwright.sync_api import sync_playwright
+            import os as _os
+            _os.environ.setdefault("REBROWSER_PATCHES_RUNTIME_FIX_MODE", "addBinding")
+            try:
+                # 자동 조작 탐지(CDP 흔적)를 피하도록 패치된 구동 라이브러리 (있으면 우선 사용)
+                from rebrowser_playwright.sync_api import sync_playwright
+                self.driver = "rebrowser"
+            except Exception:  # noqa: BLE001
+                from playwright.sync_api import sync_playwright
+                self.driver = "playwright"
             self.pw = sync_playwright().start()
+            log.info(f"브라우저 구동: {self.driver}")
         last = None
         for channel in ("chrome", "msedge", None):
             try:
