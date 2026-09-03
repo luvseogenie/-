@@ -431,6 +431,15 @@ def tools(name: str):
                      json.dumps(r.get("prematch"), ensure_ascii=False) if r.get("prematch") else "",
                      f"[쿠팡 공개 카테고리번호] {r.get('public_category') or ('오류: ' + str(r.get('public_category_error')) if r.get('public_category_error') else '없음')}",
                      "",
+                     "[카탈로그 매칭 응답 항목] " + (", ".join(r.get("prematch_keys") or []) or ("오류: " + str(r.get("prematch_keys_error")))),
+                     "[옵션 항목] " + ", ".join(r.get("item_keys") or []),
+                     "[옵션 예시] " + json.dumps(r.get("item_sample") or {}, ensure_ascii=False),
+                     f"[판매 항목 자동 탐지] {r.get('sales_scan')}",
+                     "",
+                     f"[사전매칭 검색] {('오류: ' + str(r['prematching_error'])) if r.get('prematching_error') else str(r.get('prematching_count')) + '개'}",
+                     "[사전매칭 검색 항목] " + ", ".join(r.get("prematching_keys") or []),
+                     "[사전매칭 검색 예시] " + json.dumps(r.get("prematching_sample") or {}, ensure_ascii=False),
+                     "",
                      f"[인기상품검색] {'오류: ' + r['trends_error'] if r.get('trends_error') else '상품 ' + str(r.get('trends_count')) + '개'}",
                      json.dumps(r.get("trends_first"), ensure_ascii=False) if r.get("trends_first") else ""]
             ok = bool(r.get("prematch")) or bool(r.get("prematch_nocat"))

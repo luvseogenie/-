@@ -471,6 +471,23 @@ def _public_category_id(bt, pid):
     return None
 
 
+_SALES_RE = re.compile(r"(sale|sold|order|purchase|buy).*(28|last|month|30)|(28|last|month|30).*(sale|sold|order|purchase|buy)", re.I)
+
+
+def _scan_sales(data: dict, items: list):
+    """응답에서 '28일 판매'처럼 보이는 숫자 항목을 찾는다. 상품 단위가 있으면 그것, 없으면 옵션 합."""
+    for k, v in (data or {}).items():
+        if _SALES_RE.search(k) and isinstance(v, (int, float)):
+            return int(v), k
+    total, key = 0, None
+    for it in items or []:
+        for k, v in (it or {}).items():
+            if _SALES_RE.search(k) and isinstance(v, (int, float)):
+                total += int(v)
+                key = k
+    return (total, key + " (옵션 합)") if key else (None, None)
+
+
 def _prematch(page, product: dict, category_id=None) -> dict | None:
     """카탈로그 매칭 API: 정확한 28일 조회수, 아이템위너 가격, 경쟁 판매자 수."""
     pid = product.get("product_id")
@@ -501,8 +518,10 @@ def _prematch(page, product: dict, category_id=None) -> dict | None:
     do_not_merge = str(flags.get("DO_NOT_MERGE", "")).lower() == "true"
     valid = str(flags.get("VALID", "true")).lower() != "false"
     pv = _to_int(data.get("pvLast28Day"))
+    sales28, sales_key = _scan_sales(data, items)
     return {
-        "sales_28": None,
+        "sales_28": sales28,
+        "sales_28_key": sales_key,
         "views_28": pv, "pv_low": None, "pv_high": None,
         "pv_exact": True,
         "wing_price": _to_int((mine or {}).get("buyboxWinnerPrice")),
@@ -643,8 +662,28 @@ def test_connection(bt) -> dict:
     except Exception as e:  # noqa: BLE001
         out["prematch_error"] = str(e)
     try:
+        raw = _fetch_json(page, PREMATCH_URL + f"?productId={sample['product_id']}&itemId={sample['item_id']}&allowSingleProduct=true", "GET", None,
+                          {"referer": "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"})
+        out["prematch_keys"] = sorted((raw or {}).keys())
+        its = (raw or {}).get("items") or []
+        out["item_keys"] = sorted(its[0].keys()) if its else []
+        out["item_sample"] = {k: v for k, v in (its[0].items() if its else []) if not isinstance(v, (list, dict))}
+        out["sales_scan"] = _scan_sales(raw, its)
+    except Exception as e:  # noqa: BLE001
+        out["prematch_keys_error"] = str(e)
+    try:
+        sr = _fetch_json(page, "https://wing.coupang.com/tenants/seller-web/pre-matching/search", "POST",
+                         {"keyword": "코멧 분리수거 비닐봉투", "excludedProductIds": [], "searchPage": 0, "searchOrder": "DEFAULT",
+                          "sortType": "BEST_SELLING", "searchPageSize": 4})
+        res = (sr or {}).get("result") or []
+        out["prematching_count"] = len(res)
+        out["prematching_keys"] = sorted(res[0].keys()) if res else []
+        out["prematching_sample"] = {k: v for k, v in (res[0].items() if res else []) if not isinstance(v, (list, dict))}
+    except Exception as e:  # noqa: BLE001
+        out["prematching_error"] = str(e)
+    try:
         ex = _prematch(page, sample, 1839)
-        out["prematch"] = {k: ex.get(k) for k in ("views_28", "wing_price", "seller_count", "mergeable", "option_total", "wing_category")} if ex else None
+        out["prematch"] = {k: ex.get(k) for k in ("views_28", "sales_28", "sales_28_key", "wing_price", "seller_count", "mergeable", "option_total", "wing_category")} if ex else None
     except WingLoginRequired:
         out["prematch_error"] = "로그인 필요"
     except Exception as e:  # noqa: BLE001

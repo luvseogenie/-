@@ -42,6 +42,7 @@ DEFAULT_CONDITIONS = {
     "views_max": 0,
     "conv_min": 0,
     "buyers_min": 0,
+    "sales28_min": 0,             # 윙 카탈로그 매칭의 28일 판매 (데이터가 있는 상품에만 적용)
     "only_mergeable": False,
     "fetch_rank": False,          # 판매 순위도 조회 (인기상품검색 화면 이용, 느림)
     "pages": 1,

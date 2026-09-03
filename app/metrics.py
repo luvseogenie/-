@@ -93,6 +93,8 @@ def enrich(p: dict, cond: dict) -> dict:
         # (예전 버전의 '28일 판매량' 조건은 더 이상 쓰지 않는다)
         if cond.get("buyers_min") and (buyers or 0) < cond["buyers_min"]:
             v = "below"
+        if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:
+            v = "below"
         if cond.get("conv_min") and (out["conversion"] or out["conversion_min"] or 0) < cond["conv_min"]:
             v = "below"
         if cond.get("only_mergeable") and not out["mergeable_ok"]:

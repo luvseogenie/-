@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'sales28_min', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -284,6 +284,7 @@
       const salesCell = r.buyers_min
         ? `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">일평균 ${fmt(Math.round(r.buyers_daily || 0))}개 · 월 최소</div>`
         : `<span class="muted">-</span><div class="sub">${r.verified_at ? '표시 없음' : '미확인'}</div>`;
+      const wingSales = (r.sales_28 !== null && r.sales_28 !== undefined) ? `<div class="sub">윙 28일 판매 ${fmt(r.sales_28)}</div>` : '';
       const convCell = r.conversion_min !== null && r.conversion_min !== undefined
         ? `<b class="green">≥ ${r.conversion_min.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, r.conversion_min / Math.max(1, maxConv) * 100)}%"></i></div>`
         : '<span class="muted">-</span>';
@@ -291,7 +292,7 @@
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.name || ('상품 ' + r.product_id))}</a></div>
           <div class="pmeta">${pills.join('')}<span>${esc(cat)}</span><span>· ID ${r.product_id}</span>${sim}${r.option_total > 1 ? `<span>· 옵션 ${r.option_total}개</span>` : (r.option_count > 1 ? `<span>· 옵션 ${r.option_count}개</span>` : '')}</div></td>
-        <td class="num">${salesCell}</td>
+        <td class="num">${salesCell}${wingSales}</td>
         <td class="num">${convCell}</td>
         <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
