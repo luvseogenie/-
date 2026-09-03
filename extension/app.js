@@ -268,8 +268,16 @@ function renderLedgerTable() {
     if (showAction) h += '<tr class="action"><td class="lbl">ACTION 메모</td>' + cols.map((col) => col.date ? `<td class="l memo-cell" title="${esc(c.days[col.date]?.action || '')}">${esc(c.days[col.date]?.action || '')}</td>` : '<td class="sum"></td>').join('') + '</tr>';
   }
   $('#lg-table').innerHTML = h + '</tbody>';
+  syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
 }
+// 위쪽 가로 스크롤바(아래 표와 동기화) + 렌더 후 가장 최근 날짜(오른쪽 끝)가 보이도록
+function syncLedgerScroll(toEnd) {
+  const wrap = $('#lg-wrap'), top = $('#lg-topscroll'), inner = $('#lg-topscroll-inner'); if (!wrap || !top) return;
+  inner.style.width = $('#lg-table').scrollWidth + 'px';
+  if (toEnd) requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; top.scrollLeft = wrap.scrollLeft; });
+}
+{ let lock = false; $('#lg-topscroll').addEventListener('scroll', () => { if (lock) return; lock = true; $('#lg-wrap').scrollLeft = $('#lg-topscroll').scrollLeft; lock = false; }); $('#lg-wrap').addEventListener('scroll', () => { if (lock) return; lock = true; $('#lg-topscroll').scrollLeft = $('#lg-wrap').scrollLeft; lock = false; }); window.addEventListener('resize', () => syncLedgerScroll(false)); }
 $('#lg-hide-empty').onchange = renderLedgerTable; $('#lg-action').onchange = renderLedgerTable;
 $('#lg-csv').onclick = () => {
   const led = ledgerCache; if (!led) return;
