@@ -107,18 +107,8 @@ class BrowserThread(threading.Thread):
     _STEALTH_JS = """
 (() => {
   try {
-    // 자동 조작 흔적 줄이기: webdriver 표시 제거, 플러그인/언어/권한을 일반 크롬처럼
+    // 최소한만: 자동 조작 표시(webdriver)만 감춘다. 다른 속성을 흉내내면 오히려 의심 요소가 된다.
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    if (!navigator.plugins || navigator.plugins.length === 0) {
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    }
-    Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
-    if (!window.chrome) { window.chrome = { runtime: {}, loadTimes: function () {}, csi: function () {} }; }
-    const origQuery = window.navigator.permissions && window.navigator.permissions.query;
-    if (origQuery) {
-      window.navigator.permissions.query = (p) => (p && p.name === 'notifications')
-        ? Promise.resolve({ state: Notification.permission }) : origQuery(p);
-    }
   } catch (e) {}
 })();
 """
