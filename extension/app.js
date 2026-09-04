@@ -662,21 +662,6 @@ $('#range-since').onclick = () => {
   const start = last ? (last < end ? addDays(last, 1) : end) : addDays(end, -6);
   $('#range-start').value = start > end ? end : start; $('#range-end').value = end; $('#range-check').click();
 };
-$('#one-date').value = localIso(yday);
-$('#one-go').onclick = async () => {
-  const date = $('#one-date').value; if (!date) return;
-  const kinds = [$('#one-sales').checked && 'sales', $('#one-ads').checked && 'ads'].filter(Boolean);
-  if (!kinds.length) { msg('#one-msg', '판매나 광고 중 하나는 골라 주세요', 'err'); return; }
-  $('#one-go').disabled = true; msg('#one-msg', `${date} 가져오는 중… (탭이 열렸다 닫힙니다)`);
-  const out = [];
-  for (const kind of kinds) {
-    const r = await chrome.runtime.sendMessage({ type: 'collectDate', kind, date });
-    out.push(`${kind === 'sales' ? '판매' : '광고'} ${r.ok ? `${r.saved}건 저장` : '실패 — ' + r.error}`);
-  }
-  $('#one-go').disabled = false;
-  msg('#one-msg', out.join(' / '), out.every((x) => x.includes('저장')) ? 'ok' : 'err');
-  loadSettings(); refreshAll();
-};
 $('#range-check').onclick = () => { const d = DATA; const ds = rangeDates(); const ms = ds.filter((x) => !d.sales[x]), ma = ds.filter((x) => !d.ads[x]); $('#range-missing-list').innerHTML = `판매 없는 날 ${ms.length}일: ${ms.map((x) => x.slice(5)).join(', ') || '없음'}<br>광고 없는 날 ${ma.length}일: ${ma.map((x) => x.slice(5)).join(', ') || '없음'}`; };
 $('#range-go').onclick = async () => {
   const kinds = [$('#range-sales').checked && 'sales', $('#range-ads').checked && 'ads'].filter(Boolean); if (!kinds.length) return;
