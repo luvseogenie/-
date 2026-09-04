@@ -288,7 +288,15 @@ $('#lg-camp-prev').onclick = () => stepCamp(-1); $('#lg-camp-next').onclick = ()
 
 /* ===== 광고 장부 (피벗) ===== */
 const DEFAULT_METRICS = ['target_roas', 'budget', 'traffic_slots', 'roas', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty', 'margin_total', 'profit'];
-const QTY_ROWS = new Set(['ad_orders', 'organic_qty', 'returns_cancels', 'actual_qty']);
+const QTY_ROWS = new Set(['ad_orders', 'organic_qty', 'gross_qty', 'returns_cancels', 'actual_qty']);
+// 판매 수 줄의 뜻 (항목 이름에 마우스를 올리면 보임)
+const METRIC_HINT = {
+  ad_orders: '광고센터의 전환 판매 수 (취소 전 기준)',
+  organic_qty: '총 판매 수 − 광고 전환 판매 수 (광고 아닌 경로로 팔린 수)',
+  gross_qty: '취소·반품이 빠지기 전 판매 수. 리포트의 \'총 판매수\' 열',
+  returns_cancels: "리포트의 '총 취소된 상품수'. 열이 없으면 광고 전환 판매 수가 실제 판매 수를 넘는 만큼으로 추정",
+  actual_qty: "리포트의 '판매량' = 총 판매 수 − 반품·취소 수. 매출·마진은 이 수 기준",
+};
 const CHANGE_ROWS = { target_roas: (v) => Math.round(v * 100) + '%', budget: (v) => fmtWon(v) + '원', traffic_slots: (v) => (v || 0) + '슬롯' };
 let shownMetrics = new Set(DEFAULT_METRICS);
 try { const saved = JSON.parse(localStorage.getItem('cc-metrics') || 'null'); if (Array.isArray(saved) && saved.length && saved.includes('returns_cancels') && saved.includes('budget') && saved.includes('traffic_slots') && saved.includes('impressions')) shownMetrics = new Set(saved); } catch { /* 무시 */ }
@@ -343,7 +351,7 @@ function renderLedgerTable() {
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
       const trNow = i === 0 ? S.trafficStatus(DATA, name, led.end) : null;
-      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl">${mt.label}</td>`;
+      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl"${METRIC_HINT[mt.key] ? ` title="${esc(METRIC_HINT[mt.key])}"` : ''}>${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';

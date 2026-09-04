@@ -65,11 +65,13 @@ export const SALES_FIELDS = [
   ['carts', ['장바구니', '장바구니수']],
   ['conversion', ['구매전환율', '구매 전환율', '전환율']],
   ['returns', ['반품수', '반품 수량', '반품량', '반품 상품 수', '반품']],
-  ['cancels', ['취소수', '취소 수량', '취소량', '취소 상품 수', '취소']],
+  ['cancels', ['총 취소된 상품수', '취소된 상품수', '취소수', '취소 수량', '취소량', '취소 상품 수', '취소']],
+  ['gross_qty', ['총 판매수', '총판매수', '총 판매 수']],   // 취소 반영 전 판매 수 (판매량 = 총 판매수 − 취소 수)
   ['net_qty', ['순 판매 상품 수', '순판매량', '순 판매량', '순판매']],
 ];
 const SALES_TEXT = new Set(['option_id', 'option_name', 'product_name', 'product_id', 'category', 'sales_type']);
-const SALES_OPTIONAL = new Set(['returns', 'cancels', 'net_qty']); // 파일에 있을 때만 (없으면 0)
+const SALES_OPTIONAL = new Set(['returns', 'cancels', 'gross_qty', 'net_qty']); // 파일에 있을 때만 (없으면 null)
+const SALES_ABS = new Set(['returns', 'cancels']);   // 리포트가 취소를 음수(-1)로 적는다
 export const lastHeaders = { sales: [], ads: [] };
 
 // [필드, 별칭, 파서, 제외어]
@@ -98,7 +100,8 @@ export function normalizeSales(records, date) {
   lastHeaders.sales = headers;
   const normed = headers.map(normHeader);
   const idx = {};
-  for (const [f, aliases] of SALES_FIELDS) idx[f] = firstMatch(normed, aliases, f === 'returns' ? ['율', '금액'] : f === 'cancels' ? ['율', '금액'] : f === 'quantity' ? ['순', '취소', '반품'] : []);
+  const EXCL = { returns: ['율', '금액'], cancels: ['율', '금액', '즉시'], gross_qty: ['취소', '반품', '금액', '매출'], quantity: ['순', '취소', '반품', '총'] };
+  for (const [f, aliases] of SALES_FIELDS) idx[f] = firstMatch(normed, aliases, EXCL[f] || []);
   if (idx.option_id == null) return [];
   const out = [];
   for (const rec of records) {
@@ -113,7 +116,7 @@ export function normalizeSales(records, date) {
       if (f === 'option_id') continue;
       if (SALES_TEXT.has(f)) row[f] = f === 'product_id' ? cleanId(get(f)) : String(get(f) ?? '').trim();
       else if (f === 'conversion') row[f] = parsePercent(get(f));
-      else if (SALES_OPTIONAL.has(f)) row[f] = idx[f] == null ? null : (parseNumber(get(f)) ?? 0);
+      else if (SALES_OPTIONAL.has(f)) { const v = idx[f] == null ? null : (parseNumber(get(f)) ?? 0); row[f] = v == null ? null : (SALES_ABS.has(f) ? Math.abs(v) : v); }
       else row[f] = parseNumber(get(f)) ?? 0;
     }
     out.push(row);

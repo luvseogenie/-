@@ -222,13 +222,24 @@ console.log('extension logic: all checks passed');
   S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.upsertOption(d, { option_id: '2', product_name: 'b', campaign: 'C' }); S.setMargin(d, '1', 1000); S.setMargin(d, '2', 1000);
   S.upsertSales(d, rows); S.upsertAds(d, [{ date: '2025-06-08', campaign: 'C', target_roas: 3, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 4, action: '' }]); await S.save(d);
   const c = computeLedger(d, '2025-06-08', '2025-06-08').campaigns[0].days['2025-06-08'];
-  assert.equal(c.actual_qty, 15); assert.equal(c.returns, 2); assert.equal(c.cancels, 1); assert.equal(c.returns_cancels, 3); assert.equal(c.organic_qty, 11);
+  // 실제 판매 수 15(취소 반영 후) + 반품·취소 3 = 총 판매 수 18, 자연 = 18 − 광고 4 = 14
+  assert.equal(c.actual_qty, 15); assert.equal(c.returns, 2); assert.equal(c.cancels, 1); assert.equal(c.returns_cancels, 3);
+  assert.equal(c.gross_qty, 18); assert.equal(c.organic_qty, 14);
+  assert.equal(c.ad_orders + c.organic_qty - c.returns_cancels, c.actual_qty);   // 광고 전환 + 자연 − 반품·취소 = 실제
   // 열이 없을 때: 광고 전환 판매 5, 실제 판매 4 → 반품·취소 1, 자연 0 (사용자 스크린샷의 9/1 사례)
   S.upsertSales(d, [{ date: '2025-06-09', option_id: '1', option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: 1, orders: 4, quantity: 4, visitors: 0, views: 0, carts: 0, conversion: null }]);
   S.upsertAds(d, [{ date: '2025-06-09', campaign: 'C', target_roas: 3.5, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 5, action: '' }]); await S.save(d);
   const c9 = computeLedger(d, '2025-06-09', '2025-06-09').campaigns[0].days['2025-06-09'];
-  assert.equal(c9.ad_orders, 5); assert.equal(c9.actual_qty, 4); assert.equal(c9.organic_qty, 0); assert.equal(c9.returns_cancels, 1);
-  const m = computeLedger(d, '2025-06-08', '2025-06-09').campaigns[0].months['2025-06']; assert.equal(m.returns_cancels, 4); // 일별 합
+  assert.equal(c9.ad_orders, 5); assert.equal(c9.actual_qty, 4); assert.equal(c9.organic_qty, 0); assert.equal(c9.returns_cancels, 1); assert.equal(c9.gross_qty, 5);
+  const m = computeLedger(d, '2025-06-08', '2025-06-09').campaigns[0].months['2025-06']; assert.equal(m.returns_cancels, 4); assert.equal(m.gross_qty, 23); // 일별 합
+
+  // 실제 리포트 열 이름: 취소가 음수(-1)로 오고 '총 판매수' 열이 따로 있다
+  const real = normalizeSales([{ '옵션 ID': '1', '옵션명': 'a', '매출(원)': '71600', '주문': '4', '판매량': '4', '방문자': '10', '조회': '12', '장바구니': '1', '구매전환율': '0.98%', '아이템위너 비율(%)': '100', '총 매출(원)': '89500', '총 판매수': '5', '총 취소 금액(원)': '-17900', '총 취소된 상품수': '-1', '즉시 취소된 상품수': '0' }], '2025-06-10');
+  assert.equal(real[0].quantity, 4); assert.equal(real[0].gross_qty, 5); assert.equal(real[0].cancels, 1); assert.equal(real[0].revenue, 71600); assert.equal(real[0].visitors, 10);
+  S.upsertSales(d, real); S.upsertAds(d, [{ date: '2025-06-10', campaign: 'C', target_roas: 3, budget: 0, spend: 1000, ad_revenue: 5000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 3, action: '' }]); await S.save(d);
+  const c10 = computeLedger(d, '2025-06-10', '2025-06-10').campaigns[0].days['2025-06-10'];
+  assert.equal(c10.gross_qty, 5); assert.equal(c10.returns_cancels, 1); assert.equal(c10.organic_qty, 2); assert.equal(c10.actual_qty, 4);
+  assert.equal(c10.ad_orders + c10.organic_qty - c10.returns_cancels, c10.actual_qty);
   console.log('returns/cancels: all checks passed');
 }
 
