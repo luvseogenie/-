@@ -269,3 +269,47 @@ console.log('extension logic: all checks passed');
   assert.equal(T.campaignEffects(led, []).length, 0);
   console.log('traffic effect: all checks passed');
 }
+
+// 데이터 점검 (저장은 됐는데 화면에 안 보이는 이유)
+{
+  const C = await import('../../extension/lib/check.js');
+  await S.replaceAll({}); const d = await S.load();
+  S.upsertOption(d, { option_id: '1', product_name: 'a', campaign: 'C' }); S.setMargin(d, '1', 1000);
+  const sale = (date, id, q) => S.upsertSales(d, [{ date, option_id: id, option_name: 'a', product_name: '', product_id: '', category: '', sales_type: '', revenue: q * 3000, orders: q, quantity: q, visitors: 0, views: 0, carts: 0, conversion: null }]);
+  const ad = (date, spend) => S.upsertAds(d, [{ date, campaign: 'C', target_roas: 3, budget: 1000, spend, ad_revenue: spend * 3, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 1, action: '' }]);
+  sale('2025-06-10', '1', 3); ad('2025-06-10', 1000);
+  const r1 = C.dataCheck(d, '2025-06-01', '2025-06-30', '2025-06-10', 14);
+  const day = r1.rows.find((x) => x.date === '2025-06-10');
+  assert.equal(day.salesRows, 1); assert.equal(day.adsRows, 1); assert.equal(day.qty, 3); assert.equal(day.inRange, true); assert.equal(day.excelOnly, false);
+  approx(day.spend_vat, 1100, 1e-6); assert.equal(day.noMargin, 0); assert.equal(day.noCampaign, 0);
+  assert.equal(r1.issues.length, 0);
+  assert.equal(r1.rows.length, 14); assert.equal(r1.rows[0].date, '2025-05-28');
+
+  // 기간 밖에 저장된 데이터
+  const r2 = C.dataCheck(d, '2025-06-01', '2025-06-09', '2025-06-10', 14);
+  assert.equal(r2.issues.filter((i) => i.type === 'outOfRange')[0].date, '2025-06-10');
+  assert.equal(C.lastDataDate(d), '2025-06-10');
+  assert.equal(C.endRef(d, '2025-06-05'), '2025-06-10');   // 데이터가 어제보다 뒤면 그 날까지
+  assert.equal(C.endRef(d, '2025-06-20'), '2025-06-20');
+
+  // 마진·캠페인 없는 옵션
+  sale('2025-06-10', '9', 2);
+  const r3 = C.dataCheck(d, '2025-06-01', '2025-06-30', '2025-06-10', 14);
+  assert.equal(r3.rows.find((x) => x.date === '2025-06-10').noMargin, 2);
+  assert.equal(r3.rows.find((x) => x.date === '2025-06-10').noCampaign, 2);
+  assert.equal(r3.issues.filter((i) => i.type === 'noMargin')[0].qty, 2);
+
+  // 광고비 0 으로 저장된 날
+  ad('2025-06-10', 0);
+  assert.equal(C.dataCheck(d, '2025-06-01', '2025-06-30', '2025-06-10', 14).issues.filter((i) => i.type === 'zeroSpend')[0].date, '2025-06-10');
+  ad('2025-06-10', 1000);
+
+  // 엑셀 확정 구간이면 새 데이터가 무시된다
+  d.legacy = { '2025-06-12': { C: { spend_vat: 100, actual_qty: 1, margin_total: 100 } } }; await S.save(d);
+  const r4 = C.dataCheck(d, '2025-06-01', '2025-06-30', '2025-06-12', 14);
+  assert.equal(r4.cutoff, '2025-06-12');
+  const ex = r4.issues.filter((i) => i.type === 'excelOnly')[0];
+  assert.equal(ex.cutoff, '2025-06-12'); assert.equal(ex.days, 1); assert.equal(ex.from, '2025-06-10');
+  assert.equal(r4.rows.find((x) => x.date === '2025-06-10').excelOnly, true);
+  console.log('data check: all checks passed');
+}

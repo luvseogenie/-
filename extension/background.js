@@ -124,6 +124,7 @@ async function runAuto(dateOverride) {
     catch (e) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} 실패: ${e.message}`); results.push({ ok: false, error: e.message }); }
   }
   const okAll = results.every((r) => r.ok);
+  await chrome.storage.local.set({ lastAuto: { at: Date.now(), date: dateOverride || yesterdayIso(), ok: okAll, detail: results.map((r) => (r.ok ? `${r.date} ${r.saved}건` : r.error)).join(' / ') } });
   try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message: okAll ? '어제 판매·광고 데이터를 저장했습니다.' : '일부 수집이 실패했습니다. 장부 보기 → 백업 · 설정의 기록을 확인하세요.' }); } catch { /* 무시 */ }
   // 최근 N일 중 빠진 날도 채운다 (설정)
   const s = await getSettings();
@@ -151,9 +152,23 @@ async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }
-chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); });
+chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
+
+// 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
+async function catchUp() {
+  const s = await getSettings();
+  if (!s.autoEnabled) return;
+  const { lastAuto } = await chrome.storage.local.get('lastAuto');
+  const y = yesterdayIso();
+  if (lastAuto && lastAuto.date >= y) return;          // 이미 어제 것을 받았다
+  const [hh, mm] = s.autoTime.split(':').map(Number);
+  const now = new Date();
+  if (now.getHours() * 60 + now.getMinutes() < hh * 60 + mm) return;   // 아직 그 시각 전이면 알람에 맡긴다
+  await log(`[자동] 놓친 ${y} 수집을 지금 따라잡습니다`);
+  await runAuto();
+}
 chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
@@ -193,6 +208,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     else if (msg.type === 'cancelJob') { job.cancel = true; sendResponse({ ok: true }); }
     else if (msg.type === 'collectDate') { try { sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
+    else if (msg.type === 'autoStatus') {
+      const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
+      const { lastAuto = null } = await chrome.storage.local.get('lastAuto');
+      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto });
+    }
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
     else sendResponse({ ok: false });
   })();

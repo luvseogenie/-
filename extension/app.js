@@ -5,6 +5,7 @@ import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } fr
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
 import { campaignEffects, beforeAfter } from './lib/traffic.js';
+import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
@@ -25,9 +26,12 @@ async function reload() { DATA = await S.load(); return DATA; }
 
 /* ===== 기간 ===== */
 const range = { start: null, end: null, preset: '30' };
+const lastDataDate = () => (DATA ? lastDataOf(DATA) : null);
+// 기준 끝 날짜: 보통 어제. 저장된 데이터가 그보다 뒤 날짜면(리포트 파일 날짜가 오늘로 잡히는 경우) 그 날까지 본다.
+const endRef = () => (DATA ? endRefOf(DATA, localIso(yday)) : localIso(yday));
 function presetRange(p) {
-  const y = localIso(yday);
-  if (p === 'yday') return [y, y];
+  const y = endRef();
+  if (p === 'yday') return [y, y];   // '어제' = 가장 최근 데이터가 있는 날 (보통 어제)
   if (/^\d+$/.test(p)) return [addDays(y, -(Number(p) - 1)), y];   // 최근 N일 (어제까지)
   if (p === 'month') return [y.slice(0, 8) + '01', y];
   if (p === 'prev') { const d = new Date(today.getFullYear(), today.getMonth() - 1, 1); const e = new Date(today.getFullYear(), today.getMonth(), 0); return [localIso(d), localIso(e)]; }
@@ -105,8 +109,39 @@ async function renderDash() {
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
-  $('#notice').innerHTML = ''
+  const chk = dataStatus();
+  $('#notice').innerHTML = chk.banners.join('')
     + (legacyDays ? `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">이 기간 중 ${legacyDays}일(${led.legacyCutoff} 까지)은 광고비·판매 수·마진·순이익을 엑셀 4번 시트 확정값으로 씁니다. 총 매출·자연 매출은 판매 리포트 데이터가 있으면 거기서 가져오고, 없는 날은 총 매출 = 광고 매출로 표시됩니다.</div>` : '');
+  renderDataCheck(chk);
+  $$('#notice [data-fix]').forEach((b) => b.onclick = () => { const to = b.dataset.fix; $('#r-start').value = range.start; $('#r-end').value = to; setRange('custom'); });
+}
+
+/* ===== 데이터 점검 (저장은 됐는데 화면에 안 보일 때 이유를 알려준다) ===== */
+function dataStatus() {
+  const chk = dataCheck(DATA, range.start, range.end, endRef(), 14);
+  const warn = (t) => `<div class="notice" style="background:#fff4e5;border-color:#f3d19e;color:#8a5300">${t}</div>`;
+  const banners = chk.issues.map((it) => {
+    if (it.type === 'outOfRange') return warn(`가장 최근 저장 데이터는 <b>${it.date}</b> 인데 지금 보는 기간은 ${range.start} ~ ${range.end} 입니다. 그래서 화면에 안 나옵니다. <button class="btn sm" data-fix="${it.date}" style="margin-left:6px">${it.date} 까지 보기</button>`);
+    if (it.type === 'excelOnly') return warn(`최근 ${it.days}일치(${it.from} ~ ${it.to})는 <b>엑셀 4번 시트 확정 구간(${it.cutoff} 까지)</b>이라 새로 저장한 광고비·판매 수를 무시합니다. <a href="#data">데이터 · 설정</a> 에서 장부 값을 지우거나, 그 뒤 날짜로 저장하세요.`);
+    if (it.type === 'zeroSpend') return warn(`${it.date} 광고 표 ${it.rows}줄은 저장됐지만 <b>광고비가 0원</b>입니다. 광고센터 화면에서 '집행 광고비' 칸이 안 보였을 수 있습니다. 좌우 스크롤로 모든 칸이 보이게 한 뒤 ② 를 다시 눌러 보세요.`);
+    if (it.type === 'noMargin') return warn(`이 기간에 <b>마진이 없는 옵션 판매 ${fmtInt(it.qty)}개</b>가 있습니다. 매출에는 잡히지만 판매 마진·순이익에는 0원으로 들어갑니다. <a href="#options">캠페인 · 옵션</a> 에서 마진을 넣어 주세요.`);
+    return '';
+  }).filter(Boolean);
+  return { ...chk, banners };
+}
+function renderDataCheck(chk) {
+  const box = $('#dash-check'); if (!box) return;
+  const bad = (r) => !r.inRange || r.excelOnly;
+  let h = `<h2>🔎 데이터 점검 <span class="sub">최근 14일 · 저장은 됐는데 화면에 안 보이면 여기를 보세요</span></h2>
+    <div class="tablewrap"><table><thead><tr><th class="l">날짜</th><th>판매 옵션</th><th>판매 수</th><th>매출</th><th>광고 캠페인</th><th>광고비</th><th class="l">상태</th></tr></thead><tbody>`;
+  for (const r of chk.rows) {
+    const st = !r.salesRows && !r.adsRows ? '<span class="sub">데이터 없음</span>'
+      : r.excelOnly ? '<span class="pill bad">엑셀 확정 구간 — 무시됨</span>'
+      : !r.inRange ? '<span class="pill gray">이 기간 밖</span>'
+      : `<span class="pill good">반영됨</span>${r.noMargin ? ` <span class="sub">마진 없는 판매 ${fmtInt(r.noMargin)}개</span>` : ''}${r.noCampaign ? ` <span class="sub">캠페인 미지정 ${fmtInt(r.noCampaign)}개</span>` : ''}`;
+    h += `<tr${bad(r) && (r.salesRows || r.adsRows) ? ' style="background:#fff8ec"' : ''}><td class="l">${r.date}</td><td class="num">${r.salesRows || ''}</td><td class="num">${r.qty || ''}</td><td class="num">${r.revenue ? fmtWon(r.revenue) : ''}</td><td class="num">${r.adsRows || ''}</td><td class="num">${r.spend_vat ? fmtWon(r.spend_vat) : (r.adsRows ? '0' : '')}</td><td class="l">${st}</td></tr>`;
+  }
+  box.innerHTML = h + '</tbody></table></div>';
 }
 let campSort = { key: 'profit', dir: 'desc' };
 function renderCampTable(led) {
@@ -629,6 +664,14 @@ async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
   const { logs = [] } = await chrome.storage.local.get('logs'); $('#auto-log').textContent = logs.slice(-20).join('\n') || '(자동 수집 기록 없음)';
+  try {
+    const a = await chrome.runtime.sendMessage({ type: 'autoStatus' });
+    const when = a.nextAt ? new Date(a.nextAt).toLocaleString('ko-KR') : '-';
+    const last = a.lastAuto ? `${new Date(a.lastAuto.at).toLocaleString('ko-KR')} · ${a.lastAuto.ok ? '성공' : '실패'} (${a.lastAuto.detail || ''})` : '아직 실행된 적 없음';
+    $('#auto-status').innerHTML = a.enabled
+      ? `자동 수집 <b style="color:#1baf7a">켜짐</b> · 매일 ${a.time} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
+      : `자동 수집 <b style="color:#d03b3b">꺼짐</b> — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
+  } catch { $('#auto-status').textContent = ''; }
 }
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
@@ -773,5 +816,7 @@ async function migrateEndDateBug() {
   const hash = location.hash.slice(1);
   if (hash === 'import' || hash === 'range' || hash === 'paste' || hash === 'update') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; if (hash === 'update') setTimeout(() => $('#update-card').scrollIntoView(), 100); }
   else showPage(hash || 'dash');
-  chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccdata) { reload().then(() => { renderFoot(); if (page === 'dash') renderDash(); }); } });
+  chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccdata) { reload().then(() => { renderFoot(); renderCurrent(); }); } });
+  // 다른 탭에서 저장하고 이 탭으로 돌아왔을 때도 최신 데이터로 다시 그린다
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 })();
