@@ -60,7 +60,12 @@ async function readFromTab(tabId, kind) {
 async function collectKind(kind, dateOverride) {
   const s = await getSettings();
   const target = dateOverride || yesterdayIso();
-  const url = (kind === 'sales' ? s.salesUrl : s.adsUrl).replace(/\{date\}/g, target);
+  const baseUrl = kind === 'sales' ? s.salesUrl : s.adsUrl;
+  // 날짜를 콕 집어 받는데 주소에 {date} 가 없으면, 화면에 뜬 날(보통 어제) 값을 그 날짜로 잘못 저장하게 된다 → 미리 막는다
+  if (dateOverride && !baseUrl.includes('{date}') && dateOverride !== yesterdayIso()) {
+    throw new Error(`${kind === 'sales' ? '판매분석' : '광고 관리'} 주소에 {date} 가 없어 ${dateOverride} 를 열 수 없습니다. 광고센터에서 기간을 정해 보고서를 받아 '파일 올리기' 로 올리거나, 주소에 {date} 를 넣어 주세요`);
+  }
+  const url = baseUrl.replace(/\{date\}/g, target);
   const tab = await chrome.tabs.create({ url, active: false });
   try {
     await sleep(s.waitSeconds * 1000);
@@ -78,6 +83,8 @@ async function collectKind(kind, dateOverride) {
       return { ok: true, saved: res.saved, date: res.date };
     }
     if (!r) throw new Error(`${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 로그인이 풀렸거나 주소가 다를 수 있습니다 (${url})`);
+    // 화면에 뜬 날짜가 요청한 날짜와 다르면 저장하지 않는다 (다른 날 숫자가 그 날짜로 들어가는 사고 방지)
+    if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
     const n = await saveLocal(kind, date, r.records);
     await syncServer(kind, date, r.records);

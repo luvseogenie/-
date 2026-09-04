@@ -367,7 +367,10 @@ function renderLedgerTable() {
           if (p && Math.abs((p[mt.key] || 0) - (v || 0)) > 1e-9) { cls += ' chg'; title = `전일 ${CHANGE_ROWS[mt.key](p[mt.key] || 0)} → ${CHANGE_ROWS[mt.key](v || 0)}`; }
           if (mt.key === 'target_roas' && cell.action) { extra = ` <span class="memo" title="${esc(cell.action)}">📝</span>`; title = (title ? title + ' · ' : '') + '메모: ' + cell.action; }
         }
-        h += `<td class="${cls} num" ${title ? `title="${esc(title)}"` : ''}>${blank ? '' : fmt[mt.fmt](v)}${extra}</td>`;
+        // 반품·취소 수는 빠져나간 수이므로 앞에 - 를 붙여 보여준다 (저장된 값은 그대로 양수)
+        const shown = mt.key === 'returns_cancels' && v > 0 ? '-' + fmtInt(v) : fmt[mt.fmt](v);
+        if (mt.key === 'returns_cancels' && v > 0) cls += ' neg';
+        h += `<td class="${cls} num" ${title ? `title="${esc(title)}"` : ''}>${blank ? '' : shown}${extra}</td>`;
       }
       h += '</tr>';
     });
@@ -650,6 +653,30 @@ $('#wipe').onclick = async () => {
 };
 { const a = new Date(yday); a.setDate(a.getDate() - 6); $('#range-start').value = localIso(a); $('#range-end').value = localIso(yday); }
 const rangeDates = () => { const out = []; for (let d = $('#range-start').value; d <= $('#range-end').value; d = addDays(d, 1)) out.push(d); return out; };
+$$('#range-card [data-fill]').forEach((b) => b.onclick = () => {
+  const n = Number(b.dataset.fill); const end = localIso(yday);
+  $('#range-start').value = addDays(end, -(n - 1)); $('#range-end').value = end; $('#range-check').click();
+});
+$('#range-since').onclick = () => {
+  const end = localIso(yday); const last = lastDataDate();
+  const start = last ? (last < end ? addDays(last, 1) : end) : addDays(end, -6);
+  $('#range-start').value = start > end ? end : start; $('#range-end').value = end; $('#range-check').click();
+};
+$('#one-date').value = localIso(yday);
+$('#one-go').onclick = async () => {
+  const date = $('#one-date').value; if (!date) return;
+  const kinds = [$('#one-sales').checked && 'sales', $('#one-ads').checked && 'ads'].filter(Boolean);
+  if (!kinds.length) { msg('#one-msg', '판매나 광고 중 하나는 골라 주세요', 'err'); return; }
+  $('#one-go').disabled = true; msg('#one-msg', `${date} 가져오는 중… (탭이 열렸다 닫힙니다)`);
+  const out = [];
+  for (const kind of kinds) {
+    const r = await chrome.runtime.sendMessage({ type: 'collectDate', kind, date });
+    out.push(`${kind === 'sales' ? '판매' : '광고'} ${r.ok ? `${r.saved}건 저장` : '실패 — ' + r.error}`);
+  }
+  $('#one-go').disabled = false;
+  msg('#one-msg', out.join(' / '), out.every((x) => x.includes('저장')) ? 'ok' : 'err');
+  loadSettings(); refreshAll();
+};
 $('#range-check').onclick = () => { const d = DATA; const ds = rangeDates(); const ms = ds.filter((x) => !d.sales[x]), ma = ds.filter((x) => !d.ads[x]); $('#range-missing-list').innerHTML = `판매 없는 날 ${ms.length}일: ${ms.map((x) => x.slice(5)).join(', ') || '없음'}<br>광고 없는 날 ${ma.length}일: ${ma.map((x) => x.slice(5)).join(', ') || '없음'}`; };
 $('#range-go').onclick = async () => {
   const kinds = [$('#range-sales').checked && 'sales', $('#range-ads').checked && 'ads'].filter(Boolean); if (!kinds.length) return;
