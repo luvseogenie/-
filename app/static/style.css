@@ -162,7 +162,7 @@ table.grid td.prod { text-align: left; white-space: normal; min-width: 240px; }
 .empty { text-align: center !important; color: var(--muted); padding: 40px 10px !important; }
 
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal-box { background: var(--card2); border: 1px solid var(--line2); border-radius: 12px; width: min(900px, 92vw); max-height: 85vh; display: flex; flex-direction: column; }
+.modal-box { background: var(--card2); border: 1px solid var(--line2); border-radius: 12px; width: min(1100px, 94vw); max-height: 85vh; display: flex; flex-direction: column; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .modal-body { padding: 12px 14px; overflow: auto; }
 .modal-body pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: #c7cbd8; background: #0e1119; padding: 10px; border-radius: 8px; }
@@ -176,3 +176,5 @@ table.grid td.prod { text-align: left; white-space: normal; min-width: 240px; }
   .layout { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(3, 1fr); }
 }
+
+.grid tr.group-row td { background: #151a27; padding: 6px 10px; border-top: 1px solid var(--line2); text-align: left; }

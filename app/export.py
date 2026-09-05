@@ -9,7 +9,7 @@ from . import config
 
 COLUMNS = [
     ("판정", "verdict_label", 12), ("상품명", "name", 50), ("상품ID", "product_id", 12),
-    ("카테고리", "category_path", 40), ("판매가격", "price", 11), ("실제확인가", "verified_price", 11),
+    ("저장일", "saved_at", 19), ("카테고리", "category_path", 40), ("판매가격", "price", 11), ("실제확인가", "verified_price", 11),
     ("리뷰", "review_count", 8), ("평점", "rating", 6), ("28일 판매", "sales_28", 10), ("일평균", "daily_avg", 8),
     ("전환율(%)", "conversion", 9), ("28일 조회", "views_28", 10), ("28일 매출", "revenue_28", 14),
     ("리뷰당 판매", "sales_per_review", 10), ("배송", "delivery", 14), ("광고", "is_ad", 6), ("품절", "sold_out", 6),

@@ -332,13 +332,42 @@
     const logs = await api('/api/logs');
     openModal('로그', `<div>${logs.slice().reverse().map((l) => `<div class="log-line ${l.level}">${l.ts} ${esc(l.msg)}</div>`).join('') || '<span class="muted">로그가 없습니다.</span>'}</div>`);
   }
+  const arcView = { day: '', cat: '' };
   async function showArchive() {
-    const list = await api('/api/archive');
-    openModal('보관함', `<div class="row gap" style="margin-bottom:8px"><a href="/api/export?source=archive" class="btn">보관함 엑셀 내려받기</a><button class="btn" id="arc-del">선택 삭제</button><span class="muted small">${list.length}개</span></div>
-      <table class="grid"><thead><tr><th class="chk"></th><th class="left">상품</th><th>28일 판매</th><th>전환율</th><th>리뷰</th><th>가격</th><th>28일 매출</th><th>저장일</th></tr></thead><tbody>
-      ${list.map((r) => `<tr><td class="chk"><input type="checkbox" class="arc" data-id="${r.archive_id}"></td><td class="prod"><div class="pname"><a href="${esc(r.url)}" target="_blank">${esc(r.name)}</a></div><div class="pmeta">${esc((r.category_path || '').split(' > ').join(' › '))} · ID ${r.product_id}</div></td>
-        <td>${fmt(r.sales_28)}</td><td>${r.conversion ?? '-'}%</td><td>${fmt(r.review_count)}</td><td>${won(r.effective_price)}</td><td>${wonShort(r.revenue_28)}</td><td class="muted">${esc(r.saved_at)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">보관한 상품이 없습니다.</td></tr>'}
+    const all = await api('/api/archive');
+    const dayOf = (r) => (r.saved_at || '').slice(0, 10);
+    const days = Array.from(new Set(all.map(dayOf))).sort().reverse();
+    if (arcView.day && !days.includes(arcView.day)) arcView.day = '';
+    const byDay = arcView.day ? all.filter((r) => dayOf(r) === arcView.day) : all;
+    const cats = Array.from(new Set(byDay.map((r) => r.category_path || '').filter(Boolean))).sort();
+    if (arcView.cat && !cats.includes(arcView.cat)) arcView.cat = '';
+    const list = arcView.cat ? byDay.filter((r) => (r.category_path || '') === arcView.cat) : byDay;
+    const cnt = (d) => all.filter((r) => dayOf(r) === d).length;
+    const catShort = (c) => (c || '').split(' > ').slice(-2).join(' › ');
+    const qs = `${arcView.day ? '&day=' + encodeURIComponent(arcView.day) : ''}${arcView.cat ? '&cat=' + encodeURIComponent(arcView.cat) : ''}`;
+    // 저장일별로 묶는다 (최근 날짜가 위)
+    const groups = [];
+    for (const r of list) {
+      const d = dayOf(r);
+      let g = groups.find((x) => x.day === d);
+      if (!g) { g = { day: d, rows: [] }; groups.push(g); }
+      g.rows.push(r);
+    }
+    groups.sort((a, b) => (a.day < b.day ? 1 : -1));
+    const row = (r) => `<tr><td class="chk"><input type="checkbox" class="arc" data-id="${r.archive_id}"></td>
+        <td class="prod"><div class="pname"><a href="${esc(r.url)}" target="_blank">${esc(r.name)}</a></div><div class="pmeta">ID ${r.product_id}</div></td>
+        <td class="left small">${esc(catShort(r.category_path))}</td>
+        <td>${r.sales_est ? '≈ ' + fmt(r.sales_est) : (r.buyers_min ? fmt(r.buyers_min) + '+' : '-')}</td><td>${(r.sales_est && r.views_28) ? (r.sales_est / r.views_28 * 100).toFixed(2) + '%' : (r.conversion_min != null ? '≥ ' + r.conversion_min + '%' : '-')}</td><td>${fmt(r.review_count)}</td><td>${won(r.effective_price)}</td><td>${r.revenue_est ? '≈ ' + wonShort(r.revenue_est) : (r.revenue_min ? wonShort(r.revenue_min) : '-')}</td>
+        <td class="small">${esc(deliveryLabel(r.delivery))}</td><td class="muted small">${esc((r.saved_at || '').slice(11, 16))}</td></tr>`;
+    openModal('보관함', `<div class="row gap" style="margin-bottom:8px;flex-wrap:wrap">
+        <select id="arc-day" class="input" style="max-width:220px"><option value="">모든 날짜 (${all.length}개)</option>${days.map((d) => `<option value="${d}" ${arcView.day === d ? 'selected' : ''}>${d} (${cnt(d)}개)</option>`).join('')}</select>
+        <select id="arc-cat" class="input" style="max-width:320px"><option value="">모든 카테고리 (${byDay.length}개)</option>${cats.map((c) => `<option value="${esc(c)}" ${arcView.cat === c ? 'selected' : ''}>${esc(c.split(' > ').join(' › '))} (${byDay.filter((r) => r.category_path === c).length})</option>`).join('')}</select>
+        <a href="/api/export?source=archive${qs}" class="btn">이 목록 엑셀 내려받기</a><button class="btn" id="arc-del">선택 삭제</button><span class="muted small">${list.length}개 표시</span></div>
+      <table class="grid"><thead><tr><th class="chk"></th><th class="left">상품</th><th class="left">카테고리</th><th>28일 판매</th><th>전환율</th><th>리뷰</th><th>가격</th><th>28일 매출</th><th>배송</th><th>시각</th></tr></thead><tbody>
+      ${groups.map((g) => `<tr class="group-row"><td colspan="10"><b>${g.day}</b> <span class="muted small">저장 ${g.rows.length}개</span></td></tr>${g.rows.map(row).join('')}`).join('') || '<tr><td colspan="10" class="empty">보관한 상품이 없습니다.</td></tr>'}
       </tbody></table>`);
+    $('#arc-day').addEventListener('change', (e) => { arcView.day = e.target.value; arcView.cat = ''; showArchive(); });
+    $('#arc-cat').addEventListener('change', (e) => { arcView.cat = e.target.value; showArchive(); });
     $('#arc-del').addEventListener('click', guard(async () => {
       const ids = $$('.arc:checked').map((e) => Number(e.dataset.id));
       if (!ids.length) return toast('삭제할 항목을 선택하세요.', true);

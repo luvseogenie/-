@@ -410,9 +410,14 @@ async def archive_delete(req: Request):
 
 
 @app.get("/api/export")
-def export(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc", source: str = "results"):
+def export(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc", source: str = "results",
+           day: str = "", cat: str = ""):
     if source == "archive":
         rows = db.archive_list()
+        if day:
+            rows = [r for r in rows if (r.get("saved_at") or "").startswith(day)]
+        if cat:
+            rows = [r for r in rows if (r.get("category_path") or "") == cat]
     else:
         run = db.latest_run()
         if not run:
