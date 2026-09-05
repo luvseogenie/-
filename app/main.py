@@ -756,6 +756,46 @@ async def diag_options(req: Request):
     return {"ok": True, "text": "\n".join(lines)}
 
 
+@app.post("/api/diag/product")
+async def diag_product(req: Request):
+    """상품 1개를 열어 프로그램이 읽은 원본 값(구매자 문구, 판매자 정보, 배송 판정, 가격)을 그대로 보여준다."""
+    body = await req.json() if req.headers.get("content-length") not in (None, "0") else {}
+    if job.is_running():
+        return _err("작업이 진행 중일 때는 진단할 수 없습니다. 일시정지 또는 완전중단 후 눌러주세요.")
+    pid = body.get("product_id")
+    if not pid:
+        return _err("표에서 상품 하나를 체크한 뒤 눌러주세요.")
+    run_id = _current_run_id()
+    p = next((r for r in db.products(run_id) if r["product_id"] == int(pid)), None)
+    if not p:
+        return _err("현재 결과에 없는 상품입니다.")
+
+    def task(bt):
+        from .coupang_list import fetch_detail_price
+        return fetch_detail_price(bt.page(), p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
+    try:
+        d = browser.call(task, "상품 진단", timeout=180)
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+    lines = [f"상품: {p.get('name')} (ID {p['product_id']}, itemId {p.get('item_id')}, vendorItemId {p.get('vendor_item_id')})",
+             f"페이지: {d.get('page_mode')} · 제목: {(d.get('title') or '')[:60]}",
+             "",
+             f"[구매자] 문구 원문: {d.get('buyers_text') or '(못 찾음)'}",
+             f"[구매자] 읽은 값: {d.get('buyers_min')}",
+             "[구매자] 페이지의 모든 문구 (순서대로):"] + [f"   {i + 1}. …{t}…" for i, t in enumerate(d.get("buyers_all") or [])] + [
+             "",
+             f"[배송] 화면 판정: {d.get('page_delivery')} · 최종 판정: {d.get('delivery')} (근거 {d.get('delivery_how')})",
+             f"[판매자] API 응답 있음: {bool(d.get('btf_ok'))} · 이름 {d.get('seller_name')} · 국가 {d.get('seller_country')} · 표시 {d.get('seller_flags')}",
+             f"[판매자] 원본: {d.get('seller_raw') or '(없음)'}",
+             f"[판매자] 로켓프레시 {d.get('rocket_fresh')} · 배송비 문구 {d.get('delivery_charge_text') or '-'}",
+             "",
+             f"[가격] {d.get('price')} (출처 {d.get('source')}) · 일반가 {d.get('price_sale')} · 정가 {d.get('origin_price')} · 쿠폰 {d.get('coupon')}",
+             f"[기타] 다른 판매자 {d.get('sellers')} · 품절 {d.get('sold_out')}"]
+    text = "\n".join(lines)
+    log.info("상품 진단:\n" + text)
+    return {"ok": True, "text": text}
+
+
 @app.get("/api/capture/summary", response_class=PlainTextResponse)
 def capture_summary():
     files = sorted(config.CAPTURE_DIR.glob("*_요약.txt"))

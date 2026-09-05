@@ -119,6 +119,7 @@ def init_db():
     c.commit()
     _fix_global_badges()
     _reverify_missing_buyers()
+    _reverify_all_v2()
 
 
 def _reverify_missing_buyers():
@@ -131,6 +132,19 @@ def _reverify_missing_buyers():
     set_setting("reverify_buyers_v1", True)
     if cur.rowcount:
         log.info(f"'1만명 이상' 문구 인식 수정: 구매자 수가 비어 있던 확인 상품 {cur.rowcount}개를 다시 확인 대상으로 돌림")
+
+
+def _reverify_all_v2():
+    """'1만명' 문구 오독(다른 판매자 숫자를 읽음)과 로켓직구 오판을 겪은 확인 결과는 믿을 수 없으므로,
+    예전 코드로 확인한 상품을 전부 다시 확인 대상으로 돌린다 (값은 남기고 표시만 지움). 한 번만."""
+    if get_setting("reverify_all_v2"):
+        return
+    c = conn()
+    cur = c.execute("UPDATE products SET verified_at=NULL, delivery_sure=0 WHERE verified_at IS NOT NULL")
+    c.commit()
+    set_setting("reverify_all_v2", True)
+    if cur.rowcount:
+        log.info(f"확인 결과 재검토: 예전 방식으로 확인한 상품 {cur.rowcount}개를 다시 확인 대상으로 돌렸습니다 (상세 확인을 다시 돌려주세요)")
 
 
 def _fix_global_badges():

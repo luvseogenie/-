@@ -314,8 +314,20 @@ DETAIL_PRICE_JS = r"""
   const bm = body.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매/) || body.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*개\s*이상\s*(?:판매|구매)/)
     || (document.documentElement.outerHTML.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매/));
   if (bm) { const v = Number(bm[1].replace(/,/g, '')); if (!isNaN(v)) buyers = Math.round(bm[2] ? v * 10000 : v); }
+  // '다른 판매자' 목록에도 같은 문구가 있다. 그 목록보다 앞에 있는 문구(= 이 상품의 것)를 우선한다
+  const otherIdx = body.search(/다른\s*판매자/);
+  if (otherIdx > 0) {
+    const reMain = /([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매/g;
+    let m2; while ((m2 = reMain.exec(body)) && m2.index < otherIdx) {
+      const v2 = Number(m2[1].replace(/,/g, '')); if (!isNaN(v2)) { buyers = Math.round(m2[2] ? v2 * 10000 : v2); break; }
+    }
+  }
   const buyersText = (body.match(/[^.]{0,20}[\d,]+(?:\.\d+)?\s*만?\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
-  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText,
+  // 페이지에 있는 모든 '명 이상 구매' 문구 (진단용: 다른 판매자 목록의 숫자를 잘못 읽는지 확인)
+  const buyersAll = [];
+  const reAll = /[\d,]+(?:\.\d+)?\s*만?\s*명\s*이상\s*(?:이\s*)?구매/g;
+  let mm; while ((mm = reAll.exec(body)) && buyersAll.length < 8) buyersAll.push(body.slice(Math.max(0, mm.index - 40), mm.index + mm[0].length + 12).replace(/\s+/g, ' '));
+  return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText, buyers_all: buyersAll,
     delivery, delivery_how: deliveryHow, script_prices: scriptPrices, title: document.title };
 }
 """
@@ -673,7 +685,9 @@ def _parse_seller(btf, out):
     out["delivery_charge_text"] = (notice.get("deliveryCharge") or "")[:120]
     out["btf_ok"] = True
     if not seller:
+        out["seller_raw"] = json.dumps({"sellerDetailInfo": seller, "vendorItemDeliveryNotice": notice}, ensure_ascii=False)[:600]
         return {}            # 판매자 정보가 아예 없음 = 쿠팡 직매입(로켓배송)
+    out["seller_raw"] = json.dumps({"sellerDetailInfo": seller, "vendorItemDeliveryNotice": notice}, ensure_ascii=False)[:600]
     out["seller_name"] = seller.get("vendorName")
     out["seller_country"] = (seller.get("countryCode") or "").upper()
     out["seller_retail"] = bool(seller.get("retail"))
@@ -902,6 +916,9 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         page.wait_for_timeout(900)
         data = page.evaluate(DETAIL_PRICE_JS)
     out["buyers_min"] = data.get("buyers_min")
+    out["buyers_text"] = data.get("buyers_text")
+    out["buyers_all"] = data.get("buyers_all")
+    out["page_delivery"] = data.get("delivery")
     out["sellers"] = data.get("sellers")
     out["delivery"] = data.get("delivery")
     out["delivery_how"] = data.get("delivery_how")

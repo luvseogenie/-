@@ -505,6 +505,15 @@
     }
     if (el.dataset.action === 'diag') return runDiag();
     if (el.dataset.action === 'diag_site') return runDiagSite();
+    if (el.dataset.action === 'diag_product') {
+      const sel = Array.from(state.selected)[0];
+      if (!sel) return toast('표에서 상품 하나를 체크한 뒤 눌러주세요.', true);
+      toast('상품 페이지를 열어 원본 값을 읽습니다 (20초 정도)');
+      const r = await api('/api/diag/product', { product_id: sel });
+      openModal('상품 진단', `<button class="btn" id="copy-diagp">전체 복사</button><pre>${esc(r.text)}</pre>`);
+      $('#copy-diagp').addEventListener('click', () => { navigator.clipboard.writeText(r.text).then(() => toast('복사했습니다.')); });
+      return;
+    }
     if (el.dataset.action === 'diag_options') {
       const sel = Array.from(state.selected)[0];
       toast('옵션별 구매자 문구를 비교합니다 (옵션 최대 4개, 1~2분)');
