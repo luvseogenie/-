@@ -92,8 +92,10 @@ function pageDownloadHook() {
 }
 const installHook = (tabId) => chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: pageDownloadHook }).catch(() => {});
 let lastHookedUrl = null;   // 가로챈 다운로드 주소 (진단용)
+const recentHooked = new Map();   // 같은 주소가 잇달아 두 번 잡히면(메뉴 클릭 이벤트가 겹침) 한 번만 받는다
 async function fetchAndImport(url, how, baseUrl) {
   try { url = new URL(url, baseUrl || undefined).href; } catch { /* 그대로 */ }
+  const seen = recentHooked.get(url); if (seen && Date.now() - seen < 60000) return; recentHooked.set(url, Date.now());
   lastHookedUrl = { url, how, at: Date.now() };
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
