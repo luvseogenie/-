@@ -38,7 +38,8 @@ WING_CONFIG_PATH = DATA_DIR / "wing_config.json"
 for _d in (DATA_DIR, PROFILE_DIR, LOG_DIR, CAPTURE_DIR, DEBUG_DIR, EXPORT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
-HOST = os.environ.get("CS_HOST", "127.0.0.1")
+LAN_FLAG = DATA_DIR / "lan.txt"                  # 있으면 같은 와이파이의 휴대폰에서도 대시보드를 열 수 있게 함
+HOST = os.environ.get("CS_HOST") or ("0.0.0.0" if LAN_FLAG.exists() else "127.0.0.1")
 PORT = int(os.environ.get("CS_PORT", "8765"))
 
 COUPANG_HOME = "https://www.coupang.com/"

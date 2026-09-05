@@ -446,6 +446,14 @@ def export(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales"
 @app.post("/api/tools/{name}")
 def tools(name: str):
     try:
+        if name == "lan_toggle":
+            if config.LAN_FLAG.exists():
+                config.LAN_FLAG.unlink()
+                return {"ok": True, "message": "휴대폰에서 보기를 껐습니다. 프로그램을 껐다 켜면 적용됩니다 (2_run.bat)."}
+            config.LAN_FLAG.write_text("on", encoding="utf-8")
+            ip = _lan_ip() or "(컴퓨터 IP)"
+            return {"ok": True, "message": f"휴대폰에서 보기를 켰습니다. 프로그램을 껐다 켜면(2_run.bat) 같은 와이파이의 휴대폰에서 http://{ip}:{config.PORT}/ 로 열 수 있습니다. "
+                                           "처음 실행 때 Windows 방화벽 창이 뜨면 '액세스 허용'을 눌러주세요. 집·사무실 와이파이에서만 쓰세요."}
         if name == "open_browser":
             browser.call(lambda bt: bt.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000), "브라우저 열기", timeout=90)
             return {"ok": True, "message": "브라우저 창을 열었습니다."}
@@ -911,8 +919,22 @@ def _wait_port_free(timeout=25):
     return False
 
 
+def _lan_ip() -> str:
+    """같은 와이파이에서 접속할 때 쓰는 이 컴퓨터의 주소."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def main():
-    print(f"쿠팡 소싱 프로그램 v{updater.current_version()}: http://{config.HOST}:{config.PORT}/  (이 창을 닫으면 프로그램이 종료됩니다)")
+    print(f"쿠팡 소싱 프로그램 v{updater.current_version()}: http://127.0.0.1:{config.PORT}/  (이 창을 닫으면 프로그램이 종료됩니다)")
+    if config.HOST == "0.0.0.0":
+        ip = _lan_ip()
+        if ip:
+            print(f"휴대폰에서 보기: 같은 와이파이에서 http://{ip}:{config.PORT}/  (처음 한 번 Windows 방화벽 '허용'을 눌러주세요)")
     if not _wait_port_free():
         print("이미 프로그램이 실행 중인 것 같습니다. 기존 창을 닫고 다시 실행해 주세요.")
     threading.Thread(target=_open_dashboard, daemon=True).start()
