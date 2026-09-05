@@ -246,16 +246,24 @@ class JobController:
         self.progress["done"] = self.progress["total"]
         log.info(f"쿠폰 적용가 확인 완료 · 쿠폰가로 새로 조건에 들어온 상품 {moved_in}개")
 
-    def _with_retry(self, fn, tries=3):
+    def _cooldown(self, attempt: int, what: str):
+        """차단 시 점점 길게 쉰다 (3분 → 10분 → 20분 → 30분). 손 대지 않아도 알아서 재개."""
+        cds = config.BLOCK_COOLDOWNS
+        secs = cds[min(attempt - 1, len(cds) - 1)]
+        self.message = f"차단 감지: {what}. {secs // 60}분 쉬었다가 자동으로 이어갑니다 ({attempt}/{len(cds)})"
+        log.warn(self.message)
+        self._sleep_checked(secs)
+        self.message = ""
+
+    def _with_retry(self, fn, tries=None):
+        tries = tries or len(config.BLOCK_COOLDOWNS)
         for attempt in range(1, tries + 1):
             try:
                 result = fn()
                 self.blocked_streak = 0
                 return result
             except BlockedError as e:
-                self.message = f"차단 감지: {e}. {config.BLOCK_COOLDOWN}초 쉬었다가 다시 시도합니다 ({attempt}/{tries})"
-                log.warn(self.message)
-                self._sleep_checked(config.BLOCK_COOLDOWN)
+                self._cooldown(attempt, str(e))
                 try:
                     browser.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
                     browser.page().wait_for_timeout(2000)
@@ -267,7 +275,7 @@ class JobController:
         self.blocked_streak = getattr(self, "blocked_streak", 0) + 1
         if self.blocked_streak >= 2:
             self.paused = True
-            self.message = ("쿠팡이 계속 접근을 막고 있습니다(403). 30분~1시간 뒤에 브라우저 창에서 쿠팡 상품 페이지를 하나 직접 열어 "
+            self.message = ("쿠팡이 1시간 넘게 계속 접근을 막고 있습니다(403). 브라우저 창에서 쿠팡 상품 페이지를 하나 직접 열어 "
                             "정상적으로 보이는지 확인한 뒤 [재개]를 눌러주세요. 보안 확인 화면이 뜨면 직접 통과해 주세요.")
             log.warn(self.message)
             self.blocked_streak = 0
@@ -341,13 +349,10 @@ class JobController:
                     blocks = 0
             except BlockedError as e:
                 blocks += 1
-                if blocks > 2:
+                if blocks > len(config.BLOCK_COOLDOWNS):
                     log.warn(f"{e} · 쉬어도 계속 막혀 리뷰 추정을 중단합니다 (나중에 [리뷰로 판매량 추정] 을 다시 누르면 남은 상품만 이어서 합니다)")
                     break
-                log.warn(f"{e} · {config.BLOCK_COOLDOWN}초 쉬었다가 이어서 합니다 ({blocks}/2)")
-                self.message = f"차단 감지: 리뷰 API. {config.BLOCK_COOLDOWN}초 쉬는 중"
-                self._sleep_checked(config.BLOCK_COOLDOWN)
-                self.message = ""
+                self._cooldown(blocks, str(e))
                 try:
                     ensure_product_context(page, p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
                 except Exception:  # noqa: BLE001
@@ -601,7 +606,7 @@ class JobController:
                         parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(3.0, 6.0)
+                human_delay(*config.DETAIL_DELAY)
             log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----

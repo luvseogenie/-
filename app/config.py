@@ -57,6 +57,9 @@ SEARCH_LIST_SIZE = 72        # 검색 페이지는 최대 72개
 DELAY_MIN = 1.5
 DELAY_MAX = 3.0
 BLOCK_COOLDOWN = 120
+# 차단이 이어질 때 쉬는 시간(초): 3분 → 10분 → 20분 → 30분 → 30분 (사람 손 없이 알아서 기다렸다 재개)
+BLOCK_COOLDOWNS = [180, 600, 1200, 1800, 1800]
+DETAIL_DELAY = (6.0, 12.0)         # 상품 상세 페이지 사이 대기(초)
 BROWSER = os.environ.get("CS_BROWSER", "auto")   # auto | whale | msedge | chrome
 BROWSER_PREF_FILE = DATA_DIR / "browser.txt"      # 도구에서 고른 브라우저 (msedge/chrome/whale)
 
@@ -83,8 +86,8 @@ DEFAULT_CONDITIONS = {
     "conv_min": 0,
     "buyers_min": 0,
     "sales28_min": 0,
-    "auto_verify": False,         # 손 놓으면 자동 시 상세 확인(페이지 열기)까지 이어갈지
-    "review_estimate": True,      # 최근 28일 리뷰 수 × 배수로 판매량 추정 (페이지 안 열고 API 만)
+    "auto_verify": True,         # 손 놓으면 자동 시 상세 확인(페이지 열기)까지 이어갈지
+    "review_estimate": False,      # 최근 28일 리뷰 수 × 배수로 판매량 추정 (페이지 안 열고 API 만)
     "review_multiplier": 20,      # 리뷰 1개당 판매 개수(추정 배수)
     "quick_price": False,         # 수집 직후 쿠폰 적용가 미리 확인 (가격 API 를 많이 불러 차단 위험, 기본 끔)
     "sum_options": True,          # 월 구매자 수를 옵션 전체 합산 (옵션마다 페이지를 열어야 해서 느림)

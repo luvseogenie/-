@@ -591,24 +591,57 @@ def _ensure_coupang(page):
         pass
 
 
-def _fetch_price_api(page, product_id, item_id, vendor_item_id, out):
-    """쿠팡 가격 API: 쿠폰·와우 할인까지 적용된 최종가."""
-    if not vendor_item_id:
+_captured = {"quantity": {}, "btf": {}}     # productId -> JSON (상품 페이지가 스스로 부른 API 응답)
+_capture_pages = set()
+
+
+def _on_response(resp):
+    try:
+        url = resp.url or ""
+        if "next-api/products/quantity-info" in url:
+            kind = "quantity"
+        elif "next-api/products/btf" in url:
+            kind = "btf"
+        else:
+            return
+        m = re.search(r"productId=(\d+)", url)
+        if not m or resp.status != 200:
+            return
+        _captured[kind][int(m.group(1))] = resp.json()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def install_capture(page):
+    """상품 페이지가 로드되며 스스로 부르는 가격·판매자 API 응답을 저장해 둔다.
+    (우리가 같은 API 를 또 부르지 않아도 되므로 요청 수가 줄어 차단 위험이 낮아진다)"""
+    key = id(page)
+    if key in _capture_pages:
         return
-    url = QUANTITY_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or "")
-    r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
-                                                                         "x-requested-with": "XMLHttpRequest"}})
-    ctype = (r.get("ctype") or "")
-    if r.get("status") != 200 or "json" not in ctype:
-        log.warn(f"가격 API 응답 이상 {product_id}: HTTP {r.get('status')} {ctype[:30]} {(r.get('text') or '')[:80]!r}")
-        return
-    data = json.loads(r["text"])
+    try:
+        page.on("response", _on_response)
+        _capture_pages.add(key)
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"응답 가로채기 설정 실패(무시): {e}")
+
+
+def _wait_captured(page, product_id, kinds=("quantity", "btf"), timeout_ms=2500):
+    """페이지가 API 를 부를 때까지 잠깐 기다린다."""
+    waited = 0
+    while waited < timeout_ms:
+        if all(product_id in _captured[k] for k in kinds):
+            return True
+        page.wait_for_timeout(250)
+        waited += 250
+    return all(product_id in _captured[k] for k in kinds)
+
+
+def _parse_price(data, out) -> bool:
     first = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
     price = (first or {}).get("price") or {}
     final = _num(price.get("finalPrice")) or _num(price.get("couponPrice")) or _num(price.get("salePrice"))
     if not final:
-        log.warn(f"가격 API 에 가격이 없음 {product_id}: {str(price)[:120]}")
-        return
+        return False
     out["price"] = final
     out["origin_price"] = _num(price.get("originPrice"))
     out["coupon"] = bool(price.get("hasNormalCouponDiscount") or price.get("hasWowCouponDiscount"))
@@ -619,20 +652,11 @@ def _fetch_price_api(page, product_id, item_id, vendor_item_id, out):
             break
     if not out.get("price_sale"):
         out["price_sale"] = _num(price.get("salePrice"))
+    return True
 
 
-def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
-    """판매자 정보 API: 쿠팡 직매입 여부, 판매자로켓(goldFish) 여부."""
-    if not vendor_item_id:
-        return None
-    r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
-                                 "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
-                                                              "x-requested-with": "XMLHttpRequest"}})
-    if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
-        log.warn(f"판매자 API 응답 이상 {product_id}: HTTP {r.get('status')}")
-        return None
-    btf = json.loads(r["text"]) or {}
-    rp = btf.get("returnPolicyVo") or {}
+def _parse_seller(btf, out):
+    rp = (btf or {}).get("returnPolicyVo") or {}
     seller = rp.get("sellerDetailInfo")
     notice = rp.get("vendorItemDeliveryNotice") or {}
     out["rocket_fresh"] = bool(notice.get("rocketFresh"))
@@ -648,6 +672,36 @@ def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
     out["seller_3pm"] = bool(seller.get("threePM"))
     out["seller_3pc"] = bool(seller.get("threePC"))
     return seller
+
+
+def _fetch_price_api(page, product_id, item_id, vendor_item_id, out):
+    """쿠팡 가격 API: 쿠폰·와우 할인까지 적용된 최종가."""
+    if not vendor_item_id:
+        return
+    url = QUANTITY_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or "")
+    r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
+                                                                         "x-requested-with": "XMLHttpRequest"}})
+    ctype = (r.get("ctype") or "")
+    if r.get("status") != 200 or "json" not in ctype:
+        log.warn(f"가격 API 응답 이상 {product_id}: HTTP {r.get('status')} {ctype[:30]} {(r.get('text') or '')[:80]!r}")
+        return
+    data = json.loads(r["text"])
+    if not _parse_price(data, out):
+        log.warn(f"가격 API 에 가격이 없음 {product_id}")
+
+
+def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
+    """판매자 정보 API: 쿠팡 직매입 여부, 판매자로켓(goldFish) 여부."""
+    if not vendor_item_id:
+        return None
+    r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
+                                 "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
+                                                              "x-requested-with": "XMLHttpRequest"}})
+    if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
+        log.warn(f"판매자 API 응답 이상 {product_id}: HTTP {r.get('status')}")
+        return None
+    btf = json.loads(r["text"]) or {}
+    return _parse_seller(btf, out)
 
 
 def ensure_product_context(page, product_id: int, item_id=None, vendor_item_id=None):
@@ -792,6 +846,7 @@ def _product_url(product_id, item_id=None, vendor_item_id=None, mobile: bool = F
 
 def _goto_product(page, product_id, item_id=None, vendor_item_id=None):
     """상품 페이지를 연다. www 가 막혀 있으면 모바일 페이지(m.coupang.com)로 대체한다."""
+    install_capture(page)
     if _mobile_mode["on"] and time.time() - _mobile_mode["since"] < 3600:
         _goto(page, _product_url(product_id, item_id, vendor_item_id, mobile=True), None)
         return "mobile"
@@ -843,11 +898,20 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     out["delivery_how"] = data.get("delivery_how")
     out["sold_out"] = bool(data.get("sold_out"))
     # 1) 가격: API → 페이지 내장 데이터 → 화면 요소 (모바일 페이지에서는 API 를 건너뜀)
+    captured_seller = None
     if mode == "www":
-        try:
-            _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"가격 API 실패 {product_id}: {e}")
+        _wait_captured(page, product_id)
+        q = _captured["quantity"].pop(product_id, None)
+        b = _captured["btf"].pop(product_id, None)
+        if q is not None and _parse_price(q, out):
+            out["source"] = "api(page)"
+        if b is not None:
+            captured_seller = _parse_seller(b, out)
+        if out["price"] is None:
+            try:
+                _fetch_price_api(page, product_id, item_id, vendor_item_id, out)
+            except Exception as e:  # noqa: BLE001
+                log.warn(f"가격 API 실패 {product_id}: {e}")
     if out["price"] is None:
         sp = data.get("script_prices") or {}
         final = sp.get("final") or sp.get("coupon") or sp.get("sale")
@@ -862,8 +926,8 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
             out["source"] = "page"
             break
     # 2) 배송: 판매자 정보 기준
-    seller = None
-    if mode == "www":
+    seller = captured_seller
+    if mode == "www" and not out.get("btf_ok"):
         try:
             seller = _fetch_seller(page, product_id, item_id, vendor_item_id, out)
         except Exception as e:  # noqa: BLE001
