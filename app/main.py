@@ -1,6 +1,7 @@
 """웹 서버. 대시보드 화면과 API를 제공한다."""
 import json
 import random
+import socket
 import threading
 import time
 import webbrowser
