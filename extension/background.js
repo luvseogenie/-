@@ -47,14 +47,35 @@ async function flushQueue() {
   await chrome.storage.local.set({ queue: left });
 }
 
-async function readFromTab(tabId, kind) {
+async function readFromTab(tabId, kind, type = 'read') {
   let ids = [0];
   try { const frames = await chrome.webNavigation.getAllFrames({ tabId }); if (frames) ids = frames.map((f) => f.frameId); } catch { /* 무시 */ }
   let best = null;
   for (const frameId of ids) {
-    try { const r = await chrome.tabs.sendMessage(tabId, { type: 'read', kind }, { frameId }); if (r?.ok && (!best || r.records.length > best.records.length)) best = r; } catch { /* 무시 */ }
+    try { const r = await chrome.tabs.sendMessage(tabId, { type, kind }, { frameId }); if (r?.ok && (!best || r.records.length > best.records.length)) best = r; } catch { /* 무시 */ }
   }
   return best;
+}
+const inject = (tabId) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }).catch(() => {});
+// 백그라운드 탭은 화면이 늦게 그려질 수 있다 → 표가 보일 때까지 정해진 시간까지 다시 읽어 본다
+async function readWithRetry(tabId, kind, deadline) {
+  for (;;) {
+    await inject(tabId);
+    const r = await readFromTab(tabId, kind);
+    if (r) return r;
+    if (Date.now() >= deadline) return null;
+    await sleep(2500);
+  }
+}
+
+// 주소가 도메인만이거나 목록 화면이 아닐 때 무엇을 고쳐야 하는지 알려 준다
+function urlHint(kind, baseUrl) {
+  const bare = /^https?:\/\/[^/]+\/?$/.test(String(baseUrl || '').trim());
+  if (kind === 'ads' && (bare || !/\/marketing\//.test(baseUrl))) {
+    return `광고 관리 주소가 캠페인 목록 화면이 아닙니다 (${baseUrl}). 광고센터 → 광고 관리 → 매출 성장 화면을 연 뒤 그 주소를 넣거나, 설정의 '기본 주소로' 를 누르세요 (${DEFAULTS.adsUrl})`;
+  }
+  if (kind === 'sales' && bare) return `판매분석 주소가 도메인만 있습니다 (${baseUrl}). 설정의 '기본 주소로' 를 누르세요 (${DEFAULTS.salesUrl})`;
+  return null;
 }
 
 async function collectKind(kind, dateOverride) {
@@ -67,22 +88,31 @@ async function collectKind(kind, dateOverride) {
   }
   const url = baseUrl.replace(/\{date\}/g, target);
   const tab = await chrome.tabs.create({ url, active: false });
+  const deadline = Date.now() + s.waitSeconds * 1000 + 45000;   // 화면이 늦게 떠도 이 시간까지는 기다린다
   try {
-    await sleep(s.waitSeconds * 1000);
-    try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['content.js'] }); } catch { /* 이미 있음 */ }
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    await inject(tab.id);
     if (!url.includes('{date}') && !url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
-    let r = await readFromTab(tab.id, kind);
+    let r = await readWithRetry(tab.id, kind, kind === 'sales' ? Date.now() + s.waitSeconds * 1000 : deadline);
+    if (r && kind === 'ads') { const full = await readFromTab(tab.id, kind, 'readAll'); if (full?.records?.length > r.records.length) r = full; }
     if (!r && kind === 'sales') {
       // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
+      let c = null;
+      for (let i = 0; i < 3 && Date.now() < deadline; i++) {
+        await inject(tab.id);
+        c = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
+        if (c?.ok) break;
+        await sleep(4000);
+      }
+      if (!c?.ok) throw new Error(`${c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다'} (${url}) — 화면이 다 뜨기 전일 수 있습니다. 설정의 '대기(초)' 를 20~30 으로 올려 보세요`);
       expectUntil = Date.now() + 120000; expectDate = target;
       const waiting = waitForReport(90000);
-      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
-      if (!c?.ok) { settle(null); throw new Error(c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다'); }
+      await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
       const res = await waiting; // onChanged 에서 저장이 끝나면 풀린다
       if (!res?.ok) throw new Error(res?.error || '리포트 저장 실패');
       return { ok: true, saved: res.saved, date: res.date };
     }
-    if (!r) throw new Error(`${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 로그인이 풀렸거나 주소가 다를 수 있습니다 (${url})`);
+    if (!r) throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 로그인이 풀렸거나 주소가 다를 수 있습니다 (${url})`);
     // 화면에 뜬 날짜가 요청한 날짜와 다르면 저장하지 않는다 (다른 날 숫자가 그 날짜로 들어가는 사고 방지)
     if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
@@ -125,6 +155,7 @@ async function collectRange(start, end, kinds, onlyMissing) {
 }
 
 async function runAuto(dateOverride) {
+  await fixUrls();
   const results = [];
   for (const kind of ['sales', 'ads']) {
     try { results.push(await collectKind(kind, dateOverride)); }
@@ -143,6 +174,26 @@ async function runAuto(dateOverride) {
   return results;
 }
 
+// 설정한 주소가 쓸 만한지 확인만 한다 (저장하지 않음)
+async function testUrl(kind) {
+  const s = await getSettings();
+  const baseUrl = kind === 'sales' ? s.salesUrl : s.adsUrl;
+  const hint = urlHint(kind, baseUrl);
+  const target = yesterdayIso();
+  const url = baseUrl.replace(/\{date\}/g, target);
+  const tab = await chrome.tabs.create({ url, active: false });
+  try {
+    const deadline = Date.now() + s.waitSeconds * 1000 + 30000;
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    await inject(tab.id);
+    if (!url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
+    const r = await readWithRetry(tab.id, kind, deadline);
+    let download = null;
+    if (!r && kind === 'sales') { await inject(tab.id); download = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport', dryRun: true }).catch(() => null); }
+    return { ok: !!r || !!download?.ok, rows: r?.records?.length || 0, headers: r?.headers?.slice(0, 8) || [], date: r?.date || null, url, hint, download: download?.ok ? '엑셀 다운로드 버튼을 찾았습니다' : null };
+  } finally { await chrome.tabs.remove(tab.id).catch(() => {}); }
+}
+
 async function scheduleAlarm() {
   const s = await getSettings();
   await chrome.alarms.clear('daily');
@@ -153,13 +204,22 @@ async function scheduleAlarm() {
   await chrome.alarms.create('daily', { when: next.getTime(), periodInMinutes: 24 * 60 });
 }
 
-chrome.runtime.onInstalled.addListener((d) => { scheduleAlarm(); scheduleUpdateAlarms(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); });
+// 주소가 도메인만 저장돼 있으면(예: https://advertising.coupang.com/) 기본 주소로 되돌린다
+async function fixUrls() {
+  const s = await getSettings(); const out = {};
+  const bare = (u) => /^https?:\/\/[^/]+\/?$/.test(String(u || '').trim());
+  if (bare(s.adsUrl) || !s.adsUrl) out.adsUrl = DEFAULTS.adsUrl;
+  if (bare(s.salesUrl) || !s.salesUrl) out.salesUrl = DEFAULTS.salesUrl;
+  if (Object.keys(out).length) { await chrome.storage.sync.set(out); await log(`[설정] 주소가 도메인만 있어 기본값으로 되돌렸습니다: ${Object.entries(out).map(([k, v]) => `${k}=${v}`).join(', ')}`); }
+}
+
+chrome.runtime.onInstalled.addListener((d) => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); });
 async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-remote', { periodInMinutes: 360 });   // 새 버전 있는지
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }
-chrome.runtime.onStartup.addListener(() => { scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
+chrome.runtime.onStartup.addListener(() => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
 
 // 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
 async function catchUp() {
@@ -215,13 +275,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     else if (msg.type === 'cancelJob') { job.cancel = true; sendResponse({ ok: true }); }
     else if (msg.type === 'collectDate') { try { sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
+    else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
       const { lastAuto = null } = await chrome.storage.local.get('lastAuto');
       sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto });
     }
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
-    else sendResponse({ ok: false });
-  })();
+    else { console.log('[cc] unknown message', JSON.stringify(msg)); sendResponse({ ok: false }); }
+  })().catch((e) => { console.log('[cc] handler error', String(e && e.stack || e)); try { sendResponse({ ok: false, error: e.message }); } catch { /* 무시 */ } });
   return true;
 });

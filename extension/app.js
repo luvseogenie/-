@@ -693,6 +693,18 @@ async function loadSettings() {
       : `자동 수집 <b style="color:#d03b3b">꺼짐</b> — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
   } catch { $('#auto-status').textContent = ''; }
 }
+$$('[data-reseturl]').forEach((b) => b.onclick = async () => { const k = b.dataset.reseturl; $('#set-' + k).value = SETTINGS[k]; await chrome.storage.sync.set({ [k]: SETTINGS[k] }); msg('#set-msg', '기본 주소로 되돌리고 저장했습니다', 'ok'); });
+$$('[data-testurl]').forEach((b) => b.onclick = async () => {
+  const kind = b.dataset.testurl;
+  // 시험은 지금 칸에 적힌 주소로 한다 → 먼저 저장
+  await chrome.storage.sync.set({ salesUrl: $('#set-salesUrl').value.trim(), adsUrl: $('#set-adsUrl').value.trim() });
+  b.disabled = true; $('#url-test').textContent = `${kind === 'sales' ? '판매분석' : '광고 관리'} 주소를 열어 보는 중… (탭이 열렸다 닫힙니다)`;
+  const r = await chrome.runtime.sendMessage({ type: 'testUrl', kind });
+  b.disabled = false;
+  if (r.hint) $('#url-test').innerHTML = `<span style="color:#a52a2a">${esc(r.hint)}</span>`;
+  else if (r.ok) $('#url-test').innerHTML = `<span style="color:#0a7a0a">읽었습니다</span> · ${r.rows ? `${r.rows}줄 · 열: ${esc(r.headers.join(', '))}` : esc(r.download || '')}${r.date ? ` · 화면 날짜 ${r.date}` : ''}`;
+  else $('#url-test').innerHTML = `<span style="color:#a52a2a">이 주소에서는 표도 다운로드 버튼도 못 찾았습니다</span> (${esc(r.url || '')}). 로그인이 풀렸거나 다른 화면일 수 있습니다.`;
+});
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
 $('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
 

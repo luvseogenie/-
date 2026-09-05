@@ -278,9 +278,10 @@
       .filter((e) => visible(e) && e.children.length <= 2 && clean(e.innerText).includes(keyword))
       .map((e) => `${e.tagName.toLowerCase()}:${clean(e.innerText).slice(0, 40)}`).slice(0, 12);
   }
-  async function clickDownloadReport() {
+  async function clickDownloadReport(dryRun = false) {
     const btn = findByText('엑셀 다운로드')[0] || findByText('엑셀 다운로드', false)[0];
     if (!btn) return { ok: false, reason: '엑셀 다운로드 버튼을 찾지 못했습니다', diag: visibleTexts('다운로드') };
+    if (dryRun) return { ok: true, found: true };   // 시험: 버튼만 확인하고 누르지 않는다
     const ITEM = ['상품별 판매 리포트', '상품별 판매', '상품별'];
     // 1) 마우스 올림으로 열리는 메뉴 (Ant Design Dropdown 기본)
     fire(btn, HOVER); let item = await findItem(ITEM, 8);
@@ -327,9 +328,18 @@
   }
 
   // ---------- '어제' 버튼 클릭 (자동 수집용) ----------
+  function findYesterday() {
+    return deepAll('button, a, label, li, span, div, td').filter((e) => clean(e.innerText) === '어제' && e.offsetParent !== null);
+  }
   function clickYesterday() {
-    const els = [...document.querySelectorAll('button, a, label, li, span, div')].filter((e) => clean(e.innerText) === '어제' && e.offsetParent !== null);
-    if (els.length) { els[0].click(); return true; }
+    let els = findYesterday();
+    if (!els.length) {
+      // 기간 선택기가 닫혀 있으면 먼저 열어 본다 (오늘/기간/날짜 버튼)
+      const opener = deepAll('button, a, div[class*="date" i], div[class*="period" i], div[class*="picker" i]')
+        .filter((e) => e.offsetParent !== null && /^(오늘|기간|날짜|최근|이번 달|\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/.test(clean(e.innerText)))[0];
+      if (opener) { fire(opener, HOVER); fire(opener, CLICK); els = findYesterday(); }
+    }
+    if (els.length) { fire(els[0], HOVER); fire(els[0], CLICK); return true; }
     return false;
   }
 
@@ -347,7 +357,7 @@
     } else if (msg?.type === 'clickYesterday') {
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickDownloadReport') {
-      clickDownloadReport().then(sendResponse);
+      clickDownloadReport(!!msg.dryRun).then(sendResponse);
     } else if (msg?.type === 'readAll') {
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
