@@ -70,6 +70,9 @@ export function upsertAds(d, rows) {
     const day = (d.ads[r.date] ||= {});
     const prev = day[r.campaign];
     if (prev && !r.action) r.action = prev.action || '';
+    // 성과 숫자가 모두 0인 새 값이 이미 있는 숫자를 덮어쓰지 않게 (덜 채워진 화면을 읽은 경우)
+    const zero = (x) => !(x.spend || x.impressions || x.clicks || x.ad_revenue || x.ad_orders);
+    if (prev && zero(r) && !zero(prev)) { day[r.campaign] = { ...prev, target_roas: r.target_roas || prev.target_roas, budget: r.budget || prev.budget, action: r.action }; n++; continue; }
     day[r.campaign] = r; n++;
   }
   return n;

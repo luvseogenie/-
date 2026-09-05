@@ -324,3 +324,19 @@ console.log('extension logic: all checks passed');
   assert.equal(r4.rows.find((x) => x.date === '2025-06-10').excelOnly, true);
   console.log('data check: all checks passed');
 }
+
+// 광고 저장: 성과 숫자가 모두 0 인 새 값이 이미 있는 숫자를 덮어쓰지 않는다 (덜 채워진 화면을 읽은 경우)
+{
+  await S.replaceAll({}); const d = await S.load();
+  const row = (spend, imp, target = 3, budget = 50000) => ({ date: '2025-06-08', campaign: 'C', target_roas: target, budget, spend, ad_revenue: spend * 3, conversion: 0, ctr: 0, impressions: imp, clicks: imp / 10, ad_orders: spend ? 2 : 0, action: '' });
+  S.upsertAds(d, [row(16490, 32058)]);
+  S.upsertAds(d, [row(0, 0, 4.95, 60000)]);                 // 성과 0, 설정값만 바뀐 읽기
+  const c = d.ads['2025-06-08'].C;
+  assert.equal(c.spend, 16490); assert.equal(c.impressions, 32058);   // 숫자는 유지
+  assert.equal(c.target_roas, 4.95); assert.equal(c.budget, 60000);   // 설정값은 새 값
+  S.upsertAds(d, [row(17778, 27973)]);                      // 진짜 새 숫자는 덮어쓴다
+  assert.equal(d.ads['2025-06-08'].C.spend, 17778);
+  S.upsertAds(d, [{ ...row(0, 0), campaign: 'N' }]);        // 처음부터 0 인 캠페인은 그대로 저장
+  assert.equal(d.ads['2025-06-08'].N.spend, 0);
+  console.log('ads no-downgrade: all checks passed');
+}

@@ -128,6 +128,25 @@ async function describePage(tabId) {
   catch { return '화면 상태를 읽지 못함(스크립트 미주입)'; }
 }
 
+// 광고센터는 캠페인 목록(이름·목표·예산)을 먼저 그리고 성과 숫자(광고비·노출·클릭)는 뒤에 채운다.
+// 성과 숫자가 하나라도 들어오고, 3초 간격 두 번 읽은 내용이 같아질 때까지 기다린다.
+const NUM_HEADER = /노출|클릭|광고비|매출|전환/;
+const hasNumbers = (r) => r?.records?.some((rec) => Object.entries(rec).some(([k, v]) => NUM_HEADER.test(k) && parseFloat(String(v).replace(/[^\d.]/g, '')) > 0));
+async function readAdsSettled(tabId, deadline) {
+  let prev = null;
+  for (;;) {
+    await inject(tabId);
+    const r = await readFromTab(tabId, 'ads');
+    if (r) {
+      const same = prev && JSON.stringify(prev.records) === JSON.stringify(r.records);
+      if (hasNumbers(r) && same) return r;
+      if (Date.now() >= deadline) { r.notes = [...(r.notes || []), hasNumbers(r) ? '숫자 안정 전 마감' : '성과 숫자 없음(0)']; return r; }
+      prev = r;
+    } else if (Date.now() >= deadline) return null;
+    await sleep(3000);
+  }
+}
+
 // 주소가 도메인만이거나 목록 화면이 아닐 때 무엇을 고쳐야 하는지 알려 준다
 function urlHint(kind, baseUrl) {
   const bare = /^https?:\/\/[^/]+\/?$/.test(String(baseUrl || '').trim());
@@ -154,7 +173,7 @@ async function collectKind(kind, dateOverride) {
     await inject(tab.id);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
     if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
-    let r = await readWithRetry(tab.id, kind, kind === 'sales' ? Date.now() + s.waitSeconds * 1000 : deadline);
+    let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
     if (r && kind === 'ads') {
       // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
       const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
@@ -167,9 +186,12 @@ async function collectKind(kind, dateOverride) {
           throw new Error(`광고센터 화면 기간이 ${shown} 이라 어제(${target}) 값이 아닙니다. '어제' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'} — 저장하지 않았습니다. 광고센터에서 기간을 '어제' 로 바꿔 두면 다음부터 그대로 열립니다`);
         }
       }
-      const full = await readFromTab(tab.id, kind, 'readAll');
-      if (full?.records?.length > r.records.length) r = full;
-      else if (full) r.notes = [...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
+      // 여러 쪽이면 전체 읽기. 끝 쪽까지 못 갔으면 3초 뒤 한 번 더.
+      let full = await readFromTab(tab.id, kind, 'readAll');
+      if (full && full.total > 1 && (full.pages || 0) < full.total) { await sleep(3000); const again = await readFromTab(tab.id, kind, 'readAll'); if (again?.records?.length > (full.records?.length || 0)) full = again; }
+      if (full?.records?.length > r.records.length) r = { ...full, notes: [...(r.notes || []), ...(full.notes || [])] };
+      else if (full) r.notes = [...(r.notes || []), ...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
+      if (!hasNumbers(r)) throw new Error(`광고 목록 ${r.records.length}줄을 읽었지만 광고비·노출·클릭이 모두 0입니다 (성과 숫자가 아직 안 채워진 것으로 보여 저장하지 않았습니다). 설정의 대기(초)를 올려 보세요`);
     }
     if (!r && kind === 'sales') {
       // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
