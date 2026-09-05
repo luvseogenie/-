@@ -3,7 +3,7 @@ import threading
 import time
 
 from . import config, db, log, wing
-from .browser import browser, human_delay
+from .browser import browser, human_delay, clear_bot_cookies
 from .categories import expand_to_leaves
 from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, ensure_product_context, reset_debug_budget
 from .metrics import restricted_reason
@@ -255,20 +255,41 @@ class JobController:
         self._sleep_checked(secs)
         self.message = ""
 
+    def _fresh_start(self, what):
+        """차단 시: 봇 방어 쿠키를 지우고(프로그램 전용 프로필) 첫 화면을 사람처럼 한 번 연 뒤 20~40초 쉰다."""
+        import random as _r
+        try:
+            n = clear_bot_cookies(browser.ensure_context())   # 이 코드는 브라우저 스레드 안에서 돈다
+        except Exception:  # noqa: BLE001
+            n = 0
+        secs = _r.uniform(20, 40)
+        if what:
+            self.message = f"차단 감지: {what}. 봇 방어 쿠키 {n}개를 지우고 {secs:.0f}초 뒤 다시 시도합니다"
+            log.warn(self.message)
+        try:
+            pg = browser.page()
+            pg.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+            pg.wait_for_timeout(1500)
+            pg.mouse.wheel(0, 600)
+            pg.wait_for_timeout(800)
+        except Exception:  # noqa: BLE001
+            pass
+        self._sleep_checked(secs)
+        self.message = ""
+
     def _with_retry(self, fn, tries=None):
-        tries = tries or len(config.BLOCK_COOLDOWNS)
+        tries = tries or (len(config.BLOCK_COOLDOWNS) + 1)
         for attempt in range(1, tries + 1):
             try:
                 result = fn()
                 self.blocked_streak = 0
                 return result
             except BlockedError as e:
-                self._cooldown(attempt, str(e))
-                try:
-                    browser.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
-                    browser.page().wait_for_timeout(2000)
-                except Exception:  # noqa: BLE001
-                    pass
+                if attempt == 1:
+                    self._fresh_start(str(e))     # 먼저 봇 방어 쿠키를 지우고 잠깐 쉰 뒤 바로 재시도
+                else:
+                    self._cooldown(attempt - 1, str(e))
+                    self._fresh_start(None)
             except Exception as e:  # noqa: BLE001
                 log.warn(f"페이지 오류 ({attempt}/{tries}): {e}")
                 self._sleep_checked(3)
@@ -349,10 +370,14 @@ class JobController:
                     blocks = 0
             except BlockedError as e:
                 blocks += 1
-                if blocks > len(config.BLOCK_COOLDOWNS):
+                if blocks > len(config.BLOCK_COOLDOWNS) + 1:
                     log.warn(f"{e} · 쉬어도 계속 막혀 리뷰 추정을 중단합니다 (나중에 [리뷰로 판매량 추정] 을 다시 누르면 남은 상품만 이어서 합니다)")
                     break
-                self._cooldown(blocks, str(e))
+                if blocks == 1:
+                    self._fresh_start(str(e))
+                else:
+                    self._cooldown(blocks - 1, str(e))
+                    self._fresh_start(None)
                 try:
                     ensure_product_context(page, p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
                 except Exception:  # noqa: BLE001

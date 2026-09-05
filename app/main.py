@@ -524,19 +524,8 @@ def tools(name: str):
 
             def t(bt):
                 ctx = bt.ensure_context()
-                names = ("_abck", "bm_sz", "bm_sv", "bm_mi", "ak_bmsc", "bm_s", "bm_so", "bm_ss", "bm_lso", "sbsd", "sbsd_o", "bmuid", "x-coupang-accept-language")
-                removed = 0
-                try:
-                    before = ctx.cookies()
-                    for n in names:
-                        try:
-                            ctx.clear_cookies(name=n)
-                        except TypeError:
-                            pass
-                    after = ctx.cookies()
-                    removed = len(before) - len(after)
-                except Exception as e:  # noqa: BLE001
-                    log.warn(f"쿠키 정리 실패: {e}")
+                from .browser import clear_bot_cookies
+                removed = clear_bot_cookies(ctx)
                 page = bt.page()
                 page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(2500)

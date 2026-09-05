@@ -376,3 +376,21 @@ def human_delay(lo=None, hi=None):
 
 browser = BrowserThread()
 browser.start()
+
+
+BOT_COOKIES = ("_abck", "bm_sz", "bm_sv", "bm_mi", "ak_bmsc", "bm_s", "bm_so", "bm_ss", "bm_lso", "sbsd", "sbsd_o", "bmuid")
+
+
+def clear_bot_cookies(ctx) -> int:
+    """봇 방어(Akamai) 쿠키만 지운다. 프로그램 전용 프로필에서만 쓴다. 지운 개수를 돌려준다."""
+    try:
+        before = len(ctx.cookies())
+        for n in BOT_COOKIES:
+            try:
+                ctx.clear_cookies(name=n)
+            except TypeError:
+                pass
+        return before - len(ctx.cookies())
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"쿠키 정리 실패: {e}")
+        return 0
