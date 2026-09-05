@@ -93,8 +93,10 @@ function pageDownloadHook() {
 const installHook = (tabId) => chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: pageDownloadHook }).catch(() => {});
 let lastHookedUrl = null;   // 가로챈 다운로드 주소 (진단용)
 const recentHooked = new Map();   // 같은 주소가 잇달아 두 번 잡히면(메뉴 클릭 이벤트가 겹침) 한 번만 받는다
+let lastReportSavedAt = 0;        // 메뉴 클릭이 두 번 먹으면 새 파일 주소가 또 생기므로, 저장 직후 60초 안의 주소는 무시
 async function fetchAndImport(url, how, baseUrl) {
   try { url = new URL(url, baseUrl || undefined).href; } catch { /* 그대로 */ }
+  if (Date.now() - lastReportSavedAt < 60000) return;
   const seen = recentHooked.get(url); if (seen && Date.now() - seen < 60000) return; recentHooked.set(url, Date.now());
   lastHookedUrl = { url, how, at: Date.now() };
   try {
@@ -107,6 +109,7 @@ async function fetchAndImport(url, how, baseUrl) {
     expectDate = null;
     const label = res.kind === 'ads' ? '광고' : '판매';
     await log(`[다운로드] ${how} 로 받은 ${name} → ${res.date} ${label} ${res.saved}건 저장`);
+    lastReportSavedAt = Date.now();
     settle({ ok: true, saved: res.saved, date: res.date });
   } catch (e) {
     await log(`[다운로드] 주소를 직접 받아 읽지 못해(${e.message}) 크롬 다운로드로 넘깁니다: ${url.slice(0, 120)}`);
@@ -253,7 +256,8 @@ async function collectRange(start, end, kinds, onlyMissing) {
     if (job.cancel) { job.log.push('중단됨'); break; }
   }
   job.running = false;
-  await log(`[기간 수집] ${start}~${end} 완료: ${job.log.filter((l) => l.includes('저장')).length}건 성공`);
+  const okN = job.log.filter((l) => l.includes('저장')).length, failN = job.log.filter((l) => l.includes('실패')).length;
+  await log(`[기간 수집] ${start}~${end} ${job.total === 0 ? '빠진 날 없음' : `완료: ${okN}건 저장${failN ? `, ${failN}건 실패` : ''}`}`);
   return { ok: true };
 }
 
