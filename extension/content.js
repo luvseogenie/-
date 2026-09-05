@@ -175,6 +175,21 @@
     if (next) { fire(next, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
     return false;
   }
+  // 새로 나타난 줄의 성과 숫자가 뒤늦게 채워지므로, 표의 모든 칸이 1.5초 간격 두 번 연속 같을 때까지 기다린다 (최대 ms)
+  const fullSnapshot = (kind) => { const p = window.__ccPick(kind); return p ? JSON.stringify(p.records) : ''; };
+  const PERF = /노출|클릭|광고비|매출|전환/;
+  const rowLacksNumbers = (rec) => !Object.entries(rec).some(([k, v]) => PERF.test(k) && parseFloat(String(v).replace(/[^\d.]/g, '')) > 0);
+  const zeroRows = (kind) => { const p = window.__ccPick(kind); return p ? p.records.filter(rowLacksNumbers).length : 0; };
+  // 안정(1.5초 간격 두 번 같음) + 성과가 0인 줄이 없거나 6초 넘게 기다렸을 때
+  async function settleRows(kind, ms = 10000) {
+    const t0 = Date.now(); let prev = fullSnapshot(kind);
+    while (Date.now() - t0 < ms) {
+      await wait(1500); const cur = fullSnapshot(kind);
+      if (cur && cur === prev && (zeroRows(kind) === 0 || Date.now() - t0 >= 6000)) return true;
+      prev = cur;
+    }
+    return false;
+  }
   // 화면에 적힌 전체 건수 ('총 17개', '17건', '캠페인 17')
   function shownTotal() {
     const t = clean(document.body.innerText);
@@ -183,10 +198,10 @@
   }
   async function readAllPages(kind) {
     const all = []; const seen = new Set(); const notes = [];
-    const size = await maximizePageSize(kind); if (size) notes.push(`페이지당 ${size}로 변경`);
+    const size = await maximizePageSize(kind); if (size) { notes.push(`페이지당 ${size}로 변경`); if (!(await settleRows(kind))) notes.push('줄 내용이 계속 바뀜'); }
     const total0 = pageTotal(); let pages = 0;
     for (let i = 1; i <= Math.min(total0, 30); i++) {
-      if (i > 1) { if (!(await gotoPage(i, kind))) { notes.push(`${i}쪽으로 넘어가도 내용이 바뀌지 않음`); break; } await wait(1500); }
+      if (i > 1) { if (!(await gotoPage(i, kind))) { notes.push(`${i}쪽으로 넘어가도 내용이 바뀌지 않음`); break; } await settleRows(kind); }
       const picked = window.__ccPick(kind); if (!picked) { if (i === 1) break; notes.push(`${i}쪽에서 표를 못 읽음`); break; }
       pages++;
       let added = 0;

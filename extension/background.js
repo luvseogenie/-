@@ -195,6 +195,21 @@ async function collectKind(kind, dateOverride) {
       if (full?.records?.length > r.records.length) r = { ...full, notes: [...(r.notes || []), ...(full.notes || [])] };
       else if (full) r.notes = [...(r.notes || []), ...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
       if (!hasNumbers(r)) throw new Error(`광고 목록 ${r.records.length}줄을 읽었지만 광고비·노출·클릭이 모두 0입니다 (성과 숫자가 아직 안 채워진 것으로 보여 저장하지 않았습니다). 설정의 대기(초)를 올려 보세요`);
+      // 일부 줄만 성과가 0이면(늦게 채워지는 줄) 3초 뒤 한 번 더 읽어, 캠페인별로 숫자가 있는 쪽을 쓴다
+      const rowHasNumbers = (rec) => Object.entries(rec).some(([k, v]) => NUM_HEADER.test(k) && parseFloat(String(v).replace(/[^\d.]/g, '')) > 0);
+      let zeros = r.records.filter((rec) => !rowHasNumbers(rec)).length;
+      if (zeros) {
+        await sleep(3000);
+        const again = await readFromTab(tab.id, kind, 'readAll');
+        if (again?.records?.length) {
+          const key = (rec) => String(Object.values(rec)[0] || '');
+          const byName = new Map(again.records.map((rec) => [key(rec), rec]));
+          r.records = r.records.map((rec) => (!rowHasNumbers(rec) && rowHasNumbers(byName.get(key(rec)) || {}) ? byName.get(key(rec)) : rec));
+          for (const rec of again.records) if (!r.records.some((x) => key(x) === key(rec))) r.records.push(rec);
+          const left = r.records.filter((rec) => !rowHasNumbers(rec)).length;
+          r.notes = [...(r.notes || []), `성과 0인 줄 ${zeros}개 → 다시 읽어 ${zeros - left}개 채움${left ? `, ${left}개는 여전히 0` : ''}`];
+        }
+      }
     }
     if (!r && kind === 'sales') {
       // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
