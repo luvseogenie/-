@@ -118,6 +118,19 @@ def init_db():
             c.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     c.commit()
     _fix_global_badges()
+    _reverify_missing_buyers()
+
+
+def _reverify_missing_buyers():
+    """'1만명 이상' 문구를 못 읽던 때 확인한 상품은 다시 확인하도록 표시를 지운다 (한 번만)."""
+    if get_setting("reverify_buyers_v1"):
+        return
+    c = conn()
+    cur = c.execute("UPDATE products SET verified_at=NULL WHERE verified_at IS NOT NULL AND buyers_min IS NULL")
+    c.commit()
+    set_setting("reverify_buyers_v1", True)
+    if cur.rowcount:
+        log.info(f"'1만명 이상' 문구 인식 수정: 구매자 수가 비어 있던 확인 상품 {cur.rowcount}개를 다시 확인 대상으로 돌림")
 
 
 def _fix_global_badges():

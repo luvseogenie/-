@@ -52,8 +52,16 @@ def _num(v):
 
 
 def _buyers_from_text(text: str):
-    m = re.search(r"([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매", text) or re.search(r"([\d,]+)\s*개\s*이상\s*(?:판매|구매)", text)
-    return _num(m.group(1)) if m else None
+    """'한 달간 1,000명 이상 구매', '1만명 이상 구매', '1.5만 개 이상 판매' 같은 문구에서 숫자를 읽는다."""
+    m = (re.search(r"([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매", text)
+         or re.search(r"([\d,]+(?:\.\d+)?)\s*(만)?\s*개\s*이상\s*(?:판매|구매)", text))
+    if not m:
+        return None
+    try:
+        v = float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+    return int(round(v * 10000)) if m.group(2) else int(v)
 
 
 # 상품 목록 한 페이지에서 상품 정보를 뽑아내는 브라우저 스크립트
@@ -302,10 +310,11 @@ DETAIL_PRICE_JS = r"""
   if (sm) sellers = Number(sm[1]);
   // "한 달간 1,000명 이상 구매했어요" 같은 문구
   let buyers = null;
-  const bm = body.match(/([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매/) || body.match(/([\d,]+)\s*개\s*이상\s*(?:판매|구매)/)
-    || (document.documentElement.outerHTML.match(/([\d,]+)\s*명\s*이상\s*(?:이\s*)?구매/));
-  if (bm) buyers = num(bm[1]);
-  const buyersText = (body.match(/[^.]{0,20}[\d,]+\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
+  // 1만 이상은 "1만명", "1.5만명" 처럼 '만' 단위로 표시된다
+  const bm = body.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매/) || body.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*개\s*이상\s*(?:판매|구매)/)
+    || (document.documentElement.outerHTML.match(/([\d,]+(?:\.\d+)?)\s*(만)?\s*명\s*이상\s*(?:이\s*)?구매/));
+  if (bm) { const v = Number(bm[1].replace(/,/g, '')); if (!isNaN(v)) buyers = Math.round(bm[2] ? v * 10000 : v); }
+  const buyersText = (body.match(/[^.]{0,20}[\d,]+(?:\.\d+)?\s*만?\s*명\s*이상\s*(?:이\s*)?구매[^.]{0,10}/) || [null])[0];
   return { candidates: cands.slice(0, 12), coupon, sold_out: soldOut, blocked, sellers, buyers_min: buyers, buyers_text: buyersText,
     delivery, delivery_how: deliveryHow, script_prices: scriptPrices, title: document.title };
 }
