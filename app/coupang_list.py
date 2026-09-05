@@ -292,7 +292,11 @@ DETAIL_PRICE_JS = r"""
   };
   const altOnly = imgs.map(im => im.getAttribute('alt') || '').join(' ');
   delivery = classify(altOnly); if (delivery) deliveryHow = 'badge';
-  if (!delivery) { delivery = classify(near); if (delivery) deliveryHow = 'text'; }
+  if (!delivery) {
+    // 구매 영역을 못 잡고 넓은 영역을 보게 되면 상단 메뉴의 '로켓직구' 글자가 섞인다 → 그 경우 글자로는 직구 판정을 하지 않는다
+    const wide = !box || scope === document.body || (scope.textContent || '').length > 6000;
+    delivery = classify(wide ? near.replace(/로켓직구/g, '') : near); if (delivery) deliveryHow = 'text';
+  }
   // 페이지에 내장된 데이터(스크립트)에서 가격 읽기
   const scriptPrices = {};
   try {
