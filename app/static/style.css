@@ -178,3 +178,5 @@ table.grid td.prod { text-align: left; white-space: normal; min-width: 240px; }
 }
 
 .grid tr.group-row td { background: #151a27; padding: 6px 10px; border-top: 1px solid var(--line2); text-align: left; }
+
+.pill.unverified { background: #2a2410; color: var(--amber, #e2b340); border-color: #4b3f1f; }

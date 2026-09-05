@@ -143,6 +143,9 @@ def enrich(p: dict, cond: dict) -> dict:
         if cond.get("views_max") and (views or 0) > cond["views_max"]:
             pre = False
     out["pre_pass"] = pre
+    # 상세 확인(페이지 열기)을 거쳤는지: 확인 후에는 최종가·배송이 확정되고 '월 N명 이상' 문구도 읽는다
+    out["verified"] = bool(p.get("verified_at"))
+    out["needs_verify"] = bool(pre) and not out["verified"]
     return out
 
 
@@ -164,6 +167,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
             "excluded": sum(1 for r in rows if r["verdict"] == "excluded"),
             "unmatched": sum(1 for r in rows if r["verdict"] == "unmatched"),
             "pending": sum(1 for r in rows if r["verdict"] == "pending"),
+            "unverified": sum(1 for r in rows if r.get("needs_verify") and not r.get("hidden")),
             "coupon": sum(1 for r in rows if r.get("coupon_flag")),
             "restricted": sum(1 for r in rows if r.get("restricted")),
             "hidden": sum(1 for r in rows if r.get("hidden")),

@@ -319,6 +319,8 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
             rows = [r for r in rows if r["verdict"] != "excluded"]
         if flt in ("pass", "below", "excluded", "unmatched", "pending"):
             rows = [r for r in rows if r["verdict"] == flt]
+        elif flt == "unverified":
+            rows = [r for r in rows if r.get("needs_verify")]
         elif flt == "coupon":
             rows = [r for r in rows if r.get("coupon_flag")]
         elif flt == "restricted":

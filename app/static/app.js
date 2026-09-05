@@ -278,6 +278,7 @@
       if (r.restricted) pills.push(`<span class="pill restricted">${esc(r.restricted)}</span>`);
       if (r.is_ad) pills.push('<span class="pill ad">광고</span>');
       if (r.sold_out) pills.push('<span class="pill">품절</span>');
+      if (r.needs_verify) pills.push('<span class="pill unverified" title="상세 확인(선택)을 누르면 최종가·월 구매자·배송을 확인합니다">상세 확인 전</span>');
       const sim = (r.seller_count !== null && r.seller_count !== undefined) ? `<span class="pill">경쟁 판매자 ${r.seller_count}곳</span>` : '';
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
