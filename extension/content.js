@@ -358,6 +358,7 @@
   function pageInfo() {
     const text = clean(document.body.innerText);
     return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
+      hasLogin: /로그인|비밀번호|아이디를 입력|sign in|password/i.test(text) && !!document.querySelector('input[type="password"]'),
       hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
   // 구조 진단: 프레임, 커스텀 엘리먼트(shadow DOM), 반복 줄 그룹, 캠페인처럼 보이는 글자
