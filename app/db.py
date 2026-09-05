@@ -4,7 +4,7 @@ import sqlite3
 import threading
 from datetime import datetime
 
-from . import config
+from . import log, config
 
 _local = threading.local()
 
@@ -117,6 +117,26 @@ def init_db():
         if col not in have:
             c.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     c.commit()
+    _fix_global_badges()
+
+
+def _fix_global_badges():
+    """예전 규칙(해외 판매자 = 로켓직구)으로 잘못 학습된 뱃지→로켓직구 대응을 지우고,
+    그 학습으로 '로켓직구 확정'이 된 상품(상세 확인은 안 한 것)을 '로켓 추정'으로 되돌린다. 한 번만 실행."""
+    if get_setting("fix_global_badges_v1"):
+        return
+    bm = get_setting("badge_map", {}) or {}
+    bad = [k for k, v in bm.items() if v == "ROCKET_GLOBAL"]
+    for k in bad:
+        bm.pop(k, None)
+    set_setting("badge_map", bm)
+    c = conn()
+    cur = c.execute("UPDATE products SET delivery='ROCKET', delivery_sure=0 "
+                    "WHERE delivery='ROCKET_GLOBAL' AND (verified_at IS NULL OR verified_at='') AND COALESCE(delivery_sure,0)=1")
+    c.commit()
+    set_setting("fix_global_badges_v1", True)
+    if bad or cur.rowcount:
+        log.info(f"로켓직구 오판 정리: 뱃지 학습 {len(bad)}개 삭제, 상품 {cur.rowcount}개를 '로켓(추정)'으로 되돌림")
 
 
 def now() -> str:

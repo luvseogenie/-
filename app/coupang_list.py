@@ -120,8 +120,9 @@ EXTRACT_JS = r"""
 
     // 배송 형태
     const alts = Array.from(li.querySelectorAll('img[alt]')).map(i => i.getAttribute('alt') || '').join(' ') + ' ' + txt(li);
-    const srcs = Array.from(li.querySelectorAll('img')).map(i => (i.getAttribute('src') || i.getAttribute('data-src') || '')).join(' ')
-      + ' ' + Array.from(li.querySelectorAll('[style*="background"]')).map(e => e.getAttribute('style') || '').join(' ');
+    const srcs = Array.from(li.querySelectorAll('img')).map(i => (i.getAttribute('src') || i.getAttribute('data-src') || ''))
+      .filter(u => /badge|delivery|rocket|logo/i.test(u) && !/thumbnail|vendor_inventory|retail\/images/i.test(u))
+      .map(u => u.split('?')[0].split('/').pop()).join(' ');
     let delivery = 'WING';
     if (/판매자\s*로켓|로켓그로스/.test(alts) || /rocket[_-]?growth|growth/i.test(srcs)) delivery = 'ROCKET_GROWTH';
     else if (/로켓직구/.test(alts) || /global/i.test(srcs)) delivery = 'ROCKET_GLOBAL';
@@ -687,65 +688,83 @@ def _parse_date(v):
         return None
 
 
-def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 30, max_pages: int = 10) -> dict:
+def _review_page(page, product_id: int, pg: int, size: int, referrer: str):
+    """리뷰 API 한 쪽. (전체 개수, 날짜 목록) 을 돌려준다. 막히면 BlockedError, 응답 이상이면 문자열."""
+    url = config.REVIEW_URL.format(pid=product_id, page=pg, size=size)
+    r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "referrer": referrer,
+                                 "headers": {"accept": "application/json, text/plain, */*", "x-requested-with": "XMLHttpRequest"}})
+    if r.get("status") in (403, 429):
+        raise BlockedError(f"리뷰 API 가 막혔습니다 (HTTP {r.get('status')})")
+    if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
+        return f"리뷰 API 응답 이상 HTTP {r.get('status')}"
+    data = json.loads(r["text"])
+    if isinstance(data, dict) and data.get("rCode") and data.get("rCode") != "RET0000":
+        return f"리뷰 API 거부 ({data.get('rCode')})"
+    rd = (data or {}).get("rData") or data or {}
+    paging = rd.get("paging") or {}
+    total = _num(paging.get("totalCount")) or _num(rd.get("reviewTotalCount"))
+    contents = paging.get("contents") or rd.get("contents") or []
+    dates = [d for d in (_parse_date(rv.get("reviewAt") or rv.get("createdAt") or rv.get("reviewDate")) for rv in contents) if d]
+    return total, dates, len(contents)
+
+
+def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 30, max_requests: int = 12) -> dict:
     """리뷰 API 를 최신순으로 받아 최근 N일 안에 달린 리뷰 수를 센다 (상품 페이지를 열지 않음).
     (한 번에 30개까지만 받는다. 50개를 요청하면 쿠팡이 오류 없이 빈 목록을 준다)
 
-    반환: {"count": 최근 N일 리뷰 수, "days": 실제로 센 기간(일), "total": 전체 리뷰 수, "note": 설명}
-    끝까지 못 센 경우(리뷰가 아주 많은 상품)는 센 기간으로 비례 환산한다.
+    리뷰가 많은 상품은 쪽을 차례로 넘기지 않고 쪽 번호를 이분 탐색해 N일 경계 쪽을 찾는다
+    (요청 수 1 + log2(쪽 수), 리뷰 6만 개까지 12번 안에 끝남).
+
+    반환: {"count": 최근 N일 리뷰 수, "days": 센 기간(일), "total": 전체 리뷰 수, "note": 설명}
     """
     from datetime import date, timedelta
-    today = date.today()
-    cutoff = today - timedelta(days=days)
-    count = 0
-    oldest = None
-    newest = None
-    total = None
-    pages = 0
+    cutoff = date.today() - timedelta(days=days)
     # 리뷰 API 는 "그 상품 페이지에서 온 요청"만 받는다 (다른 상품 페이지에서 부르면 403).
     # 탭을 옮기지 않고 요청의 출처(referrer)만 그 상품 페이지로 맞춰 보낸다.
     referrer = config.PRODUCT_URL.format(pid=product_id)
-    for pg in range(1, max_pages + 1):
-        url = config.REVIEW_URL.format(pid=product_id, page=pg, size=size)
-        r = page.evaluate(FETCH_JS, {"url": url, "method": "GET", "referrer": referrer,
-                                     "headers": {"accept": "application/json, text/plain, */*", "x-requested-with": "XMLHttpRequest"}})
-        if r.get("status") in (403, 429):
-            raise BlockedError(f"리뷰 API 가 막혔습니다 (HTTP {r.get('status')})")
-        if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
-            return {"count": None, "days": None, "total": None, "note": f"리뷰 API 응답 이상 HTTP {r.get('status')}"}
-        data = json.loads(r["text"])
-        if isinstance(data, dict) and data.get("rCode") and data.get("rCode") != "RET0000":
-            return {"count": None, "days": None, "total": None, "note": f"리뷰 API 거부 ({data.get('rCode')})"}
-        rd = (data or {}).get("rData") or data or {}
-        paging = rd.get("paging") or {}
-        if total is None:
-            total = _num(paging.get("totalCount")) or _num(rd.get("reviewTotalCount"))
-        contents = paging.get("contents") or rd.get("contents") or []
-        pages += 1
-        if not contents:
+    reqs = 0
+
+    def load(pg):
+        nonlocal reqs
+        reqs += 1
+        return _review_page(page, product_id, pg, size, referrer)
+
+    r = load(1)
+    if isinstance(r, str):
+        return {"count": None, "days": None, "total": None, "note": r}
+    total, dates, n = r
+    within = sum(1 for d in dates if d >= cutoff)
+    if n == 0:
+        return {"count": 0, "days": float(days), "total": total or 0, "note": f"최근 {days}일 리뷰 0개 (전체 {total or 0}개)"}
+    pages = max(1, -(-(total or n) // size))
+    if within < n or pages == 1:
+        return {"count": within, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {within}개 (전체 {total or '?'}개)"}
+    # 1쪽이 전부 28일 안 → 경계 쪽을 이분 탐색. lo: 전부 안쪽으로 확인된 쪽, hi: 전부 바깥(또는 끝+1)
+    lo, hi = 1, pages + 1
+    count = None
+    while hi - lo > 1 and reqs < max_requests:
+        mid = (lo + hi) // 2
+        r = load(mid)
+        if isinstance(r, str):
+            return {"count": None, "days": None, "total": total, "note": r}
+        _, dates, n = r
+        w = sum(1 for d in dates if d >= cutoff)
+        if n == 0 or w == 0:
+            hi = mid
+        elif w >= n:
+            lo = mid
+        else:
+            count = (mid - 1) * size + w
             break
-        stop = False
-        for rv in contents:
-            d = _parse_date(rv.get("reviewAt") or rv.get("createdAt") or rv.get("reviewDate"))
-            if d is None:
-                continue
-            newest = max(newest, d) if newest else d
-            if d >= cutoff:
-                count += 1
-                oldest = min(oldest, d) if oldest else d
-            else:
-                stop = True
-        # 다음 쪽이 있는지는 전체 개수로 판단한다 (isNext 는 페이지 바 표시용이라 첫 쪽에서도 false 가 온다)
-        has_more = (pg * size) < total if total is not None else bool(paging.get("isNext", True))
-        if stop or not has_more:
-            return {"count": count, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {count}개 (전체 {total or '?'}개)"}
-    # max_pages 안에 28일 전까지 못 감 → 센 기간으로 비례 환산
-    if oldest and newest and count:
-        span = max(1, (newest - oldest).days)
-        est = int(round(count * days / span))
-        return {"count": est, "days": float(span), "total": total,
-                "note": f"{span}일치 리뷰 {count}개를 {days}일로 환산 (리뷰가 많아 {pages}쪽만 확인)"}
-    return {"count": count, "days": float(days), "total": total, "note": f"최근 {days}일 리뷰 {count}개"}
+    if count is None:
+        if hi - lo <= 1:
+            count = min(total or lo * size, lo * size)   # lo 쪽까지 전부 안쪽, 그 다음 쪽부터 바깥
+        else:
+            count = lo * size
+            return {"count": count, "days": float(days), "total": total,
+                    "note": f"최근 {days}일 리뷰 {count}개 이상 (요청 {reqs}번 안에 경계를 못 찾음, 전체 {total or '?'}개)"}
+    return {"count": count, "days": float(days), "total": total,
+            "note": f"최근 {days}일 리뷰 {count}개 (전체 {total or '?'}개, {reqs}번 조회)"}
 
 
 def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
@@ -857,14 +876,17 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
         is_global = (country and country != "KR") or re.search(r"global|글로벌", name, re.I) is not None
         coupang_seller = (seller == {}) or out.get("seller_retail") or (re.search(r"쿠팡", name) is not None)
         charge = out.get("delivery_charge_text") or ""
+        # 로켓직구는 쿠팡(글로벌)이 파는 해외 상품이다. 해외 판매자라도 goldFish/3PC 면 로켓그로스.
         if out.get("rocket_fresh"):
             out["delivery"] = "ROCKET_FRESH"
-        elif is_global:
+        elif out.get("seller_goldfish") or out.get("seller_3pc"):
+            out["delivery"] = "ROCKET_GROWTH"
+        elif coupang_seller and is_global:
             out["delivery"] = "ROCKET_GLOBAL"
         elif coupang_seller:
             out["delivery"] = "ROCKET"
-        elif out.get("seller_goldfish") or out.get("seller_3pc"):
-            out["delivery"] = "ROCKET_GROWTH"
+        elif re.search(r"global|글로벌", name, re.I):
+            out["delivery"] = "ROCKET_GLOBAL"
         elif out.get("seller_3pm"):
             out["delivery"] = "WING"
         elif "로켓" in charge:

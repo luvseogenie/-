@@ -318,19 +318,41 @@ class JobController:
         except Exception as e:  # noqa: BLE001
             log.warn(f"상품 페이지 열기 실패(계속 진행): {e}")
         fails = 0
+        blocks = 0
+        done_n = 0
         for p in targets:
             self._check()
             self.progress["label"] = (p.get("name") or "")[:38]
             try:
-                r = fetch_review_velocity(page, p["product_id"])
+                try:
+                    r = fetch_review_velocity(page, p["product_id"])
+                except Exception as e:  # noqa: BLE001
+                    if "Execution context" not in str(e) and "navigation" not in str(e):
+                        raise
+                    # 탭이 다른 곳으로 이동함 → 상품 페이지 문맥을 다시 잡고 한 번 더
+                    human_delay(2, 4)
+                    ensure_product_context(page, p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
+                    r = fetch_review_velocity(page, p["product_id"])
                 db.save_review_velocity(run_id, p["product_id"], r.get("count"), r.get("days"), r.get("note"))
                 if r.get("count") is None:
                     fails += 1
                 else:
                     fails = 0
+                    blocks = 0
             except BlockedError as e:
-                log.warn(f"{e} · 리뷰 추정을 중단합니다")
-                break
+                blocks += 1
+                if blocks > 2:
+                    log.warn(f"{e} · 쉬어도 계속 막혀 리뷰 추정을 중단합니다 (나중에 [리뷰로 판매량 추정] 을 다시 누르면 남은 상품만 이어서 합니다)")
+                    break
+                log.warn(f"{e} · {config.BLOCK_COOLDOWN}초 쉬었다가 이어서 합니다 ({blocks}/2)")
+                self.message = f"차단 감지: 리뷰 API. {config.BLOCK_COOLDOWN}초 쉬는 중"
+                self._sleep_checked(config.BLOCK_COOLDOWN)
+                self.message = ""
+                try:
+                    ensure_product_context(page, p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
             except Exception as e:  # noqa: BLE001
                 fails += 1
                 log.warn(f"리뷰 추정 실패 {p['product_id']}: {e}")
@@ -338,7 +360,14 @@ class JobController:
                 log.warn("리뷰 API 실패가 계속되어 리뷰 추정을 중단합니다")
                 break
             self.progress["done"] += 1
-            human_delay(1.2, 2.5)
+            done_n += 1
+            if config.REST_EVERY and done_n % config.REST_EVERY == 0:
+                import random as _r
+                pause = _r.uniform(*config.REST_SECONDS)
+                log.info(f"리뷰 추정 {done_n}개째 · {pause:.0f}초 쉽니다")
+                self._sleep_checked(pause)
+            else:
+                human_delay(1.5, 3.0)
         log.info("리뷰 기반 판매량 추정 완료")
 
     def _auto_verify(self, bt, run_id, cond):
