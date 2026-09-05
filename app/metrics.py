@@ -80,6 +80,19 @@ def enrich(p: dict, cond: dict) -> dict:
     out["buyers_daily"] = round(buyers / 30, 1) if buyers else None
     out["revenue_min"] = buyers * price if buyers and price else None
     out["revenue_est"] = sales * price if sales and price else None
+    # 대표값: 상세 확인의 '월 N명 이상 구매'(쿠팡이 밝힌 실제 값)가 있으면 그것, 없으면 리뷰 추정
+    if buyers:
+        out["sales_28"], out["sales_basis"] = buyers, "confirmed"
+    elif sales is not None:
+        out["sales_28"], out["sales_basis"] = sales, "review"
+    else:
+        out["sales_28"], out["sales_basis"] = None, None
+    s28 = out["sales_28"]
+    out["sales_basis_label"] = {"confirmed": "쿠팡 확인(월 N명 이상)", "review": "리뷰 추정"}.get(out["sales_basis"], "")
+    out["daily_avg"] = round(s28 / 28, 1) if s28 is not None else None
+    out["conversion"] = round(s28 / views * 100, 2) if s28 is not None and views else None
+    out["revenue_28"] = s28 * price if s28 is not None else None
+    out["sales_per_review"] = round(s28 / reviews, 1) if s28 is not None and reviews else (float(s28) if s28 else None)
     detail = []
     if p.get("buyers_detail"):
         try:
@@ -111,13 +124,12 @@ def enrich(p: dict, cond: dict) -> dict:
         # (예전 버전의 '28일 판매량' 조건은 더 이상 쓰지 않는다)
         if cond.get("buyers_min"):
             # 상세 확인의 '월 N명 이상 구매'는 쿠팡이 밝힌 하한이고, 리뷰 추정은 어림값이므로 둘 중 큰 쪽으로 판정한다
-            known = [x for x in (sales, buyers) if x is not None]
-            basis = max(known) if known else None
+            basis = out["sales_28"]          # 확인값 우선, 없으면 리뷰 추정
             if basis is None or basis < cond["buyers_min"]:
                 v = "below"
         if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:
             v = "below"
-        if cond.get("conv_min") and (out["conversion"] or out["conversion_min"] or 0) < cond["conv_min"]:
+        if cond.get("conv_min") and (out["conversion"] or 0) < cond["conv_min"]:
             v = "below"
         if cond.get("only_mergeable") and not out["mergeable_ok"]:
             v = "below"
@@ -144,7 +156,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
         "seen": seen_total,
         "passed_revenue": sum((r.get("revenue_28") or 0) for r in passed),
         "passed_views": sum((r.get("views_28") or 0) for r in passed),
-        "passed_revenue_min": sum(((r.get("revenue_est") or r.get("revenue_min") or 0)) for r in passed),
+        "passed_revenue_min": sum((r.get("revenue_28") or 0) for r in passed),
         "counts": {
             "all": len(rows),
             "pass": len(passed),

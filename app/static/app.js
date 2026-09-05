@@ -271,7 +271,7 @@
       body.innerHTML = `<tr><td colspan="9" class="empty">${state.all ? (state.filter === 'pass' ? '조건 통과 상품이 아직 없습니다. 위 칩에서 [전체]를 누르면 수집된 상품을 모두 볼 수 있고, 조건을 바꾼 뒤엔 [시작 / 이어하기]로 새로 들어온 상품을 분석하세요.' : '이 조건에 맞는 상품이 없습니다.') : '왼쪽에서 범위와 조건을 정하고 [소싱 시작]을 누르세요. 화면을 먼저 보려면 도구 › 데모 데이터 넣기.'}</td></tr>`;
       return;
     }
-    const maxConv = Math.max(5, ...state.rows.map((r) => (r.sales_est && r.views_28) ? r.sales_est / r.views_28 * 100 : (r.conversion_min || 0)));
+    const maxConv = Math.max(5, ...state.rows.map((r) => r.conversion || 0));
     body.innerHTML = state.rows.map((r) => {
       const cat = (r.category_path || '').split(' > ').join(' › ');
       const pills = [`<span class="pill ${r.verdict}">${esc(r.verdict_label)}</span>`];
@@ -282,16 +282,16 @@
       const priceCls = r.coupon_flag ? 'amber' : '';
       const priceSub = r.coupon_flag ? `쿠폰 미반영 가능 · ${esc(r.price_source)}` : esc(r.price_source);
       let salesCell;
-      if (r.sales_est !== null && r.sales_est !== undefined) {
-        salesCell = `<b class="green">≈ ${fmt(r.sales_est)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}×${r.review_multiplier} · 일 ${fmt(Math.round(r.sales_est / 28))}${r.buyers_min ? ` · 확인 ${fmt(r.buyers_min)}+` : ''}</div>`;
-      } else if (r.buyers_min) {
-        salesCell = `<b class="green">${fmt(r.buyers_min)}+</b><div class="sub">월 구매자 최소${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합` : ''}</div>`;
+      if (r.sales_basis === 'confirmed') {
+        salesCell = `<b class="green">${fmt(r.sales_28)}+</b><div class="sub">쿠팡 확인 '월 ${fmt(r.buyers_min)}명 이상'${r.buyers_options ? ` · 옵션 ${r.buyers_options}개 합` : ''}${r.sales_est ? ` · 리뷰추정 ${fmt(r.sales_est)}` : ''}</div>`;
+      } else if (r.sales_basis === 'review') {
+        salesCell = `<b class="green">≈ ${fmt(r.sales_28)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}×${r.review_multiplier} 추정 · 일 ${fmt(Math.round(r.sales_28 / 28))}</div>`;
       } else {
-        salesCell = `<span class="muted">-</span><div class="sub">${r.reviews_28_note ? esc(r.reviews_28_note) : '미추정'}</div>`;
+        salesCell = `<span class="muted">-</span><div class="sub">${r.reviews_28_note ? esc(r.reviews_28_note) : '미확인'}</div>`;
       }
-      const convVal = (r.sales_est && r.views_28) ? (r.sales_est / r.views_28 * 100) : (r.conversion_min !== null && r.conversion_min !== undefined ? r.conversion_min : null);
+      const convVal = (r.conversion !== null && r.conversion !== undefined) ? r.conversion : null;
       const convCell = convVal !== null
-        ? `<b class="green">${r.sales_est ? '' : '≥ '}${convVal.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, convVal / Math.max(1, maxConv) * 100)}%"></i></div>`
+        ? `<b class="green">${r.sales_basis === 'confirmed' ? '≥ ' : ''}${convVal.toFixed(2)}%</b><div class="bar"><i style="width:${Math.min(100, convVal / Math.max(1, maxConv) * 100)}%"></i></div>`
         : '<span class="muted">-</span>';
       return `<tr data-id="${r.product_id}">
         <td class="chk"><input type="checkbox" class="rowchk" data-id="${r.product_id}" ${state.selected.has(r.product_id) ? 'checked' : ''}></td>
@@ -302,7 +302,7 @@
         <td class="num"><b>${fmt(r.review_count)}</b><div class="sub">${r.buyers_per_review ? '리뷰당 판매 ' + r.buyers_per_review : (r.rating ? '평점 ' + r.rating : '')}</div></td>
         <td class="num"><b class="${priceCls}">${won(r.effective_price)}${r.coupon_flag ? ' <span class="muted" title="쿠폰 적용 전 가격일 수 있습니다">?</span>' : ''}</b><div class="sub">${priceSub}</div></td>
         <td class="num"><b>${r.views_range ? esc(r.views_range) : (r.analysis_error ? '-' : '미분석')}</b><div class="sub">${r.analysis_error ? esc(r.analysis_error) : (r.pv_exact ? '' : (r.views_28 ? '범위' : ''))}</div></td>
-        <td class="num"><b>${r.revenue_est ? '≈ ' + wonShort(r.revenue_est) : (r.revenue_min ? wonShort(r.revenue_min) : '-')}</b><div class="sub">${r.revenue_est ? (r.revenue_est < 1e8 ? won(r.revenue_est) : '추정') : (r.revenue_min ? '최소' : '')}</div></td>
+        <td class="num"><b>${r.revenue_28 ? (r.sales_basis === 'review' ? '≈ ' : '') + wonShort(r.revenue_28) : '-'}</b><div class="sub">${r.revenue_28 ? (r.sales_basis === 'confirmed' ? '확인 판매 × 최종가 (최소)' : '리뷰 추정 × 가격') : ''}</div></td>
         <td class="num"><b class="${r.delivery && r.delivery !== 'WING' ? 'blue' : ''}">${esc(r.delivery || 'WING')}${r.delivery_sure ? '' : ' <span class="muted" title="상세 확인 전 추정값">?</span>'}</b><div class="sub">${esc(deliveryLabel(r.delivery))}${r.delivery_sure ? '' : ' (추정)'}</div></td>
       </tr>`;
     }).join('');
@@ -357,7 +357,7 @@
     const row = (r) => `<tr><td class="chk"><input type="checkbox" class="arc" data-id="${r.archive_id}"></td>
         <td class="prod"><div class="pname"><a href="${esc(r.url)}" target="_blank">${esc(r.name)}</a></div><div class="pmeta">ID ${r.product_id}</div></td>
         <td class="left small">${esc(catShort(r.category_path))}</td>
-        <td>${r.sales_est ? '≈ ' + fmt(r.sales_est) : (r.buyers_min ? fmt(r.buyers_min) + '+' : '-')}</td><td>${(r.sales_est && r.views_28) ? (r.sales_est / r.views_28 * 100).toFixed(2) + '%' : (r.conversion_min != null ? '≥ ' + r.conversion_min + '%' : '-')}</td><td>${fmt(r.review_count)}</td><td>${won(r.effective_price)}</td><td>${r.revenue_est ? '≈ ' + wonShort(r.revenue_est) : (r.revenue_min ? wonShort(r.revenue_min) : '-')}</td>
+        <td>${r.sales_basis === 'confirmed' ? fmt(r.sales_28) + '+' : (r.sales_28 ? '≈ ' + fmt(r.sales_28) : '-')}</td><td>${r.conversion != null ? (r.sales_basis === 'confirmed' ? '≥ ' : '') + Number(r.conversion).toFixed(2) + '%' : '-'}</td><td>${fmt(r.review_count)}</td><td>${won(r.effective_price)}</td><td>${r.revenue_28 ? (r.sales_basis === 'review' ? '≈ ' : '') + wonShort(r.revenue_28) : '-'}</td>
         <td class="small">${esc(deliveryLabel(r.delivery))}</td><td class="muted small">${esc((r.saved_at || '').slice(11, 16))}</td></tr>`;
     openModal('보관함', `<div class="row gap" style="margin-bottom:8px;flex-wrap:wrap">
         <select id="arc-day" class="input" style="max-width:220px"><option value="">모든 날짜 (${all.length}개)</option>${days.map((d) => `<option value="${d}" ${arcView.day === d ? 'selected' : ''}>${d} (${cnt(d)}개)</option>`).join('')}</select>
