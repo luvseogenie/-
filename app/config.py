@@ -85,6 +85,7 @@ DEFAULT_CONDITIONS = {
     "views_max": 0,
     "conv_min": 0,
     "buyers_min": 0,
+    "buyers_max": 0,               # 28일 판매 상한 (0 = 제한 없음). 너무 큰 시장은 빼고 싶을 때
     "sales28_min": 0,
     "auto_verify": True,         # 손 놓으면 자동 시 상세 확인(페이지 열기)까지 이어갈지
     "review_estimate": False,      # 최근 28일 리뷰 수 × 배수로 판매량 추정 (페이지 안 열고 API 만)

@@ -50,7 +50,7 @@
       <div class="cond-row"><span>판매가격</span><input id="c-price_min" type="number"><em>~</em><input id="c-price_max" type="number"><u>원</u></div>
       <div class="cond-row"><span>리뷰 수</span><input id="c-review_min" type="number"><em>~</em><input id="c-review_max" type="number"><u>개</u></div>
       <div class="cond-row"><span>28일 조회수</span><input id="c-views_min" type="number"><em></em><span class="spacer"></span><u>회↑</u></div>
-      <div class="cond-row"><span>28일 판매</span><input id="c-buyers_min" type="number"><em></em><span class="spacer"></span><u>개↑</u></div>
+      <div class="cond-row"><span>28일 판매</span><input id="c-buyers_min" type="number"><em>~</em><input id="c-buyers_max" type="number"><u>개</u></div>
       <div class="cond-row"><span>리뷰당 판매</span><input id="c-review_multiplier" type="number" step="1"><em></em><span class="spacer"></span><u>배</u></div>
       <div class="cond-row"><span>최소 전환율</span><input id="c-conv_min" type="number" step="0.1"><em></em><span class="spacer"></span><u>%</u></div>
       <p class="muted small">빈칸이나 0은 "제한 없음"입니다. 조회수는 윙의 정확한 28일 값. 28일 판매는 <b>최근 28일 리뷰 수 × 리뷰당 판매 배수</b>로 추정하며(페이지를 열지 않아 차단 위험 낮음), 상세 확인을 하면 "월 N명 이상 구매" 문구도 함께 표시됩니다.</p>
@@ -104,7 +104,7 @@
         </div>
         <div class="row gap">
           <button class="btn icon" id="btn-refresh" title="새로고침">⟳</button>
-          <button class="btn" id="btn-archive">보관함에 저장</button>
+          <span class="pill pass" id="sel-top" hidden></span> <button class="btn" id="btn-archive">보관함에 저장</button>
           <button class="btn primary" id="btn-export">⤓ 파일로 내려받기</button>
         </div>
       </div>

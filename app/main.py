@@ -332,12 +332,12 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
     if leaf:
         rows = [r for r in rows if str(r.get("category_id")) == str(leaf) or r.get("category_path") == leaf]
     keymap = {
-        "sales": lambda r: (r.get("sales_est") or r.get("buyers_min") or -1, r.get("views_28") or -1),
-        "conversion": lambda r: ((r.get("sales_est") or 0) / r["views_28"] * 100) if (r.get("sales_est") and r.get("views_28")) else (r.get("conversion_min") or -1),
+        "sales": lambda r: (r.get("sales_28") if r.get("sales_28") is not None else -1, r.get("views_28") or -1),
+        "conversion": lambda r: r.get("conversion") if r.get("conversion") is not None else -1,
         "reviews": lambda r: r.get("review_count") or 0,
         "price": lambda r: r.get("effective_price") or 0,
         "views": lambda r: r.get("views_28") or -1,
-        "revenue": lambda r: r.get("revenue_est") or r.get("revenue_min") or -1,
+        "revenue": lambda r: r.get("revenue_28") or -1,
         "rankpv": lambda r: -(r.get("pv_rank") or 9999),
         "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
     }
@@ -360,6 +360,17 @@ def products(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sale
     rows = _apply_filters(all_rows, cond, filter, q, leaf, sort, dir)
     start = (page - 1) * size
     return {"rows": rows[start:start + size], "total": len(rows), "all": len(all_rows), "page": page, "size": size}
+
+
+@app.get("/api/products/ids")
+def product_ids(filter: str = "all", q: str = "", leaf: str = "", sort: str = "sales", dir: str = "desc"):
+    """지금 필터에 맞는 상품 전체의 ID (전체 선택용: 화면에 보이는 100개만이 아니라 전부)."""
+    run = db.latest_run()
+    if not run:
+        return {"ids": []}
+    cond = db.get_conditions()
+    rows = _apply_filters(_rows(run["id"], cond), cond, filter, q, leaf, sort, dir)
+    return {"ids": [r["product_id"] for r in rows]}
 
 
 @app.get("/api/leaves")

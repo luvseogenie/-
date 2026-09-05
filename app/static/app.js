@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'buyers_max', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -320,7 +320,11 @@
     }));
     renderSel();
   }
-  function renderSel() { $('#sel-info').textContent = state.selected.size ? `${state.selected.size}개 선택됨` : ''; }
+  function renderSel() {
+    const n = state.selected.size;
+    $('#sel-info').textContent = n ? `${fmt(n)}개 선택됨` : '';
+    const top = $('#sel-top'); if (top) { top.textContent = n ? `${fmt(n)}개 선택됨` : ''; top.hidden = !n; }
+  }
 
   async function refreshAll() { renderStatus(await api('/api/status')); await loadProducts(true); }
 
@@ -476,7 +480,14 @@
     state.selected.clear(); await refreshAll();
   }));
   $('#btn-more').addEventListener('click', guard(async () => { state.page += 1; await loadProducts(false); }));
-  $('#chk-all').addEventListener('change', (e) => { state.rows.forEach((r) => (e.target.checked ? state.selected.add(r.product_id) : state.selected.delete(r.product_id))); renderRows(); });
+  $('#chk-all').addEventListener('change', guard(async (e) => {
+    // 맨 위 체크 = 지금 필터(예: 조건 통과)에 맞는 상품 전부. 화면에 보이는 100개만이 아니다.
+    const qs = new URLSearchParams({ filter: state.filter, q: state.q, leaf: state.leaf, sort: state.sort });
+    const d = await api('/api/products/ids?' + qs.toString());
+    if (e.target.checked) d.ids.forEach((id) => state.selected.add(id)); else d.ids.forEach((id) => state.selected.delete(id));
+    renderRows();
+    if (e.target.checked) toast(`${d.ids.length}개 선택했습니다 (화면에 보이는 것 포함, 이 필터 전체)`);
+  }));
   let qTimer;
   $('#q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = $('#q').value.trim(); loadProducts(true); }, 300); });
   $('#leaf').addEventListener('change', () => { state.leaf = $('#leaf').value; loadProducts(true); });

@@ -127,6 +127,8 @@ def enrich(p: dict, cond: dict) -> dict:
             basis = out["sales_28"]          # 확인값 우선, 없으면 리뷰 추정
             if basis is None or basis < cond["buyers_min"]:
                 v = "below"
+        if cond.get("buyers_max") and out["sales_28"] is not None and out["sales_28"] > cond["buyers_max"]:
+            v = "below"
         if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:
             v = "below"
         if cond.get("conv_min") and (out["conversion"] or 0) < cond["conv_min"]:
