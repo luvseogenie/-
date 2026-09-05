@@ -163,7 +163,7 @@ def set_setting(key, value):
 def get_conditions() -> dict:
     cond = dict(config.DEFAULT_CONDITIONS)
     saved = get_setting("conditions", {}) or {}
-    for k in ("sales_min", "sales_max", "only_mergeable", "fetch_rank"):   # 더 이상 쓰지 않는 옛 조건
+    for k in ("sales_min", "sales_max", "only_mergeable", "fetch_rank", "views_max"):   # 더 이상 쓰지 않는 옛 조건 (조회수는 최소만)
         saved.pop(k, None)
     cond.update(saved)
     return cond

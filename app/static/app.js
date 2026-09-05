@@ -178,7 +178,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'views_max', 'conv_min', 'buyers_min', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
