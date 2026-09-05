@@ -68,6 +68,48 @@ async function readWithRetry(tabId, kind, deadline) {
   }
 }
 
+// 페이지 안(MAIN world)에서 실행되는 훅. 확장이 연 창에는 '사용자 클릭' 이 없어 window.open / target=_blank 로 여는
+// 다운로드가 팝업 차단에 걸린다 → 새 창을 열지 않고 그 주소만 이벤트로 넘겨 확장이 직접 받는다.
+function pageDownloadHook() {
+  if (window.__ccHooked) return; window.__ccHooked = true;
+  const send = (url, how) => { try { document.dispatchEvent(new CustomEvent('cc-download-url', { detail: { url: String(url), how } })); } catch { /* 무시 */ } };
+  const fakeWindow = (how) => {
+    let href = '';
+    const loc = { assign: (u) => send(u, how + '.assign'), replace: (u) => send(u, how + '.replace'), toString: () => href };
+    Object.defineProperty(loc, 'href', { get: () => href, set: (u) => { href = String(u); send(u, how + '.href'); } });
+    return { closed: false, close() {}, focus() {}, blur() {}, location: loc, document: { write() {}, close() {} }, opener: window };
+  };
+  window.open = function (url) { if (url && String(url) !== 'about:blank') { send(url, 'window.open'); return fakeWindow('window.open'); } return fakeWindow('window.open()'); };
+  document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[target="_blank"][href]') : null;
+    if (a && /^https?:/.test(a.href) && !/^javascript:/.test(a.getAttribute('href') || '')) { e.preventDefault(); e.stopImmediatePropagation(); send(a.href, 'a[target=_blank]'); }
+  }, true);
+  document.addEventListener('submit', (e) => {
+    const f = e.target; if (!f || f.target !== '_blank') return;
+    if ((f.method || 'get').toLowerCase() === 'get') { e.preventDefault(); const u = new URL(f.action || location.href); new FormData(f).forEach((v, k) => u.searchParams.set(k, v)); send(u.href, 'form[target=_blank]'); }
+  }, true);
+}
+const installHook = (tabId) => chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: pageDownloadHook }).catch(() => {});
+let lastHookedUrl = null;   // 가로챈 다운로드 주소 (진단용)
+async function fetchAndImport(url, how) {
+  lastHookedUrl = { url, how, at: Date.now() };
+  try {
+    const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const cd = r.headers.get('content-disposition') || ''; const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i);
+    let name = m ? decodeURIComponent(m[1]) : (new URL(url).pathname.split('/').pop() || 'report.xlsx');
+    if (!/\.(xlsx|xls|csv)$/i.test(name)) name += '.xlsx';
+    const buf = await r.arrayBuffer();
+    const res = await importAnyFile(buf, name, expectDate);
+    expectDate = null;
+    const label = res.kind === 'ads' ? '광고' : '판매';
+    await log(`[다운로드] ${how} 로 받은 ${name} → ${res.date} ${label} ${res.saved}건 저장`);
+    settle({ ok: true, saved: res.saved, date: res.date });
+  } catch (e) {
+    await log(`[다운로드] 주소를 직접 받아 읽지 못해(${e.message}) 크롬 다운로드로 넘깁니다: ${url.slice(0, 120)}`);
+    try { await chrome.downloads.download({ url }); } catch (e2) { settle({ ok: false, error: `다운로드 시작 실패: ${e2.message}` }); }
+  }
+}
+
 // 수집용 탭. 크롬은 보이지 않는(배경) 탭에서 화면 그리기를 멈추기 때문에, 기본은 작은 창을 따로 띄워 보이게 한다.
 async function openWorkTab(url, s) {
   if (!s.ownWindow) { const tab = await chrome.tabs.create({ url, active: false }); return { tab, close: () => chrome.tabs.remove(tab.id).catch(() => {}) }; }
@@ -106,9 +148,23 @@ async function collectKind(kind, dateOverride) {
   try {
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
     await inject(tab.id);
-    if (!url.includes('{date}') && !url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
+    const needYesterday = !url.includes('{date}') && !url.includes(target);
+    if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
     let r = await readWithRetry(tab.id, kind, kind === 'sales' ? Date.now() + s.waitSeconds * 1000 : deadline);
-    if (r && kind === 'ads') { const full = await readFromTab(tab.id, kind, 'readAll'); if (full?.records?.length > r.records.length) r = full; }
+    if (r && kind === 'ads') {
+      // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
+      const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
+      if (wrong(r)) {
+        const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false }));
+        await sleep(4000); await inject(tab.id);
+        r = (await readFromTab(tab.id, kind)) || r;
+        if (wrong(r)) {
+          const shown = r.period && r.period.start !== r.period.end ? `${r.period.start} ~ ${r.period.end} (여러 날 합계)` : r.date;
+          throw new Error(`광고센터 화면 기간이 ${shown} 이라 어제(${target}) 값이 아닙니다. '어제' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'} — 저장하지 않았습니다. 광고센터에서 기간을 '어제' 로 바꿔 두면 다음부터 그대로 열립니다`);
+        }
+      }
+      const full = await readFromTab(tab.id, kind, 'readAll'); if (full?.records?.length > r.records.length) r = full;
+    }
     if (!r && kind === 'sales') {
       // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
       let c = null;
@@ -119,15 +175,16 @@ async function collectKind(kind, dateOverride) {
         await sleep(4000);
       }
       if (!c?.ok) throw new Error(`${c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다'} (${url}) — ${await describePage(tab.id)}. 화면이 다 뜨기 전이면 설정의 '대기(초)' 를 올려 보세요`);
-      // 버튼은 찾았다 → 이제 실제로 누르고 다운로드를 기다린다. 30초 안에 안 오면 한 번 더 누른다.
-      expectUntil = Date.now() + 150000; expectDate = target;
+      // 버튼은 찾았다 → 새 창 열기를 가로채는 훅을 심고 실제로 누른 뒤 파일을 기다린다. 30초 안에 안 오면 한 번 더 누른다.
+      await installHook(tab.id);
+      expectUntil = Date.now() + 150000; expectDate = target; lastHookedUrl = null;
       let res = null;
       for (let i = 0; i < 2 && !res?.ok; i++) {
         const waiting = waitForReport(i === 0 ? 30000 : 60000);
         await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
-        res = await waiting; // onChanged 에서 저장이 끝나면 풀린다
+        res = await waiting; // 훅(fetchAndImport) 또는 downloads.onChanged 에서 저장이 끝나면 풀린다
       }
-      if (!res?.ok) throw new Error(`${res?.error || '리포트 저장 실패'} — 다운로드 메뉴는 눌렀지만 파일이 내려오지 않았습니다 (${await describePage(tab.id)}). 크롬 설정의 '다운로드 전에 저장 위치 묻기' 가 켜져 있으면 꺼 주세요`);
+      if (!res?.ok) throw new Error(`${res?.error || '리포트 저장 실패'} — 다운로드 메뉴는 눌렀지만 파일이 내려오지 않았습니다 (${await describePage(tab.id)}${lastHookedUrl ? `, 가로챈 주소 ${lastHookedUrl.how}` : ', 새 창 열기 감지 안 됨'}). 크롬 설정의 '다운로드 전에 저장 위치 묻기' 가 켜져 있으면 꺼 주세요`);
       return { ok: true, saved: res.saved, date: res.date };
     }
     if (!r) throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다 (${url}) — ${await describePage(tab.id)}. 로그인이 풀렸거나 화면이 아직 안 그려진 것일 수 있습니다`);
@@ -287,7 +344,8 @@ function notify(message) { try { chrome.notifications.create({ type: 'basic', ic
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
+    if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || ''); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
+    else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
     else if (msg.type === 'checkUpdate') { sendResponse({ latest: await checkRemote(true), reloaded: await reloadIfFilesChanged() }); }

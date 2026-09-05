@@ -174,7 +174,7 @@
     }
     if (pages > 1) { try { await gotoPage(1); } catch { /* 무시 */ } }
     const tables = allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length }));
-    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), url: location.href, tables, errors: [...readErrors] };
+    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), period: detectPeriod(), url: location.href, tables, errors: [...readErrors] };
   }
 
   // 광고센터 캠페인 목록(react-table v6): .rt-table > .rt-thead.-header .rt-th / .rt-tbody .rt-tr-group .rt-tr .rt-td
@@ -229,6 +229,19 @@
       if (s && (!e || s === e)) return s;
       const single = pick(['date', 'targetDate', 'reportDate']); if (single) return single;
     } catch { /* 무시 */ }
+    return null;
+  }
+  function detectPeriod() {
+    const re = /(20\d{2})[.\-/]\s?(\d{1,2})[.\-/]\s?(\d{1,2})/g;
+    const cands = [];
+    try { const q = new URL(location.href).searchParams; const s0 = q.get('start_date') || q.get('startDate'), e0 = q.get('end_date') || q.get('endDate'); if (s0 && e0) cands.push(`${s0} ~ ${e0}`); } catch { /* 무시 */ }
+    document.querySelectorAll('input').forEach((i) => { if (i.value) cands.push(i.value); });
+    document.querySelectorAll('[class*="date" i], [class*="picker" i], [class*="calendar" i], [class*="period" i], [class*="range" i]').forEach((e) => cands.push(clean(e.innerText)));
+    for (const c of cands) {
+      const found = [...c.matchAll(re)].map((m) => `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`);
+      if (found.length >= 2) return { start: found[0], end: found[1] };
+      if (found.length === 1) return { start: found[0], end: found[0] };
+    }
     return null;
   }
   function detectDate() {
@@ -343,6 +356,9 @@
     return false;
   }
 
+  // 페이지(MAIN world)에 심은 훅이 window.open / target=_blank 링크의 주소를 이벤트로 보내면 백그라운드로 전달
+  document.addEventListener('cc-download-url', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadUrl', url: e.detail?.url, how: e.detail?.how }); } catch { /* 무시 */ } });
+
   window.__ccReadTables = allTables;
   window.__ccDetectDate = detectDate; window.__ccDivGrids = readDivGrids; window.__ccReadAllPages = readAllPages; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
   window.__ccPick = (kind) => { const t = pickTable(allTables(), kind); return t ? { records: toRecords(t), headers: t.headers, source: t.kind } : null; };
@@ -351,7 +367,7 @@
     if (msg?.type === 'read') {
       try {
         const picked = window.__ccPick(msg.kind);
-        sendResponse({ ok: !!picked, ...(picked || {}), date: detectDate(), url: location.href,
+        sendResponse({ ok: !!picked, ...(picked || {}), date: detectDate(), period: detectPeriod(), url: location.href,
           tables: allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 12), rows: t.rows.length })), errors: [...readErrors] });
       } catch (e) { sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }); }
     } else if (msg?.type === 'clickYesterday') {
@@ -363,7 +379,7 @@
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'pageInfo') {
-      sendResponse(pageInfo());
+      sendResponse({ ...pageInfo(), date: detectDate(), period: detectPeriod() });
     } else if (msg?.type === 'structure') {
       sendResponse(structureInfo());
     }
