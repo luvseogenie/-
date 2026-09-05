@@ -679,7 +679,7 @@ $('#restore').onchange = async (ev) => {
 };
 $('#sales-csv').onclick = () => { const d = DATA; const keys = ['date', 'option_id', 'option_name', 'product_name', 'product_id', 'category', 'sales_type', 'revenue', 'orders', 'quantity', 'visitors', 'views', 'carts', 'conversion']; const lines = [['날짜', '옵션ID', '옵션명', '상품명', '등록상품ID', '카테고리', '판매방식', '매출', '주문', '판매량', '방문자', '조회', '장바구니', '구매전환율'].join(',')]; for (const date of Object.keys(d.sales).sort()) for (const r of Object.values(d.sales[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('판매데이터.csv', lines.join('\n')); };
 $('#ads-csv').onclick = () => { const d = DATA; const keys = ['date', 'campaign', 'target_roas', 'budget', 'spend', 'ad_revenue', 'conversion', 'ctr', 'impressions', 'clicks', 'ad_orders', 'action']; const lines = [['날짜', '캠페인', '목표효율', '광고예산', '집행광고비', '광고전환매출', '전환율', '클릭률', '노출수', '클릭수', '광고전환판매수', 'ACTION'].join(',')]; for (const date of Object.keys(d.ads).sort()) for (const r of Object.values(d.ads[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('광고데이터.csv', lines.join('\n')); };
-const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, serverSync: false, server: 'http://127.0.0.1:8765' };
+const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, serverSync: false, server: 'http://127.0.0.1:8765' };
 async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
@@ -703,10 +703,10 @@ $$('[data-testurl]').forEach((b) => b.onclick = async () => {
   b.disabled = false;
   if (r.hint) $('#url-test').innerHTML = `<span style="color:#a52a2a">${esc(r.hint)}</span>`;
   else if (r.ok) $('#url-test').innerHTML = `<span style="color:#0a7a0a">읽었습니다</span> · ${r.rows ? `${r.rows}줄 · 열: ${esc(r.headers.join(', '))}` : esc(r.download || '')}${r.date ? ` · 화면 날짜 ${r.date}` : ''}`;
-  else $('#url-test').innerHTML = `<span style="color:#a52a2a">이 주소에서는 표도 다운로드 버튼도 못 찾았습니다</span> (${esc(r.url || '')}). 로그인이 풀렸거나 다른 화면일 수 있습니다.`;
+  else $('#url-test').innerHTML = `<span style="color:#a52a2a">이 주소에서는 표도 다운로드 버튼도 못 찾았습니다</span> (${esc(r.url || '')}). ${esc(r.page || '')}. 로그인이 풀렸거나 다른 화면일 수 있습니다.`;
 });
 $('#set-save').onclick = async () => { const out = {}; for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim(); } await chrome.storage.sync.set(out); msg('#set-msg', '저장됨', 'ok'); };
-$('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (탭이 열렸다 닫힙니다, 1분쯤 걸립니다)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
+$('#run-auto').onclick = async () => { msg('#set-msg', '자동 수집 중… (작은 창이 떠서 쿠팡 화면을 열고 끝나면 닫힙니다, 1~2분)'); const rs = await chrome.runtime.sendMessage({ type: 'runAuto' }); msg('#set-msg', rs.every((r) => r.ok) ? '완료' : rs.map((r) => r.ok ? '성공' : r.error).join(' / '), rs.every((r) => r.ok) ? 'ok' : 'err'); loadSettings(); refreshAll(); };
 
 /* ===== 광고 외 지출 ===== */
 $('#ex-date').value = localIso(yday);

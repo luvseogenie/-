@@ -4,7 +4,7 @@ import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, serverSync: false, server: 'http://127.0.0.1:8765' };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, serverSync: false, server: 'http://127.0.0.1:8765' };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -68,6 +68,20 @@ async function readWithRetry(tabId, kind, deadline) {
   }
 }
 
+// 수집용 탭. 크롬은 보이지 않는(배경) 탭에서 화면 그리기를 멈추기 때문에, 기본은 작은 창을 따로 띄워 보이게 한다.
+async function openWorkTab(url, s) {
+  if (!s.ownWindow) { const tab = await chrome.tabs.create({ url, active: false }); return { tab, close: () => chrome.tabs.remove(tab.id).catch(() => {}) }; }
+  let prev = null; try { prev = await chrome.windows.getLastFocused(); } catch { /* 무시 */ }
+  const win = await chrome.windows.create({ url, focused: true, type: 'normal', width: 1280, height: 860 });
+  const tab = win.tabs?.[0] || (await chrome.tabs.query({ windowId: win.id }))[0];
+  return { tab, close: async () => { await chrome.windows.remove(win.id).catch(() => {}); if (prev?.id && prev.id !== win.id) await chrome.windows.update(prev.id, { focused: true }).catch(() => {}); } };
+}
+// 실패했을 때 화면이 어땠는지 (로그인 화면인지, 아직 비어 있는지) 한 줄로
+async function describePage(tabId) {
+  try { const p = await chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }); return `화면: "${(p.title || '').slice(0, 30)}" 글자 ${p.textLength}자, 캠페인 글자 ${p.hasCampaignText ? '있음' : '없음'}, 엑셀 다운로드 ${p.hasExcelDownload ? '있음' : '없음'}`; }
+  catch { return '화면 상태를 읽지 못함(스크립트 미주입)'; }
+}
+
 // 주소가 도메인만이거나 목록 화면이 아닐 때 무엇을 고쳐야 하는지 알려 준다
 function urlHint(kind, baseUrl) {
   const bare = /^https?:\/\/[^/]+\/?$/.test(String(baseUrl || '').trim());
@@ -87,7 +101,7 @@ async function collectKind(kind, dateOverride) {
     throw new Error(`${kind === 'sales' ? '판매분석' : '광고 관리'} 주소에 {date} 가 없어 ${dateOverride} 를 열 수 없습니다. 광고센터에서 기간을 정해 보고서를 받아 '파일 올리기' 로 올리거나, 주소에 {date} 를 넣어 주세요`);
   }
   const url = baseUrl.replace(/\{date\}/g, target);
-  const tab = await chrome.tabs.create({ url, active: false });
+  const { tab, close } = await openWorkTab(url, s);
   const deadline = Date.now() + s.waitSeconds * 1000 + 45000;   // 화면이 늦게 떠도 이 시간까지는 기다린다
   try {
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
@@ -104,15 +118,19 @@ async function collectKind(kind, dateOverride) {
         if (c?.ok) break;
         await sleep(4000);
       }
-      if (!c?.ok) throw new Error(`${c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다'} (${url}) — 화면이 다 뜨기 전일 수 있습니다. 설정의 '대기(초)' 를 20~30 으로 올려 보세요`);
-      expectUntil = Date.now() + 120000; expectDate = target;
-      const waiting = waitForReport(90000);
-      await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
-      const res = await waiting; // onChanged 에서 저장이 끝나면 풀린다
-      if (!res?.ok) throw new Error(res?.error || '리포트 저장 실패');
+      if (!c?.ok) throw new Error(`${c?.reason || '엑셀 다운로드 버튼을 찾지 못했습니다'} (${url}) — ${await describePage(tab.id)}. 화면이 다 뜨기 전이면 설정의 '대기(초)' 를 올려 보세요`);
+      // 버튼은 찾았다 → 이제 실제로 누르고 다운로드를 기다린다. 30초 안에 안 오면 한 번 더 누른다.
+      expectUntil = Date.now() + 150000; expectDate = target;
+      let res = null;
+      for (let i = 0; i < 2 && !res?.ok; i++) {
+        const waiting = waitForReport(i === 0 ? 30000 : 60000);
+        await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport' }).catch(() => null);
+        res = await waiting; // onChanged 에서 저장이 끝나면 풀린다
+      }
+      if (!res?.ok) throw new Error(`${res?.error || '리포트 저장 실패'} — 다운로드 메뉴는 눌렀지만 파일이 내려오지 않았습니다 (${await describePage(tab.id)}). 크롬 설정의 '다운로드 전에 저장 위치 묻기' 가 켜져 있으면 꺼 주세요`);
       return { ok: true, saved: res.saved, date: res.date };
     }
-    if (!r) throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다. 로그인이 풀렸거나 주소가 다를 수 있습니다 (${url})`);
+    if (!r) throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다 (${url}) — ${await describePage(tab.id)}. 로그인이 풀렸거나 화면이 아직 안 그려진 것일 수 있습니다`);
     // 화면에 뜬 날짜가 요청한 날짜와 다르면 저장하지 않는다 (다른 날 숫자가 그 날짜로 들어가는 사고 방지)
     if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
@@ -120,7 +138,7 @@ async function collectKind(kind, dateOverride) {
     await syncServer(kind, date, r.records);
     await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${date} ${n}건 저장`);
     return { ok: true, saved: n, date };
-  } finally { await chrome.tabs.remove(tab.id).catch(() => {}); }
+  } finally { await close(); }
 }
 
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
@@ -181,7 +199,7 @@ async function testUrl(kind) {
   const hint = urlHint(kind, baseUrl);
   const target = yesterdayIso();
   const url = baseUrl.replace(/\{date\}/g, target);
-  const tab = await chrome.tabs.create({ url, active: false });
+  const { tab, close } = await openWorkTab(url, s);
   try {
     const deadline = Date.now() + s.waitSeconds * 1000 + 30000;
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
@@ -190,8 +208,9 @@ async function testUrl(kind) {
     const r = await readWithRetry(tab.id, kind, deadline);
     let download = null;
     if (!r && kind === 'sales') { await inject(tab.id); download = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport', dryRun: true }).catch(() => null); }
-    return { ok: !!r || !!download?.ok, rows: r?.records?.length || 0, headers: r?.headers?.slice(0, 8) || [], date: r?.date || null, url, hint, download: download?.ok ? '엑셀 다운로드 버튼을 찾았습니다' : null };
-  } finally { await chrome.tabs.remove(tab.id).catch(() => {}); }
+    const page = (!r && !download?.ok) ? await describePage(tab.id) : null;
+    return { ok: !!r || !!download?.ok, rows: r?.records?.length || 0, headers: r?.headers?.slice(0, 8) || [], date: r?.date || null, url, hint, page, download: download?.ok ? '엑셀 다운로드 버튼을 찾았습니다' : null };
+  } finally { await close(); }
 }
 
 async function scheduleAlarm() {
