@@ -138,43 +138,66 @@
   function pagerInput() {
     return [...deepAll('input')].find((i) => (i.type === 'text' || i.type === 'number') && /^\d+$/.test(i.value) && /\/\s*\d+/.test(clean(i.parentElement?.innerText || '') + clean(i.parentElement?.parentElement?.innerText || '')));
   }
-  async function maximizePageSize() {
+  // 지금 표의 '지문' (첫 칸들) — 페이지가 실제로 바뀌었는지 확인용
+  const rowsFingerprint = (kind) => { const p = window.__ccPick(kind); return p ? p.records.map((r) => Object.values(r)[0]).join('|') : ''; };
+  // 조건이 될 때까지 기다린다 (최대 ms)
+  async function waitUntil(cond, ms, step = 300) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cond()) return true; await wait(step); } return cond(); }
+  async function maximizePageSize(kind) {
     const sel = [...deepAll('select')].find((s) => [...s.options].filter((o) => /^\s*\d+\s*(개|건|rows|items)?\s*$/i.test(o.textContent)).length >= 2);
     if (!sel) return null;
     const best = [...sel.options].reduce((a, o) => (parseInt(o.textContent, 10) || 0) > (parseInt(a.textContent, 10) || 0) ? o : a);
     if (best.value === sel.value) return null;
-    setNativeValue(sel, best.value); await wait(2000);
-    return clean(best.textContent);
+    const before = rowsFingerprint(kind); const beforeTotal = pageTotal();
+    setNativeValue(sel, best.value);
+    // 표의 줄 수나 쪽수가 실제로 바뀔 때까지 (최대 6초)
+    const changed = await waitUntil(() => rowsFingerprint(kind) !== before || pageTotal() !== beforeTotal, 6000);
+    await wait(500);
+    return clean(best.textContent) + (changed ? '' : ' (적용 안 됨)');
   }
-  async function gotoPage(n) {
+  async function gotoPage(n, kind) {
+    const before = rowsFingerprint(kind);
     const input = pagerInput();
     if (input) {
       setNativeValue(input, String(n));
       for (const t of ['keydown', 'keypress', 'keyup']) input.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      return true;
+      input.dispatchEvent(new Event('blur', { bubbles: true }));   // react-table 은 blur 에서도 이동
+      if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true;
     }
-    // 다음 버튼: '/ N' 글자 오른쪽에 있는 첫 버튼
+    // 다음 버튼: '/ N' 글자 오른쪽에 있는 첫 버튼 (입력칸이 없거나 안 먹을 때)
     const anchor = [...deepAll('*')].find((e) => e.children.length === 0 && /^\/\s*\d+$/.test(clean(e.innerText)));
-    if (!anchor) return false;
-    const ax = anchor.getBoundingClientRect(); const ay = (ax.top + ax.bottom) / 2;
-    const btn = [...deepAll('button, a, [role="button"]')].filter((b) => { const r = b.getBoundingClientRect(); return visible(b) && r.left > ax.right && Math.abs((r.top + r.bottom) / 2 - ay) < 30 && r.left - ax.right < 400; }).sort((p, q) => p.getBoundingClientRect().left - q.getBoundingClientRect().left)[0];
-    if (!btn || btn.disabled) return false;
-    fire(btn, CLICK); return true;
+    if (anchor) {
+      const ax = anchor.getBoundingClientRect(); const ay = (ax.top + ax.bottom) / 2;
+      const btn = [...deepAll('button, a, [role="button"]')].filter((b) => { const r = b.getBoundingClientRect(); return visible(b) && r.left > ax.right && Math.abs((r.top + r.bottom) / 2 - ay) < 30 && r.left - ax.right < 400; }).sort((p, q) => p.getBoundingClientRect().left - q.getBoundingClientRect().left)[0];
+      if (btn && !btn.disabled) { fire(btn, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
+    }
+    // '다음' / '>' 글자 버튼
+    const next = [...deepAll('button, a, [role="button"], li')].find((b) => visible(b) && !b.disabled && /^(다음|next|›|>|»)$/i.test(clean(b.innerText)));
+    if (next) { fire(next, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
+    return false;
+  }
+  // 화면에 적힌 전체 건수 ('총 17개', '17건', '캠페인 17')
+  function shownTotal() {
+    const t = clean(document.body.innerText);
+    const m = t.match(/(?:총|전체|캠페인)\s*(\d{1,4})\s*(?:개|건)/) || t.match(/(\d{1,4})\s*(?:개|건)\s*(?:의\s*)?캠페인/);
+    return m ? parseInt(m[1], 10) : null;
   }
   async function readAllPages(kind) {
     const all = []; const seen = new Set(); const notes = [];
-    const size = await maximizePageSize(); if (size) notes.push(`페이지당 ${size}로 변경`);
+    const size = await maximizePageSize(kind); if (size) notes.push(`페이지당 ${size}로 변경`);
     const total0 = pageTotal(); let pages = 0;
     for (let i = 1; i <= Math.min(total0, 30); i++) {
-      if (i > 1) { if (!(await gotoPage(i))) { notes.push(`${i}페이지로 못 넘어감`); break; } await wait(2000); }
-      const picked = window.__ccPick(kind); if (!picked) { if (i === 1) break; notes.push(`${i}페이지에서 표를 못 읽음`); break; }
+      if (i > 1) { if (!(await gotoPage(i, kind))) { notes.push(`${i}쪽으로 넘어가도 내용이 바뀌지 않음`); break; } await wait(1500); }
+      const picked = window.__ccPick(kind); if (!picked) { if (i === 1) break; notes.push(`${i}쪽에서 표를 못 읽음`); break; }
       pages++;
-      for (const r of picked.records) { const key = Object.values(r).slice(0, 1).join('|'); if (!seen.has(key)) { seen.add(key); all.push(r); } }
+      let added = 0;
+      for (const r of picked.records) { const key = Object.values(r).slice(0, 1).join('|'); if (!seen.has(key)) { seen.add(key); all.push(r); added++; } }
+      if (i > 1 && !added) notes.push(`${i}쪽이 앞쪽과 같은 내용`);
       if (pageTotal() <= i) break;
     }
-    if (pages > 1) { try { await gotoPage(1); } catch { /* 무시 */ } }
+    const total = shownTotal(); if (total && total !== all.length) notes.push(`화면 표기 전체 ${total}개 중 ${all.length}개 읽음`);
+    if (pages > 1) { try { await gotoPage(1, kind); } catch { /* 무시 */ } }
     const tables = allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length }));
-    return { ok: all.length > 0, records: all, pages, total: total0, notes, date: detectDate(), period: detectPeriod(), url: location.href, tables, errors: [...readErrors] };
+    return { ok: all.length > 0, records: all, pages, total: total0, shownTotal: total, notes, date: detectDate(), period: detectPeriod(), url: location.href, tables, errors: [...readErrors] };
   }
 
   // 광고센터 캠페인 목록(react-table v6): .rt-table > .rt-thead.-header .rt-th / .rt-tbody .rt-tr-group .rt-tr .rt-td
