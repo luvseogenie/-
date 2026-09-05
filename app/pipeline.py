@@ -293,8 +293,8 @@ class JobController:
             return
         targets = []
         for p in db.products(run_id):
-            if p.get("reviews_28") is not None:
-                continue
+            if p.get("reviews_28") is not None and "환산" not in (p.get("reviews_28_note") or ""):
+                continue        # 이미 셌음 (예전 방식의 '비례 환산' 값만 다시 센다)
             if not db.eligible(p, cond):
                 continue
             if p.get("analyzed") and not p.get("matched"):
