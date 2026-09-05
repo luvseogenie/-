@@ -72,7 +72,8 @@ async function readWithRetry(tabId, kind, deadline) {
 // 다운로드가 팝업 차단에 걸린다 → 새 창을 열지 않고 그 주소만 이벤트로 넘겨 확장이 직접 받는다.
 function pageDownloadHook() {
   if (window.__ccHooked) return; window.__ccHooked = true;
-  const send = (url, how) => { try { document.dispatchEvent(new CustomEvent('cc-download-url', { detail: { url: String(url), how } })); } catch { /* 무시 */ } };
+  const abs = (u) => { try { return new URL(String(u), location.href).href; } catch { return String(u); } };   // '/fcc/download/…' 같은 상대 주소 → 절대 주소
+  const send = (url, how) => { try { document.dispatchEvent(new CustomEvent('cc-download-url', { detail: { url: abs(url), how } })); } catch { /* 무시 */ } };
   const fakeWindow = (how) => {
     let href = '';
     const loc = { assign: (u) => send(u, how + '.assign'), replace: (u) => send(u, how + '.replace'), toString: () => href };
@@ -91,7 +92,8 @@ function pageDownloadHook() {
 }
 const installHook = (tabId) => chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: pageDownloadHook }).catch(() => {});
 let lastHookedUrl = null;   // 가로챈 다운로드 주소 (진단용)
-async function fetchAndImport(url, how) {
+async function fetchAndImport(url, how, baseUrl) {
+  try { url = new URL(url, baseUrl || undefined).href; } catch { /* 그대로 */ }
   lastHookedUrl = { url, how, at: Date.now() };
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -163,7 +165,9 @@ async function collectKind(kind, dateOverride) {
           throw new Error(`광고센터 화면 기간이 ${shown} 이라 어제(${target}) 값이 아닙니다. '어제' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'} — 저장하지 않았습니다. 광고센터에서 기간을 '어제' 로 바꿔 두면 다음부터 그대로 열립니다`);
         }
       }
-      const full = await readFromTab(tab.id, kind, 'readAll'); if (full?.records?.length > r.records.length) r = full;
+      const full = await readFromTab(tab.id, kind, 'readAll');
+      if (full?.records?.length > r.records.length) r = full;
+      else if (full) r.notes = [...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
     }
     if (!r && kind === 'sales') {
       // 판매분석은 표가 없다 → 엑셀 다운로드 → 상품별 판매 리포트. 다운로드 감지가 이어서 저장한다.
@@ -193,7 +197,7 @@ async function collectKind(kind, dateOverride) {
     const date = dateOverride || r.date || yesterdayIso();
     const n = await saveLocal(kind, date, r.records);
     await syncServer(kind, date, r.records);
-    await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${date} ${n}건 저장`);
+    await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${date} ${n}건 저장` + (kind === 'ads' ? ` (${r.pages ? `${r.pages}/${r.total || '?'}쪽` : '1쪽'}${r.notes?.length ? ', ' + r.notes.join(', ') : ''})` : ''));
     return { ok: true, saved: n, date };
   } finally { await close(); }
 }
@@ -342,9 +346,9 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 });
 function notify(message) { try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message }); } catch { /* 무시 */ } }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || ''); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
+    if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
