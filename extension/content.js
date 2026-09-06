@@ -358,7 +358,7 @@
   function pageInfo() {
     const text = clean(document.body.innerText);
     return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
-      hasLogin: /로그인|비밀번호|아이디를 입력|sign in|password/i.test(text) && !!document.querySelector('input[type="password"]'),
+      hasLogin: !!deepAll('input[type="password"]').find(visible),
       hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
   // 구조 진단: 프레임, 커스텀 엘리먼트(shadow DOM), 반복 줄 그룹, 캠페인처럼 보이는 글자
@@ -395,6 +395,27 @@
     return false;
   }
 
+  // 로그인 화면이면 아이디·비밀번호를 채우고 로그인 버튼을 누른다 (자동 로그인, 선택 기능)
+  async function doLogin(id, pw) {
+    const pwEl = deepAll('input[type="password"]').find(visible);
+    if (!pwEl) return { ok: false, reason: '비밀번호 칸이 없습니다' };
+    const texts = deepAll('input').filter((i) => visible(i) && i !== pwEl && ['text', 'email', 'tel', ''].includes(i.type || ''));
+    // 비밀번호 칸보다 앞에 있는 마지막 글자 칸 = 아이디 칸
+    const before = texts.filter((i) => i.compareDocumentPosition(pwEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const idEl = before[before.length - 1] || texts[0];
+    if (!idEl) return { ok: false, reason: '아이디 칸이 없습니다' };
+    idEl.focus(); setNativeValue(idEl, id); await wait(150);
+    pwEl.focus(); setNativeValue(pwEl, pw); await wait(300);
+    const form = pwEl.closest('form');
+    const pool = form ? [...form.querySelectorAll('button, input[type="submit"], [role="button"]')] : deepAll('button, input[type="submit"], [role="button"]');
+    const btn = pool.find((b) => visible(b) && /로그인|sign\s*in|log\s*in|submit|확인/i.test(clean(b.innerText || b.value || b.getAttribute('aria-label') || ''))) || (form && form.querySelector('button[type="submit"], input[type="submit"]'));
+    let how = 'enter';
+    if (btn) { fire(btn, [...HOVER, ...CLICK]); how = 'button:' + clean(btn.innerText || btn.value || '').slice(0, 20); }
+    else if (form && form.requestSubmit) { form.requestSubmit(); how = 'form'; }
+    else for (const t of ['keydown', 'keypress', 'keyup']) pwEl.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    return { ok: true, how };
+  }
+
   // 페이지(MAIN world)에 심은 훅이 window.open / target=_blank 링크의 주소를 이벤트로 보내면 백그라운드로 전달
   document.addEventListener('cc-download-url', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadUrl', url: e.detail?.url, how: e.detail?.how }); } catch { /* 무시 */ } });
 
@@ -417,6 +438,8 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
+    } else if (msg?.type === 'login') {
+      doLogin(msg.id, msg.pw).then(sendResponse).catch((e) => sendResponse({ ok: false, reason: String(e && e.message || e) }));
     } else if (msg?.type === 'pageInfo') {
       sendResponse({ ...pageInfo(), date: detectDate(), period: detectPeriod() });
     } else if (msg?.type === 'structure') {

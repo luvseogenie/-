@@ -684,6 +684,7 @@ async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
   const { logs = [] } = await chrome.storage.local.get('logs'); $('#auto-log').textContent = logs.slice(-20).join('\n') || '(자동 수집 기록 없음)';
+  loadLogin();
   try {
     const a = await chrome.runtime.sendMessage({ type: 'autoStatus' });
     const when = a.nextAt ? new Date(a.nextAt).toLocaleString('ko-KR') : '-';
@@ -694,6 +695,18 @@ async function loadSettings() {
       : `자동 수집 <b style="color:#d03b3b">꺼짐</b> — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
   } catch { $('#auto-status').textContent = ''; }
 }
+async function loadLogin() {
+  try { const l = await chrome.runtime.sendMessage({ type: 'loginStatus' }); $('#login-enabled').checked = !!l.enabled; $('#login-id').value = l.id || ''; $('#login-pw').value = ''; $('#login-pw').placeholder = l.hasPw ? '비밀번호 저장됨 (바꿀 때만 입력)' : '비밀번호'; $('#login-sub').textContent = l.enabled && l.hasPw ? '켜짐' : '꺼짐'; } catch { /* 무시 */ }
+}
+$('#login-save').onclick = async () => {
+  const id = $('#login-id').value.trim(), pw = $('#login-pw').value, enabled = $('#login-enabled').checked;
+  const cur = await chrome.runtime.sendMessage({ type: 'loginStatus' });
+  if (enabled && (!id || (!pw && !cur.hasPw))) { msg('#login-msg', '아이디와 비밀번호를 넣어 주세요', 'err'); return; }
+  if (pw) await chrome.runtime.sendMessage({ type: 'saveLogin', id, pw, enabled });
+  else { await chrome.storage.local.set({ loginId: id, autoLogin: enabled }); }
+  msg('#login-msg', enabled ? '자동 로그인 켜짐. 로그인이 풀려 있을 때 대신 로그인합니다.' : '자동 로그인 꺼짐', 'ok'); loadLogin(); loadSettings();
+};
+$('#login-clear').onclick = async () => { if (!confirm('저장된 아이디·비밀번호를 지우고 자동 로그인을 끌까요?')) return; await chrome.runtime.sendMessage({ type: 'clearLogin' }); msg('#login-msg', '지웠습니다', 'ok'); loadLogin(); };
 $$('[data-reseturl]').forEach((b) => b.onclick = async () => { const k = b.dataset.reseturl; $('#set-' + k).value = SETTINGS[k]; await chrome.storage.sync.set({ [k]: SETTINGS[k] }); msg('#set-msg', '기본 주소로 되돌리고 저장했습니다', 'ok'); });
 $$('[data-testurl]').forEach((b) => b.onclick = async () => {
   const kind = b.dataset.testurl;

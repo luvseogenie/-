@@ -117,6 +117,25 @@ async function fetchAndImport(url, how, baseUrl) {
   }
 }
 
+// 로그인 화면이면 (자동 로그인이 켜져 있을 때) 대신 로그인하고 원래 주소로 다시 간다
+async function ensureLoggedIn(tabId, url, s) {
+  const info = () => chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }).catch(() => null);
+  let p = await info();
+  if (!p?.hasLogin) return { needed: false };
+  const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']);
+  if (!autoLogin || !loginId || !loginPw) return { needed: true, ok: false, reason: '로그인이 풀려 있습니다. 쿠팡에 로그인해 주세요 (설정의 자동 로그인을 켜 두면 대신 로그인합니다)' };
+  let pw = ''; try { pw = decodeURIComponent(escape(atob(loginPw))); } catch { pw = ''; }
+  const r = await chrome.tabs.sendMessage(tabId, { type: 'login', id: loginId, pw }).catch(() => null);
+  if (!r?.ok) return { needed: true, ok: false, reason: `자동 로그인 실패: ${r?.reason || '로그인 칸을 찾지 못했습니다'}` };
+  const t0 = Date.now();
+  while (Date.now() - t0 < 25000) { await sleep(2500); await inject(tabId); p = await info(); if (p && !p.hasLogin) break; }
+  if (!p || p.hasLogin) return { needed: true, ok: false, reason: '자동 로그인을 시도했지만 로그인 화면이 그대로입니다 (비밀번호가 틀렸거나 인증번호·로봇 확인이 필요). 직접 로그인해 주세요' };
+  await log(`[로그인] 자동 로그인 성공 (${r.how})`);
+  // 로그인 뒤 다른 화면으로 갔으면 원래 주소로
+  await chrome.tabs.update(tabId, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tabId);
+  return { needed: true, ok: true };
+}
+
 // 수집용 탭. 크롬은 보이지 않는(배경) 탭에서 화면 그리기를 멈추기 때문에, 기본은 작은 창을 따로 띄워 보이게 한다.
 async function openWorkTab(url, s) {
   if (!s.ownWindow) { const tab = await chrome.tabs.create({ url, active: false }); return { tab, close: () => chrome.tabs.remove(tab.id).catch(() => {}) }; }
@@ -174,6 +193,8 @@ async function collectKind(kind, dateOverride) {
   try {
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
     await inject(tab.id);
+    const li = await ensureLoggedIn(tab.id, url, s);
+    if (li.needed && !li.ok) throw new Error(li.reason);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
     if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
@@ -335,6 +356,8 @@ async function testUrl(kind) {
     const deadline = Date.now() + s.waitSeconds * 1000 + 30000;
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
     await inject(tab.id);
+    const li = await ensureLoggedIn(tab.id, url, s);
+    if (li.needed && !li.ok) return { ok: false, rows: 0, headers: [], date: null, url, hint: li.reason, page: null, download: null };
     if (!url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
     const r = await readWithRetry(tab.id, kind, deadline);
     let download = null;
@@ -379,7 +402,8 @@ async function checkLogin(s) {
     try {
       tab = await chrome.tabs.create({ url, active: false });
       await sleep(10000); await inject(tab.id);
-      const p = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
+      let p = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
+      if (p?.hasLogin) { const li = await ensureLoggedIn(tab.id, url, s); if (li.ok) { p = { hasLogin: false }; await log(`[로그인] ${kind === 'sales' ? '판매자센터' : '광고센터'} 세션이 풀려 있어 미리 로그인했습니다`); } }
       if (p?.hasLogin && Date.now() - lastLoginWarnAt > 6 * 3600 * 1000) {
         lastLoginWarnAt = Date.now();
         await log(`[로그인] ${kind === 'sales' ? '판매자센터' : '광고센터'} 로그인이 풀려 있습니다. ${s.autoTime} 전에 로그인해 주세요`);
@@ -467,6 +491,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'cancelJob') { job.cancel = true; sendResponse({ ok: true }); }
     else if (msg.type === 'collectDate') { try { sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
+    else if (msg.type === 'saveLogin') { const enc = msg.pw ? btoa(unescape(encodeURIComponent(msg.pw))) : ''; await chrome.storage.local.set({ loginId: String(msg.id || '').trim(), loginPw: enc, autoLogin: !!msg.enabled }); await log(`[로그인] 자동 로그인 ${msg.enabled ? '켬' : '끔'}${msg.id ? ` (${String(msg.id).slice(0, 3)}***)` : ''}`); sendResponse({ ok: true }); }
+    else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
+    else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);

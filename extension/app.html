@@ -300,6 +300,10 @@
             <pre class="log" id="range-log" style="display:none;margin-top:8px"></pre>
             <p class="sub" style="margin:6px 0 0">날짜마다 판매분석을 열어 리포트를 받습니다. 하루에 10~20초쯤 걸립니다. 광고는 <b>광고 관리 주소에 <code>{date}</code> 가 있어야</b> 날짜별로 열 수 있고, 없으면 건너뜁니다. 그럴 때는 광고센터에서 <b>기간을 정해 보고서</b>를 받아 <b>📂 파일 올리기</b> 의 '광고 CSV/XLSX' 로 올리면 날짜별로 한 번에 저장됩니다.</p>
           </div>
+          <details style="margin-top:8px" id="login-box"><summary>🔐 자동 로그인 (선택) <span class="sub" id="login-sub"></span></summary>
+            <p class="sub" style="margin:6px 0">쿠팡 로그인이 풀려 있으면 대신 로그인합니다. <b>아이디와 비밀번호가 이 PC 의 크롬 안에 저장됩니다</b> (다른 PC 로 동기화되지 않음). 쿠팡이 인증번호나 로봇 확인을 요구하는 날은 자동으로 넘어가지 못하니 그때는 직접 로그인해야 합니다. 공용 PC 에서는 켜지 마세요.</p>
+            <div class="row"><label class="chk"><input type="checkbox" id="login-enabled"> 자동 로그인 켜기</label><input type="text" id="login-id" placeholder="쿠팡 윙 아이디" style="width:200px" autocomplete="off"><input type="password" id="login-pw" placeholder="비밀번호 (바꿀 때만 입력)" style="width:200px" autocomplete="new-password"><button class="btn primary sm" id="login-save">저장</button><button class="btn sm" id="login-clear">저장된 정보 지우기</button><span id="login-msg" class="msg"></span></div>
+          </details>
           <details style="margin-top:8px"><summary>고급: 파이썬 서버로도 보내기</summary><div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="set-serverSync"> 서버로도 전송</label><input id="set-server" style="width:240px" placeholder="http://127.0.0.1:8765"></div></details>
           <pre class="log" id="auto-log" style="margin-top:8px"></pre>
         </div>
