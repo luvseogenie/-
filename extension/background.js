@@ -116,8 +116,12 @@ const recentHooked = new Map();   // 같은 주소가 잇달아 두 번 잡히�
 let lastReportSavedAt = 0;        // 메뉴 클릭이 두 번 먹으면 새 파일 주소가 또 생기므로, 저장 직후 60초 안의 주소는 무시
 async function fetchAndImport(url, how, baseUrl) {
   try { url = new URL(url, baseUrl || undefined).href; } catch { /* 그대로 */ }
-  if (Date.now() - lastReportSavedAt < 60000) return;
+  if (Date.now() - lastReportSavedAt < 60000 || reportFetching) return;
   const seen = recentHooked.get(url); if (seen && Date.now() - seen < 60000) return; recentHooked.set(url, Date.now());
+  reportFetching = true; try { await fetchAndImportInner(url, how); } finally { reportFetching = false; }
+}
+let reportFetching = false;
+async function fetchAndImportInner(url, how) {
   lastHookedUrl = { url, how, at: Date.now() };
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -322,7 +326,7 @@ async function collectWithRetry(kind, dateOverride, tries = 2) {
   let lastErr = null;
   for (let i = 1; i <= tries; i++) {
     try { return await collectKind(kind, dateOverride); }
-    catch (e) { lastErr = e; if (i < tries) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${i}번째 실패, 창을 새로 열어 다시 시도: ${e.message.slice(0, 80)}`); await sleep(8000); } }
+    catch (e) { lastErr = e; if (i < tries) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${i}번째 실패, 창을 새로 열어 다시 시도: ${e.message}`); await sleep(8000); } }
   }
   throw lastErr;
 }
