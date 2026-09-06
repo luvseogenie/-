@@ -56,7 +56,27 @@ async function readFromTab(tabId, kind, type = 'read') {
   }
   return best;
 }
-const inject = (tabId) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }).catch(() => {});
+const inject = (tabId) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }).then(() => true).catch(() => false);
+// 스크립트를 못 넣는 탭(크롬 오류 페이지, 쿠팡이 아닌 주소, 아직 로딩 중)이면 무엇인지 알려 주고, 오류 페이지면 새로 고친다
+async function tabState(tabId) {
+  try { const t = await chrome.tabs.get(tabId); return { url: t.url || t.pendingUrl || '', title: t.title || '', status: t.status || '' }; } catch { return { url: '', title: '', status: 'closed' }; }
+}
+async function ensureInjectable(tabId, s) {
+  if (await inject(tabId)) return null;
+  for (let i = 0; i < 3; i++) {
+    const t = await tabState(tabId);
+    if (t.status === 'closed') return '탭이 닫혔습니다';
+    if (/^chrome-error:|^chrome:/.test(t.url) || (!t.url && t.status === 'complete')) {
+      await log(`[자동] 화면이 크롬 오류 페이지(${t.title || t.url || '빈 화면'})라 새로 고칩니다`);
+      await chrome.tabs.reload(tabId).catch(() => {}); await sleep(Math.min(s.waitSeconds, 10) * 1000);
+    } else if (t.url && !/coupang\.com/.test(t.url)) {
+      return `쿠팡이 아닌 주소로 넘어갔습니다: ${t.url.slice(0, 100)}`;
+    } else { await sleep(3000); }   // 아직 로딩 중
+    if (await inject(tabId)) return null;
+  }
+  const t = await tabState(tabId);
+  return `화면에 스크립트를 넣지 못했습니다 (주소 ${t.url.slice(0, 100) || '없음'}, 제목 "${t.title.slice(0, 40)}", 상태 ${t.status})`;
+}
 // 백그라운드 탭은 화면이 늦게 그려질 수 있다 → 표가 보일 때까지 정해진 시간까지 다시 읽어 본다
 async function readWithRetry(tabId, kind, deadline) {
   for (;;) {
@@ -147,7 +167,7 @@ async function openWorkTab(url, s) {
 // 실패했을 때 화면이 어땠는지 (로그인 화면인지, 아직 비어 있는지) 한 줄로
 async function describePage(tabId) {
   try { const p = await chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }); return `화면: "${(p.title || '').slice(0, 30)}" 글자 ${p.textLength}자, 캠페인 글자 ${p.hasCampaignText ? '있음' : '없음'}, 엑셀 다운로드 ${p.hasExcelDownload ? '있음' : '없음'}${p.hasLogin ? ', 로그인 화면으로 보임' : ''}`; }
-  catch { return '화면 상태를 읽지 못함(스크립트 미주입)'; }
+  catch { const t = await tabState(tabId); return `화면 상태를 읽지 못함(스크립트 미주입) — 주소 ${t.url.slice(0, 100) || '없음'}, 제목 "${t.title.slice(0, 40)}", 상태 ${t.status}`; }
 }
 
 // 광고센터는 캠페인 목록(이름·목표·예산)을 먼저 그리고 성과 숫자(광고비·노출·클릭)는 뒤에 채운다.
@@ -192,7 +212,7 @@ async function collectKind(kind, dateOverride) {
   const deadline = Date.now() + s.waitSeconds * 1000 + (kind === 'ads' ? 70000 : 45000);   // 화면이 늦게 떠도 이 시간까지는 기다린다
   try {
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
-    await inject(tab.id);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`${kind === 'sales' ? '판매분석' : '광고 관리'} 화면을 열지 못했습니다: ${bad}`);
     const li = await ensureLoggedIn(tab.id, url, s);
     if (li.needed && !li.ok) throw new Error(li.reason);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
@@ -355,7 +375,7 @@ async function testUrl(kind) {
   try {
     const deadline = Date.now() + s.waitSeconds * 1000 + 30000;
     await sleep(Math.min(s.waitSeconds, 8) * 1000);
-    await inject(tab.id);
+    const bad = await ensureInjectable(tab.id, s); if (bad) return { ok: false, rows: 0, headers: [], date: null, url, hint: `화면을 열지 못했습니다: ${bad}`, page: null, download: null };
     const li = await ensureLoggedIn(tab.id, url, s);
     if (li.needed && !li.ok) return { ok: false, rows: 0, headers: [], date: null, url, hint: li.reason, page: null, download: null };
     if (!url.includes(target)) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
