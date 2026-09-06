@@ -90,16 +90,17 @@ async function renderDash() {
   const organicShare = g.revenue ? g.organic_revenue / g.revenue : 0, prevOrganicShare = pg.revenue ? pg.organic_revenue / pg.revenue : 0;
   await loadTaxSettings();
   const at = periodAfterTax(range.start, range.end), pat = periodAfterTax(ps, pe);
+  // 아래 설명은 줄마다 따로 (지출 · 이전 대비가 한 줄에 섞이지 않게)
   const kpis = [
-    { k: '세후 순이익 (종합소득세 반영)', v: fmtWon(at.net) + '원', bad: at.net < 0, d: `세금 ${fmtWon(at.tax)}원 · 실효 ${(at.rate * 100).toFixed(1)}% · ${delta(at.net, pat.net)}`, color: at.net < 0 ? '#d03b3b' : '#1baf7a' },
-    { k: '순이익 (광고비 · 광고 외 지출 제외)', v: fmtWon(g.profit_net) + '원', bad: g.profit_net < 0, d: (g.expense ? `광고 외 지출 −${fmtWon(g.expense)}원 · ` : '') + delta(g.profit_net, pg.profit_net), color: g.profit_net < 0 ? '#d03b3b' : '#4a3aa7' },
-    { k: '총 매출', v: fmtWon(g.revenue) + '원', d: delta(g.revenue, pg.revenue), color: '#17202a' },
-    { k: '자연 매출 (광고 외)', v: fmtWon(g.organic_revenue) + '원', d: `매출의 ${Math.round(organicShare * 100)}% · ${delta(organicShare, prevOrganicShare, true)}`, color: '#1baf7a' },
-    { k: '광고비 (부가세 포함)', v: fmtWon(g.spend_vat) + '원', d: delta(g.spend_vat, pg.spend_vat), color: '#eb6834' },
-    { k: '광고수익률 (ROAS)', v: Math.round(g.roas * 100) + '%', d: delta(g.roas, pg.roas, true), color: '#2a78d6' },
-    { k: '판매 마진', v: fmtWon(g.margin_total) + '원', d: `판매 ${fmtInt(g.actual_qty)}개 · 광고 ${fmtInt(g.ad_orders)} / 자연 ${fmtInt(g.organic_qty)}` + (g.returns_cancels ? ` · 반품·취소 ${fmtInt(g.returns_cancels)}` : ''), color: '#4a3aa7' },
+    { k: '세후 순이익 (종합소득세 반영)', v: fmtWon(at.net) + '원', bad: at.net < 0, d: [`세금 ${fmtWon(at.tax)}원 · 실효 ${(at.rate * 100).toFixed(1)}%`, delta(at.net, pat.net)], color: at.net < 0 ? '#d03b3b' : '#1baf7a' },
+    { k: '순이익 (광고비 · 광고 외 지출 제외)', v: fmtWon(g.profit_net) + '원', bad: g.profit_net < 0, d: [g.expense ? `광고 외 지출 −${fmtWon(g.expense)}원` : '', delta(g.profit_net, pg.profit_net)], color: g.profit_net < 0 ? '#d03b3b' : '#4a3aa7' },
+    { k: '총 매출', v: fmtWon(g.revenue) + '원', d: [delta(g.revenue, pg.revenue)], color: '#17202a' },
+    { k: '자연 매출 (광고 외)', v: fmtWon(g.organic_revenue) + '원', d: [`매출의 ${Math.round(organicShare * 100)}%`, delta(organicShare, prevOrganicShare, true)], color: '#1baf7a' },
+    { k: '광고비 (부가세 포함)', v: fmtWon(g.spend_vat) + '원', d: [delta(g.spend_vat, pg.spend_vat)], color: '#eb6834' },
+    { k: '광고수익률 (ROAS)', v: Math.round(g.roas * 100) + '%', d: [delta(g.roas, pg.roas, true)], color: '#2a78d6' },
+    { k: '판매 마진', v: fmtWon(g.margin_total) + '원', d: [`판매 ${fmtInt(g.actual_qty)}개 · 광고 ${fmtInt(g.ad_orders)} / 자연 ${fmtInt(g.organic_qty)}`, g.returns_cancels ? `반품·취소 ${fmtInt(g.returns_cancels)}개` : ''], color: '#4a3aa7' },
   ];
-  $('#kpis').innerHTML = kpis.map((x) => `<div class="kpi"><div class="k"><span class="dot" style="background:${x.color}"></span>${x.k}</div><div class="v num ${x.bad ? 'bad' : ''}">${x.v}</div><div class="d">${x.d}</div></div>`).join('');
+  $('#kpis').innerHTML = kpis.map((x) => `<div class="kpi"><div class="k"><span class="dot" style="background:${x.color}"></span>${x.k}</div><div class="v num ${x.bad ? 'bad' : ''}">${x.v}</div><div class="d">${x.d.filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div></div>`).join('');
 
   const dates = led.dates.filter((d) => led.daily[d]);
   const D = (k) => dates.map((d) => led.daily[d][k] || 0);
