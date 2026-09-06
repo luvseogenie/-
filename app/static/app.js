@@ -160,7 +160,7 @@
     const items = scopeItems();
     const html = items.length ? items.map((it, i) => it.type === 'category'
       ? `<span class="scope-chip"><span class="p">${esc(it.top)}</span> › ${esc(it.rest || '전체')} <span class="x" data-i="${i}">✕</span></span>`
-      : `<span class="scope-chip"><span class="p">${it.type === 'keyword' ? '검색' : '링크'}</span> › ${esc(it.q || it.name || it.id)} <span class="x" data-i="${i}">✕</span></span>`).join('')
+      : `<span class="scope-chip"><span class="p">${it.type === 'keyword' ? '검색' : (it.type === 'category_url' ? '필터 링크' : '링크')}</span> › ${esc(it.q || it.name || it.id)} <span class="x" data-i="${i}">✕</span></span>`).join('')
       : '<span class="muted">아직 없음</span>';
     $('#scope-chips').innerHTML = html; $('#scope-chips-kw').innerHTML = html;
     $$('.scope-chip .x').forEach((el) => el.addEventListener('click', () => {

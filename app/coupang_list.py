@@ -577,6 +577,10 @@ def fetch_listing(page, kind: str, key, page_no: int) -> dict:
     """kind: 'category' 또는 'keyword'. 목록 한 페이지의 상품을 돌려준다."""
     if kind == "category":
         url = config.CATEGORY_URL.format(cid=key, size=config.CATEGORY_LIST_SIZE, page=page_no)
+    elif kind == "category_url":
+        # key = "카테고리ID?필터" (쿠팡에서 필터를 적용해 복사한 링크)
+        cid, _, query = str(key).partition("?")
+        url = config.CATEGORY_URL.format(cid=cid, size=config.CATEGORY_LIST_SIZE, page=page_no) + ("&" + query if query else "")
     else:
         url = config.SEARCH_URL.format(q=quote(str(key)), page=page_no)
     _goto(page, url, 'a[href*="/vp/products/"]')
@@ -1004,7 +1008,14 @@ def parse_scope_url(url: str) -> dict | None:
     """붙여넣은 쿠팡 링크를 범위로 바꾼다."""
     m = re.search(r"/np/categories/(\d+)", url)
     if m:
-        return {"type": "category", "id": int(m.group(1)), "name": f"링크 카테고리 {m.group(1)}"}
+        cid = int(m.group(1))
+        # 쿠팡에서 계절·색상 같은 필터를 적용한 뒤 복사한 링크는 주소 뒤에 필터 값이 붙어 있다 → 그대로 살려서 수집한다
+        from urllib.parse import urlsplit, parse_qsl, urlencode
+        q = [(k, v) for k, v in parse_qsl(urlsplit(url).query, keep_blank_values=True)
+             if k not in ("listSize", "sorter", "page", "rating", "isPriceRange", "channel", "component")]
+        if q:
+            return {"type": "category_url", "id": cid, "query": urlencode(q), "name": f"카테고리 {cid} + 필터 적용"}
+        return {"type": "category", "id": cid, "name": f"링크 카테고리 {cid}"}
     m = re.search(r"[?&]q=([^&]+)", url)
     if m and "/np/search" in url:
         from urllib.parse import unquote

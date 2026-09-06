@@ -104,6 +104,11 @@ class JobController:
                     leaves = expand_to_leaves(bt, int(item["id"]), lambda: self._stop)
                     for leaf in leaves:
                         targets.append(("category", leaf["id"], leaf["name"], leaf["path"]))
+                elif item["type"] == "category_url":
+                    key = f"{int(item['id'])}?{item.get('query', '')}"
+                    row = db.get_category(int(item["id"]))
+                    base = (row["path"] if row and row["path"] else f"카테고리 {item['id']}")
+                    targets.append(("category_url", key, item.get("name") or base, f"{base} (필터 적용)"))
                 elif item["type"] == "keyword":
                     targets.append(("keyword", item["q"], item["q"], f"검색: {item['q']}"))
                 elif item["type"] == "product":
@@ -133,7 +138,7 @@ class JobController:
                     items = data["items"] if data else []
                     badge_map = db.get_setting("badge_map", {}) or {}
                     for it in items:
-                        it["category_id"] = key if kind == "category" else None
+                        it["category_id"] = key if kind == "category" else (int(str(key).split("?")[0]) if kind == "category_url" else None)
                         it["category_path"] = path
                         it["page"] = page_no
                         bk = it.get("badge_key")
