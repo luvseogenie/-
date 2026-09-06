@@ -180,3 +180,7 @@ table.grid td.prod { text-align: left; white-space: normal; min-width: 240px; }
 .grid tr.group-row td { background: #151a27; padding: 6px 10px; border-top: 1px solid var(--line2); text-align: left; }
 
 .pill.unverified { background: #2a2410; color: var(--amber, #e2b340); border-color: #4b3f1f; }
+
+#c-delivery_types { display:flex; flex-wrap:wrap; gap:6px; flex:1; }
+#c-delivery_types .chip { cursor:pointer; padding:3px 9px; font-size:12px; }
+#c-delivery_types .chip input { display:none; }

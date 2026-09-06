@@ -107,7 +107,9 @@ async def set_conditions(req: Request):
     for k in config.DEFAULT_CONDITIONS:
         if k in body:
             v = body[k]
-            if k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify"):
+            if k == "delivery_types":
+                cond[k] = [str(x) for x in (v or []) if x]
+            elif k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify"):
                 cond[k] = bool(v)
             elif k == "conv_min":
                 cond[k] = float(v or 0)

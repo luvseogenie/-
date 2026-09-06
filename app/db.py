@@ -321,9 +321,21 @@ def products(run_id):
     return [dict(r) for r in conn().execute("SELECT * FROM products WHERE run_id=?", (run_id,)).fetchall()]
 
 
+def delivery_ok(p: dict, cond: dict) -> bool:
+    """배송 형태 조건. 확정된(상세 확인·뱃지 학습) 값만 걸러내고, 추정 단계의 값은 통과시킨다 (확인 뒤 다시 판정)."""
+    allowed = cond.get("delivery_types") or []
+    if not allowed:
+        return True
+    if not p.get("delivery_sure"):
+        return True
+    return (p.get("delivery") or "WING") in allowed
+
+
 def eligible(p: dict, cond: dict) -> bool:
     """가격·리뷰 조건에 맞고, 못 파는 물건/광고 제외 설정에 걸리지 않는 상품만 True."""
     if not price_review_ok(p, cond):
+        return False
+    if not delivery_ok(p, cond):
         return False
     if cond.get("exclude_restricted") and p.get("restricted"):
         return False

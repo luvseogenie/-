@@ -129,6 +129,8 @@ def enrich(p: dict, cond: dict) -> dict:
                 v = "below"
         if cond.get("buyers_max") and out["sales_28"] is not None and out["sales_28"] > cond["buyers_max"]:
             v = "below"
+        if cond.get("delivery_types") and p.get("delivery_sure") and (p.get("delivery") or "WING") not in cond["delivery_types"]:
+            v = "below"
         if cond.get("sales28_min") and sales is not None and sales < cond["sales28_min"]:
             v = "below"
         if cond.get("conv_min") and (out["conversion"] or 0) < cond["conv_min"]:

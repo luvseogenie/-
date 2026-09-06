@@ -184,13 +184,17 @@
       const el = $(`#c-${k}`); if (!el) continue;
       if (el.type === 'checkbox') el.checked = !!state.conditions[k]; else el.value = state.conditions[k] ?? '';
     }
+    const dt = state.conditions.delivery_types || [];
+    $$('#c-delivery_types input').forEach((el) => { el.checked = dt.includes(el.value); el.closest('.chip').classList.toggle('active', el.checked); });
     $('#pages-val').textContent = `${state.conditions.pages || 1}페이지`;
   }
   function readConditions() {
     const out = {};
     for (const k of COND_KEYS) { const el = $(`#c-${k}`); if (!el) continue; out[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? 0 : Number(el.value)); }
+    out.delivery_types = $$('#c-delivery_types input:checked').map((el) => el.value);
     return out;
   }
+  $$('#c-delivery_types input').forEach((el) => el.addEventListener('change', () => el.closest('.chip').classList.toggle('active', el.checked)));
   const saveConditions = guard(async () => {
     state.conditions = await api('/api/conditions', readConditions());
     fillConditions(); renderScope(); await refreshAll(); toast('조건을 적용했습니다.');
