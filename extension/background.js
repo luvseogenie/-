@@ -145,6 +145,21 @@ async function fetchAndImportInner(url, how) {
 async function ensureLoggedIn(tabId, url, s) {
   const info = () => chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }).catch(() => null);
   let p = await info();
+  // 광고센터: 로그인이 풀리면 '어느 계정으로 로그인할지' 고르는 화면이 먼저 뜬다 → 왼쪽(쿠팡 윙 판매자) '로그인하기' 를 누르고 다음 화면으로
+  if (p?.hasLoginChooser) {
+    const c = await chrome.tabs.sendMessage(tabId, { type: 'clickLoginChooser' }).catch(() => null);
+    await log(`[로그인] 광고센터 로그인 선택 화면 → '로그인하기' ${c?.ok ? '누름' : '못 찾음'}`);
+    if (!c?.ok) return { needed: true, ok: false, reason: '광고센터 로그인 선택 화면에서 로그인하기 버튼을 찾지 못했습니다' };
+    const t0 = Date.now(); let moved = false;
+    while (Date.now() - t0 < 20000) { await sleep(2000); await inject(tabId); p = await info(); if (p && !p.hasLoginChooser) { moved = true; break; } }
+    if (!moved) return { needed: true, ok: false, reason: "'로그인하기' 를 눌렀지만 화면이 바뀌지 않았습니다" };
+    if (!p?.hasLogin) {   // 윙 세션이 살아 있어 바로 돌아온 경우
+      const st = await tabState(tabId);
+      if (!st.url.startsWith(url.split('?')[0])) { await chrome.tabs.update(tabId, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tabId); }
+      await log('[로그인] 광고센터 로그인 통과 (윙 세션 사용)');
+      return { needed: true, ok: true };
+    }
+  }
   if (!p?.hasLogin) return { needed: false };
   const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']);
   if (!autoLogin || !loginId || !loginPw) return { needed: true, ok: false, reason: '로그인이 풀려 있습니다. 쿠팡에 로그인해 주세요 (설정의 자동 로그인을 켜 두면 대신 로그인합니다)' };

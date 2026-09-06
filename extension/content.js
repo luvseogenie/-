@@ -359,6 +359,7 @@
     const text = clean(document.body.innerText);
     return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
       hasLogin: !!deepAll('input[type="password"]').find(visible),
+      hasLoginChooser: /\/user\/login/.test(location.pathname) || (/광고센터 로그인/.test(text) && loginChooserButtons().length > 0),
       hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
   // 구조 진단: 프레임, 커스텀 엘리먼트(shadow DOM), 반복 줄 그룹, 캠페인처럼 보이는 글자
@@ -416,6 +417,17 @@
     return { ok: true, how };
   }
 
+  // 광고센터 로그인 선택 화면 (advertising.coupang.com/user/login): '쿠팡 윙 판매자' 카드의 첫(왼쪽) '로그인하기' 를 누른다
+  function loginChooserButtons() {
+    return deepAll('button, a, [role="button"]').filter((b) => visible(b) && /^로그인하기$/.test(clean(b.innerText))).sort((x, y) => x.getBoundingClientRect().left - y.getBoundingClientRect().left);
+  }
+  function clickLoginChooser() {
+    const btns = loginChooserButtons();
+    if (!btns.length) return { ok: false, reason: "'로그인하기' 버튼이 없습니다" };
+    fire(btns[0], [...HOVER, ...CLICK]); try { btns[0].click(); } catch { /* 무시 */ }
+    return { ok: true, count: btns.length };
+  }
+
   // 페이지(MAIN world)에 심은 훅이 window.open / target=_blank 링크의 주소를 이벤트로 보내면 백그라운드로 전달
   document.addEventListener('cc-download-url', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadUrl', url: e.detail?.url, how: e.detail?.how }); } catch { /* 무시 */ } });
 
@@ -438,6 +450,8 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
+    } else if (msg?.type === 'clickLoginChooser') {
+      sendResponse(clickLoginChooser());
     } else if (msg?.type === 'login') {
       doLogin(msg.id, msg.pw).then(sendResponse).catch((e) => sendResponse({ ok: false, reason: String(e && e.message || e) }));
     } else if (msg?.type === 'pageInfo') {

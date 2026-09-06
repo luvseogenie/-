@@ -322,7 +322,7 @@ function renderLedgerTable() {
   const metrics = led.metrics.filter((x) => shownMetrics.has(x.key));
   let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + '</tr></thead><tbody>';
   // 전체 순이익 = 판매 마진 − 광고비 − 광고 외 지출 (한 줄로). 지출이 있는 날은 툴팁에 내역
-  h += '<tr><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => {
+  h += '<tr class="grand"><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => {
     const v = c.date ? led.daily[c.date]?.profit_net : led.month_profit_net[c.sum];
     const ex = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum];
     const base = c.date ? led.total_profit[c.date] : led.month_profit[c.sum];
@@ -377,6 +377,8 @@ function renderLedgerTable() {
     if (showAction) h += '<tr class="action"><td class="lbl">ACTION 메모</td>' + cols.map((col) => col.date ? `<td class="l memo-cell" title="${esc(c.days[col.date]?.action || '')}">${esc(c.days[col.date]?.action || '')}</td>` : '<td class="sum"></td>').join('') + '</tr>';
   }
   $('#lg-table').innerHTML = h + '</tbody>';
+  // 날짜 머리글 바로 아래에 '전체 순이익' 줄을 고정 (아래로 내려도 그날 이익과 날짜가 보이게)
+  { const th = $('#lg-table thead'); const top = th ? th.getBoundingClientRect().height : 0; $$('#lg-table tr.grand td').forEach((td) => td.style.top = top + 'px'); }
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
   $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-panel').style.display = ''; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });

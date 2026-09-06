@@ -111,6 +111,8 @@ tfoot td { font-weight: 700; background: var(--surface-2); border-top: 1px solid
 .pivot th.camp, .pivot th.lbl { z-index: 4; background: var(--surface-2); }
 .pivot td.sum, .pivot th.sum { background: #fff8e6; font-weight: 600; }
 .pivot td.total { background: #e8f5ee; font-weight: 700; }
+.pivot tr.grand td { position: sticky; z-index: 2; box-shadow: 0 2px 0 #cfe3d6; }
+.pivot tr.grand td.camp, .pivot tr.grand td.lbl { z-index: 4; background: #e8f5ee; }
 .pivot td.flag { background: #fde8e8; }
 .pivot tr.profit td { border-bottom: 2px solid #d5dae2; }
 .pivot .tablewrap { max-height: 72vh; }
