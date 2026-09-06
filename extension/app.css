@@ -67,6 +67,7 @@ label.chk { display: inline-flex; align-items: center; gap: 5px; color: var(--te
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; }
 .kpi .k { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
 .kpi .k .dot { width: 8px; height: 8px; border-radius: 50%; }
 .kpi .v { font-size: 22px; font-weight: 800; margin: 4px 0 2px; letter-spacing: -.2px; }
 .kpi .v.bad { color: var(--bad); }

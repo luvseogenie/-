@@ -692,13 +692,14 @@ async function loadSettings() {
     const when = a.nextAt ? new Date(a.nextAt).toLocaleString('ko-KR') : '-';
     const last = a.lastAuto ? `${new Date(a.lastAuto.at).toLocaleString('ko-KR')} · ${a.lastAuto.ok ? '성공' : '실패'} (${a.lastAuto.detail || ''})` : '아직 실행된 적 없음';
     const today = a.running ? '<b style="color:#2a78d6">지금 수집 중</b>' : a.doneToday ? `<b style="color:#1baf7a">오늘 완료</b> (${a.yesterday} 데이터)` : `<b style="color:#d03b3b">오늘 아직 안 됨</b> (${a.yesterday} 데이터 없음 — ${a.time} 이 지났으면 1시간 안에 스스로 다시 시도합니다)`;
+    let lg = ''; try { const l = await chrome.runtime.sendMessage({ type: 'loginStatus' }); lg = l.enabled && l.hasPw ? ' · 자동 로그인 <span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">켜짐</b>' : ' · 자동 로그인 <span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">꺼짐</b>'; } catch { /* 무시 */ }
     $('#auto-status').innerHTML = a.enabled
-      ? `자동 수집 <b style="color:#1baf7a">켜짐</b> · 매일 ${a.time} · ${today} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
-      : `자동 수집 <b style="color:#d03b3b">꺼짐</b> — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
+      ? `자동 수집 <span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">켜짐</b>${lg} · 매일 ${a.time} · ${today} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
+      : `자동 수집 <span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">꺼짐</b>${lg} — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
   } catch { $('#auto-status').textContent = ''; }
 }
 async function loadLogin() {
-  try { const l = await chrome.runtime.sendMessage({ type: 'loginStatus' }); $('#login-enabled').checked = !!l.enabled; $('#login-id').value = l.id || ''; $('#login-pw').value = ''; $('#login-pw').placeholder = l.hasPw ? '비밀번호 저장됨 (바꿀 때만 입력)' : '비밀번호'; $('#login-sub').textContent = l.enabled && l.hasPw ? '켜짐' : '꺼짐'; } catch { /* 무시 */ }
+  try { const l = await chrome.runtime.sendMessage({ type: 'loginStatus' }); $('#login-enabled').checked = !!l.enabled; $('#login-id').value = l.id || ''; $('#login-pw').value = ''; $('#login-pw').placeholder = l.hasPw ? '비밀번호 저장됨 (바꿀 때만 입력)' : '비밀번호'; const on = l.enabled && l.hasPw; $('#login-sub').innerHTML = on ? '<span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">켜짐</b>' : '<span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">꺼짐</b>' + (l.enabled && !l.hasPw ? ' <span class="sub">(비밀번호가 없어 동작 안 함)</span>' : ''); } catch { /* 무시 */ }
 }
 $('#login-save').onclick = async () => {
   const id = $('#login-id').value.trim(), pw = $('#login-pw').value, enabled = $('#login-enabled').checked;
@@ -706,7 +707,7 @@ $('#login-save').onclick = async () => {
   if (enabled && (!id || (!pw && !cur.hasPw))) { msg('#login-msg', '아이디와 비밀번호를 넣어 주세요', 'err'); return; }
   if (pw) await chrome.runtime.sendMessage({ type: 'saveLogin', id, pw, enabled });
   else { await chrome.storage.local.set({ loginId: id, autoLogin: enabled }); }
-  msg('#login-msg', enabled ? '자동 로그인 켜짐. 로그인이 풀려 있을 때 대신 로그인합니다.' : '자동 로그인 꺼짐', 'ok'); loadLogin(); loadSettings();
+  msg('#login-msg', enabled ? '자동 로그인 켜짐. 로그인이 풀려 있을 때 대신 로그인합니다.' : '자동 로그인 꺼짐', enabled ? 'ok' : 'err'); loadLogin(); loadSettings();
 };
 $('#login-clear').onclick = async () => { if (!confirm('저장된 아이디·비밀번호를 지우고 자동 로그인을 끌까요?')) return; await chrome.runtime.sendMessage({ type: 'clearLogin' }); msg('#login-msg', '지웠습니다', 'ok'); loadLogin(); };
 $$('[data-reseturl]').forEach((b) => b.onclick = async () => { const k = b.dataset.reseturl; $('#set-' + k).value = SETTINGS[k]; await chrome.storage.sync.set({ [k]: SETTINGS[k] }); msg('#set-msg', '기본 주소로 되돌리고 저장했습니다', 'ok'); });
