@@ -688,8 +688,9 @@ async function loadSettings() {
     const a = await chrome.runtime.sendMessage({ type: 'autoStatus' });
     const when = a.nextAt ? new Date(a.nextAt).toLocaleString('ko-KR') : '-';
     const last = a.lastAuto ? `${new Date(a.lastAuto.at).toLocaleString('ko-KR')} · ${a.lastAuto.ok ? '성공' : '실패'} (${a.lastAuto.detail || ''})` : '아직 실행된 적 없음';
+    const today = a.running ? '<b style="color:#2a78d6">지금 수집 중</b>' : a.doneToday ? `<b style="color:#1baf7a">오늘 완료</b> (${a.yesterday} 데이터)` : `<b style="color:#d03b3b">오늘 아직 안 됨</b> (${a.yesterday} 데이터 없음 — ${a.time} 이 지났으면 1시간 안에 스스로 다시 시도합니다)`;
     $('#auto-status').innerHTML = a.enabled
-      ? `자동 수집 <b style="color:#1baf7a">켜짐</b> · 매일 ${a.time} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
+      ? `자동 수집 <b style="color:#1baf7a">켜짐</b> · 매일 ${a.time} · ${today} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
       : `자동 수집 <b style="color:#d03b3b">꺼짐</b> — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
   } catch { $('#auto-status').textContent = ''; }
 }

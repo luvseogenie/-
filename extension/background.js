@@ -286,7 +286,13 @@ async function collectWithRetry(kind, dateOverride, tries = 2) {
   throw lastErr;
 }
 const RETRY_MAX = 3;
+let autoRunning = false;
 async function runAuto(dateOverride, kinds = ['sales', 'ads']) {
+  if (autoRunning) { await log('[자동] 이미 수집 중이라 건너뜀'); return [{ ok: false, error: '이미 수집 중' }]; }
+  autoRunning = true;
+  try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
+}
+async function runAutoInner(dateOverride, kinds) {
   await fixUrls();
   const results = [];
   for (const kind of kinds) {
@@ -346,6 +352,41 @@ async function scheduleAlarm() {
   const next = new Date(); next.setHours(hh, mm, 0, 0);
   if (next <= new Date()) next.setDate(next.getDate() + 1);
   await chrome.alarms.create('daily', { when: next.getTime(), periodInMinutes: 24 * 60 });
+  await chrome.alarms.create('hourly', { periodInMinutes: 60 });   // 알람 하나에만 맡기지 않고 매시간 '오늘 할 일을 했나' 확인
+  await log(`[자동] 매일 ${s.autoTime} 예약됨. 다음 실행 ${next.toLocaleString('ko-KR')}`);
+}
+// 매시간: 예약 시각이 지났는데 어제 것을 아직 못 받았으면 지금 한다 (PC 가 잠들었거나, 업데이트로 다시 켜지며 알람을 놓친 경우)
+async function hourlyCheck() {
+  const s = await getSettings(); if (!s.autoEnabled) return;
+  const { lastAuto } = await chrome.storage.local.get('lastAuto');
+  const y = yesterdayIso();
+  const [hh, mm] = s.autoTime.split(':').map(Number); const now = new Date();
+  const past = now.getHours() * 60 + now.getMinutes() >= hh * 60 + mm;
+  if (past && !(lastAuto && lastAuto.date >= y && lastAuto.ok) && !autoRunning) {
+    if (lastAuto && lastAuto.date >= y && !lastAuto.ok) { const { autoRetry } = await chrome.storage.local.get('autoRetry'); if (autoRetry && autoRetry.count >= RETRY_MAX) return; }   // 오늘 3번 다 실패했으면 더 안 함
+    await log(`[자동] 매시간 점검: ${s.autoTime} 예약 실행이 안 되어 있어 지금 실행합니다`);
+    await runAuto();
+    return;
+  }
+  // 4시간마다 로그인이 살아 있는지 확인 (풀려 있으면 미리 알려서 13시 전에 로그인할 수 있게)
+  if (now.getHours() % 4 === 0) await checkLogin(s);
+}
+let lastLoginWarnAt = 0;
+async function checkLogin(s) {
+  for (const [kind, url0] of [['sales', s.salesUrl], ['ads', s.adsUrl]]) {
+    const url = url0.replace(/\{date\}/g, yesterdayIso());
+    let tab = null;
+    try {
+      tab = await chrome.tabs.create({ url, active: false });
+      await sleep(10000); await inject(tab.id);
+      const p = await chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
+      if (p?.hasLogin && Date.now() - lastLoginWarnAt > 6 * 3600 * 1000) {
+        lastLoginWarnAt = Date.now();
+        await log(`[로그인] ${kind === 'sales' ? '판매자센터' : '광고센터'} 로그인이 풀려 있습니다. ${s.autoTime} 전에 로그인해 주세요`);
+        notify(`쿠팡 ${kind === 'sales' ? '판매자센터' : '광고센터'} 로그인이 풀려 있습니다. ${s.autoTime} 자동 수집 전에 로그인해 주세요.`);
+      }
+    } catch { /* 무시 */ } finally { if (tab) await chrome.tabs.remove(tab.id).catch(() => {}); }
+  }
 }
 
 // 주소가 도메인만 저장돼 있으면(예: https://advertising.coupang.com/) 기본 주소로 되돌린다
@@ -385,7 +426,7 @@ async function retryAuto() {
   await log(`[자동] 다시 시도 (${autoRetry.count}/${RETRY_MAX}): ${autoRetry.kinds.map((k) => (k === 'sales' ? '판매' : '광고')).join('·')}`);
   await runAuto(undefined, autoRetry.kinds);
 }
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') runAuto(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
@@ -430,7 +471,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
       const { lastAuto = null } = await chrome.storage.local.get('lastAuto');
-      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto });
+      const y = yesterdayIso(); const doneToday = !!(lastAuto && lastAuto.date >= y && lastAuto.ok);
+      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto, doneToday, yesterday: y, running: autoRunning });
     }
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
     else { console.log('[cc] unknown message', JSON.stringify(msg)); sendResponse({ ok: false }); }
