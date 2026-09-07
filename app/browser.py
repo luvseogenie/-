@@ -189,11 +189,7 @@ class BrowserThread(threading.Thread):
                 match = [c for c in cands if c[0] == pname]
                 if match:
                     name, exe = match[0]
-                log.info(f"평소 쓰는 {name} 프로필로 실행합니다: {prof}")
-                # 같은 프로필의 브라우저가 (백그라운드에라도) 살아 있으면, 새로 띄운 창은 그 프로세스에 빈 탭으로 붙어 버리고 접속 포트는 열리지 않는다
-                if self._kill_browser_processes(name):
-                    log.info(f"이미 떠 있던 {name} 을(를) 종료했습니다 (프로필을 프로그램이 쓰기 위해)")
-                    _t.sleep(2.0)
+                log.info(f"평소 쓰는 {name} 프로필의 복사본으로 실행합니다: {prof}")
             port = self._free_port()
             args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
                     "--no-first-run", "--no-default-browser-check"]
@@ -208,8 +204,6 @@ class BrowserThread(threading.Thread):
                     break
                 _t.sleep(0.2)
             else:
-                if prof != config.PROFILE_DIR:
-                    raise RuntimeError(f"{name} 이(가) 이미 열려 있어 프로필을 쓸 수 없습니다. 평소 쓰는 {name} 창을 모두 닫고 다시 시도해 주세요")
                 raise RuntimeError(f"{name} 실행 후 접속 포트가 열리지 않았습니다")
             port_file.write_text(str(port))
             self.channel = name

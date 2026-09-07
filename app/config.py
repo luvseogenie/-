@@ -22,12 +22,54 @@ def my_browser_profile():
     return None, None
 
 
+MY_PROFILE_COPY = DATA_DIR / "profile-mine"          # 평소 프로필에서 쿠키 등만 복사한 프로그램용 프로필
+
+
 def profile_dir():
-    if USE_MY_PROFILE_FLAG.exists():
-        name, path = my_browser_profile()
-        if path:
-            return path
+    # 최신 엣지·크롬은 기본 프로필 폴더로 띄우면 접속 포트를 무시한다 → 평소 프로필은 복사본으로만 쓴다
+    if USE_MY_PROFILE_FLAG.exists() and (MY_PROFILE_COPY / "Local State").exists():
+        return MY_PROFILE_COPY
     return PROFILE_DIR
+
+
+def copy_my_profile() -> tuple[str, int]:
+    """평소 브라우저 프로필에서 쿠키·저장소·설정만 복사본으로 가져온다 (캐시·확장·방문기록은 제외). (브라우저 이름, 복사한 파일 수)"""
+    import json as _json
+    import shutil
+    name, root = my_browser_profile()
+    if not root:
+        raise RuntimeError("평소 쓰는 브라우저(엣지·크롬·웨일)의 프로필 폴더를 찾지 못했습니다.")
+    sub = "Default"
+    try:
+        ls = _json.loads((root / "Local State").read_text(encoding="utf-8"))
+        sub = (ls.get("profile") or {}).get("last_used") or "Default"
+    except Exception:  # noqa: BLE001
+        pass
+    src = root / sub
+    if not src.is_dir():
+        src = root / "Default"
+    dst = MY_PROFILE_COPY
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    (dst / "Default").mkdir(parents=True, exist_ok=True)
+    n = 0
+    shutil.copy2(root / "Local State", dst / "Local State")
+    n += 1
+    keep = ["Cookies", "Cookies-journal", "Network", "Local Storage", "Session Storage", "Preferences", "Secure Preferences",
+            "Web Data", "Web Data-journal", "Trust Tokens", "Trust Tokens-journal", "TransportSecurity", "Network Persistent State"]
+    for item in keep:
+        s_ = src / item
+        d_ = dst / "Default" / item
+        try:
+            if s_.is_dir():
+                shutil.copytree(s_, d_, dirs_exist_ok=True)
+                n += sum(1 for _ in d_.rglob("*") if _.is_file())
+            elif s_.is_file():
+                shutil.copy2(s_, d_)
+                n += 1
+        except Exception:  # noqa: BLE001
+            continue
+    return name, n
 LOG_DIR = DATA_DIR / "logs"
 CAPTURE_DIR = DATA_DIR / "wing-capture"          # 윙 캡처 모드 결과
 DEBUG_DIR = DATA_DIR / "debug"                   # 수집 실패 시 화면/HTML 저장
