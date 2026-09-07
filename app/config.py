@@ -61,6 +61,8 @@ BLOCK_COOLDOWN = 120
 # 차단이 이어질 때 쉬는 시간(초): 3분 → 10분 → 20분 → 30분 → 30분 (사람 손 없이 알아서 기다렸다 재개)
 BLOCK_COOLDOWNS = [180, 600, 1200, 1800, 1800]
 DETAIL_DELAY = (6.0, 12.0)         # 상품 상세 페이지 사이 대기(초)
+DETAIL_BATCH = 30                  # 상세 페이지 N개마다
+DETAIL_BATCH_REST = (180, 300)     # 3~5분 길게 쉼 (시간당 70개 안팎으로 눌러 차단을 피함)
 BROWSER = os.environ.get("CS_BROWSER", "auto")   # auto | whale | msedge | chrome
 BROWSER_PREF_FILE = DATA_DIR / "browser.txt"      # 도구에서 고른 브라우저 (msedge/chrome/whale)
 

@@ -142,8 +142,9 @@ EXTRACT_JS = r"""
     let badgeKey = null;
     for (const im of li.querySelectorAll('img')) {
       const src = im.getAttribute('src') || im.getAttribute('data-src') || '';
-      if (/badge|delivery|rocket|logo/i.test(src) && !/thumbnail|vendor_inventory|retail\/images/i.test(src)) {
-        badgeKey = src.split('?')[0].split('/').pop(); break;
+      const fname = src.split('?')[0].split('/').pop();
+      if (/^(badge_|logo_rocket|rocket|delivery)/i.test(fname) && !/cash|coupon|thumbnail/i.test(src)) {
+        badgeKey = fname; break;
       }
     }
     const isAd = !inUnit || /ad-badge|adbadge|__ad|\bad\b/.test(cls(li)) || !!li.querySelector('[class*="ad-badge"], [class*="adBadge"], [class*="AdMark"], [class*="ad-mark"], [class*="AdBadge"]') || /\bAD\b|광고/.test(txt(li).slice(0, 40));
@@ -728,6 +729,8 @@ def _fetch_seller(page, product_id, item_id, vendor_item_id, out):
     r = page.evaluate(FETCH_JS, {"url": BTF_URL.format(pid=product_id, vid=vendor_item_id, iid=item_id or ""),
                                  "method": "GET", "headers": {"accept": "application/json, text/plain, */*",
                                                               "x-requested-with": "XMLHttpRequest"}})
+    if r.get("status") in (403, 429):
+        raise BlockedError(f"판매자 정보 API 가 막혔습니다 (HTTP {r.get('status')})")
     if r.get("status") != 200 or "json" not in (r.get("ctype") or ""):
         log.warn(f"판매자 API 응답 이상 {product_id}: HTTP {r.get('status')}")
         return None
@@ -876,19 +879,10 @@ def _product_url(product_id, item_id=None, vendor_item_id=None, mobile: bool = F
 
 
 def _goto_product(page, product_id, item_id=None, vendor_item_id=None):
-    """상품 페이지를 연다. www 가 막혀 있으면 모바일 페이지(m.coupang.com)로 대체한다."""
+    """상품 페이지(www)를 연다. 막히면 BlockedError. (모바일 페이지 대체는 판매자 정보가 없어 배송을 틀리게 만들므로 쓰지 않는다)"""
     install_capture(page)
-    if _mobile_mode["on"] and time.time() - _mobile_mode["since"] < 3600:
-        _goto(page, _product_url(product_id, item_id, vendor_item_id, mobile=True), None)
-        return "mobile"
-    try:
-        _goto(page, _product_url(product_id, item_id, vendor_item_id), None)
-        return "www"
-    except BlockedError:
-        log.warn("www 상품 페이지가 막혀 모바일 페이지로 대체합니다 (1시간 동안)")
-        _mobile_mode.update({"on": True, "since": time.time()})
-        _goto(page, _product_url(product_id, item_id, vendor_item_id, mobile=True), None)
-        return "mobile"
+    _goto(page, _product_url(product_id, item_id, vendor_item_id), None)
+    return "www"
 
 
 def fetch_option_buyers(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:

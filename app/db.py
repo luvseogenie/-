@@ -133,7 +133,25 @@ def init_db():
     c.commit()
     _fix_global_badges()
     _reverify_missing_buyers()
+    _fix_global_badges_v2()
     _reverify_all_v2()
+
+
+def _fix_global_badges_v2():
+    """차단된 상태(판매자 정보 없음)에서 화면 글자로 '로켓직구'라고 잘못 학습·저장된 값을 정리한다. 한 번만."""
+    if get_setting("fix_global_badges_v2"):
+        return
+    bm = get_setting("badge_map", {}) or {}
+    bad = [k for k, v in bm.items() if v == "ROCKET_GLOBAL" or "cash" in k.lower()]
+    for k in bad:
+        bm.pop(k, None)
+    set_setting("badge_map", bm)
+    c = conn()
+    cur = c.execute("UPDATE products SET delivery_sure=0, verified_at=NULL WHERE delivery='ROCKET_GLOBAL'")
+    c.commit()
+    set_setting("fix_global_badges_v2", True)
+    if bad or cur.rowcount:
+        log.info(f"로켓직구 오판 정리(2차): 뱃지 학습 {len(bad)}개 삭제, 로켓직구로 표시된 상품 {cur.rowcount}개를 다시 확인 대상으로 돌림")
 
 
 def _reverify_missing_buyers():

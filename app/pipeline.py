@@ -615,10 +615,10 @@ class JobController:
                     db.save_verified_price(run_id, pid, data.get("price"), data.get("buyers_min"), data.get("sellers"),
                                            data.get("price_sale"), data.get("origin_price"))
                     if data.get("delivery"):
-                        sure = data.get("delivery_how") in ("badge", "text", "seller")
+                        sure = data.get("delivery_how") == "seller"      # 판매자 정보로 판정한 것만 확정 (화면 글자는 오판이 잦음)
                         db.set_delivery(run_id, pid, data["delivery"], sure)
                         bk = p.get("badge_key")
-                        if sure and bk and data.get("delivery_how") in ("badge", "seller"):
+                        if sure and bk:
                             bm = db.get_setting("badge_map", {}) or {}
                             if bm.get(bk) != data["delivery"]:
                                 bm[bk] = data["delivery"]
@@ -636,7 +636,16 @@ class JobController:
                         parts.append(f"배송 {data['delivery']}" + (f" (판매자 {data['seller_name']} · {data.get('seller_flags', '-')})" if data.get("seller_name") else " (판매자 정보 없음)"))
                     log.info(f"{self.progress['label']}: " + " · ".join(parts))
                 self.progress["done"] += 1
-                human_delay(*config.DETAIL_DELAY)
+                done_n = self.progress["done"]
+                if config.DETAIL_BATCH and done_n % config.DETAIL_BATCH == 0:
+                    import random as _r
+                    pause = _r.uniform(*config.DETAIL_BATCH_REST)
+                    log.info(f"상세 확인 {done_n}개째 · {pause / 60:.1f}분 길게 쉽니다 (차단 예방)")
+                    self.message = f"{done_n}개 확인 · 차단 예방을 위해 {pause / 60:.0f}분 쉬는 중"
+                    self._sleep_checked(pause)
+                    self.message = ""
+                else:
+                    human_delay(*config.DETAIL_DELAY)
             log.info("상세 확인 완료")
 
     # ----- 윙 캡처 -----

@@ -329,7 +329,7 @@
   function renderSel() {
     const n = state.selected.size;
     $('#sel-info').textContent = n ? `${fmt(n)}개 선택됨` : '';
-    const top = $('#sel-top'); if (top) { top.textContent = n ? `${fmt(n)}개 선택됨` : ''; top.hidden = !n; }
+    const top = $('#sel-top'); if (top) { top.textContent = n ? `${fmt(n)}개 선택됨 ✕` : ''; top.hidden = !n; top.title = '누르면 선택을 모두 해제합니다'; top.style.cursor = 'pointer'; }
   }
 
   async function refreshAll() { renderStatus(await api('/api/status')); await loadProducts(true); }
@@ -486,13 +486,15 @@
     state.selected.clear(); await refreshAll();
   }));
   $('#btn-more').addEventListener('click', guard(async () => { state.page += 1; await loadProducts(false); }));
+  $('#sel-top').addEventListener('click', () => { state.selected.clear(); renderRows(); toast('선택을 해제했습니다.'); });
   $('#chk-all').addEventListener('change', guard(async (e) => {
     // 맨 위 체크 = 지금 필터(예: 조건 통과)에 맞는 상품 전부. 화면에 보이는 100개만이 아니다.
     const qs = new URLSearchParams({ filter: state.filter, q: state.q, leaf: state.leaf, sort: state.sort });
     const d = await api('/api/products/ids?' + qs.toString());
-    if (e.target.checked) d.ids.forEach((id) => state.selected.add(id)); else d.ids.forEach((id) => state.selected.delete(id));
+    state.selected.clear();                      // 다른 필터에서 골라 둔 것은 버린다 (누적되면 엉뚱한 상품까지 확인하게 됨)
+    if (e.target.checked) d.ids.forEach((id) => state.selected.add(id));
     renderRows();
-    if (e.target.checked) toast(`${d.ids.length}개 선택했습니다 (화면에 보이는 것 포함, 이 필터 전체)`);
+    if (e.target.checked) toast(`${d.ids.length}개 선택했습니다 (이 필터 전체, 다른 필터에서 고른 것은 해제)`);
   }));
   let qTimer;
   $('#q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = $('#q').value.trim(); loadProducts(true); }, 300); });
