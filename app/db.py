@@ -90,10 +90,24 @@ CREATE TABLE IF NOT EXISTS archive (
 """
 
 
+_write_version = [0]
+
+
+class _Conn(sqlite3.Connection):
+    """commit 될 때마다 버전을 올린다 (화면용 계산 결과를 캐시했다가 DB 가 바뀐 경우에만 다시 계산)."""
+    def commit(self):
+        super().commit()
+        _write_version[0] += 1
+
+
+def write_version() -> int:
+    return _write_version[0]
+
+
 def conn() -> sqlite3.Connection:
     c = getattr(_local, "conn", None)
     if c is None:
-        c = sqlite3.connect(str(config.DB_PATH), timeout=30, check_same_thread=False)
+        c = sqlite3.connect(str(config.DB_PATH), timeout=30, check_same_thread=False, factory=_Conn)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")

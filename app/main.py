@@ -280,8 +280,22 @@ async def run_verify(req: Request):
 
 
 # ---------- 상태 ----------
+_rows_cache = {"key": None, "rows": None, "at": 0.0}
+_rows_lock = threading.Lock()
+
+
 def _rows(run_id, cond):
-    return [enrich(p, cond) for p in db.products(run_id)]
+    """상품 전체를 판정과 함께 돌려준다. 상품이 수만 개면 계산이 무거우므로
+    DB 가 바뀌지 않았거나 2초 안에 다시 요청되면 직전 결과를 그대로 쓴다 (화면 폴링이 서버를 마비시키지 않게)."""
+    key = (run_id, db.write_version(), json.dumps(cond, sort_keys=True, ensure_ascii=False))
+    now = time.time()
+    with _rows_lock:
+        if _rows_cache["rows"] is not None and (_rows_cache["key"] == key or
+                                                (_rows_cache["key"] and _rows_cache["key"][0] == run_id and now - _rows_cache["at"] < 2.0)):
+            return _rows_cache["rows"]
+        rows = [enrich(p, cond) for p in db.products(run_id)]
+        _rows_cache.update({"key": key, "rows": rows, "at": time.time()})
+        return rows
 
 
 @app.get("/api/status")

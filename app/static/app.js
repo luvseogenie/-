@@ -23,7 +23,9 @@
   async function api(path, body, method) {
     const opt = { method: method || (body === undefined ? 'GET' : 'POST'), headers: { 'Content-Type': 'application/json' } };
     if (body !== undefined) opt.body = JSON.stringify(body);
-    const r = await fetch(path, opt);
+    let r;
+    try { r = await fetch(path, opt); }
+    catch (e) { throw new Error('프로그램 서버가 응답하지 않습니다. 검은 실행 창이 닫혔으면 2_run.bat 으로 다시 켜 주세요 (결과는 저장돼 있습니다). 열려 있으면 잠시 뒤 다시 눌러 주세요.'); }
     const ct = r.headers.get('content-type') || '';
     const data = ct.includes('json') ? await r.json() : await r.text();
     if (data && data.ok === false) throw new Error(data.error || '오류');
