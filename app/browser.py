@@ -64,6 +64,8 @@ class BrowserThread(threading.Thread):
                 return ctx
         except Exception as e:  # noqa: BLE001
             log.warn(f"일반 실행 방식 실패, 기존 방식으로 엽니다: {e}")
+            if config.profile_dir() != config.PROFILE_DIR:
+                log.warn("기존 방식은 평소 프로필을 쓸 수 없어 프로그램 전용 프로필로 엽니다")
         last = None
         for channel in self._candidates():
             try:
@@ -76,7 +78,7 @@ class BrowserThread(threading.Thread):
                 else:
                     kwargs["channel"] = channel
                     label = channel or "chromium"
-                self.context = self.pw.chromium.launch_persistent_context(str(config.profile_dir()), **kwargs)
+                self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
                 self.channel = label
                 self._closed = False
                 self.context.on("close", self._on_close)
@@ -107,7 +109,7 @@ class BrowserThread(threading.Thread):
                     else:
                         kwargs["channel"] = channel
                         label = channel or "chromium"
-                    self.context = self.pw.chromium.launch_persistent_context(str(config.profile_dir()), **kwargs)
+                    self.context = self.pw.chromium.launch_persistent_context(str(config.PROFILE_DIR), **kwargs)
                     self.channel = label
                     self._closed = False
                     self.context.on("close", self._on_close)
@@ -188,6 +190,10 @@ class BrowserThread(threading.Thread):
                 if match:
                     name, exe = match[0]
                 log.info(f"평소 쓰는 {name} 프로필로 실행합니다: {prof}")
+                # 같은 프로필의 브라우저가 (백그라운드에라도) 살아 있으면, 새로 띄운 창은 그 프로세스에 빈 탭으로 붙어 버리고 접속 포트는 열리지 않는다
+                if self._kill_browser_processes(name):
+                    log.info(f"이미 떠 있던 {name} 을(를) 종료했습니다 (프로필을 프로그램이 쓰기 위해)")
+                    _t.sleep(2.0)
             port = self._free_port()
             args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
                     "--no-first-run", "--no-default-browser-check"]
@@ -232,6 +238,23 @@ class BrowserThread(threading.Thread):
         if config.LIGHT_MODE:
             self._install_lightweight_routes()
         return ctx
+
+    @staticmethod
+    def _kill_browser_processes(name: str) -> bool:
+        """해당 브라우저 프로세스를 모두 끝낸다 (Windows). 끝낸 게 있으면 True."""
+        import subprocess
+        exe = {"msedge": "msedge.exe", "chrome": "chrome.exe", "whale": "whale.exe"}.get(name)
+        if not exe:
+            return False
+        try:
+            out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True, timeout=10).stdout
+            if exe.lower() not in (out or "").lower():
+                return False
+            subprocess.run(["taskkill", "/F", "/IM", exe, "/T"], capture_output=True, timeout=15)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"{exe} 종료 실패(무시): {e}")
+            return False
 
     @staticmethod
     def _whale_path():
