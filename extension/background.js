@@ -218,7 +218,7 @@ function urlHint(kind, baseUrl) {
   return null;
 }
 
-async function collectKind(kind, dateOverride) {
+async function collectKind(kind, dateOverride, opts = {}) {
   const s = await getSettings();
   const target = dateOverride || yesterdayIso();
   const baseUrl = kind === 'sales' ? s.salesUrl : s.adsUrl;
@@ -254,6 +254,10 @@ async function collectKind(kind, dateOverride) {
       if (full && full.total > 1 && (full.pages || 0) < full.total) { await sleep(3000); const again = await readFromTab(tab.id, kind, 'readAll'); if (again?.records?.length > (full.records?.length || 0)) full = again; }
       if (full?.records?.length > r.records.length) r = { ...full, notes: [...(r.notes || []), ...(full.notes || [])] };
       else if (full) r.notes = [...(r.notes || []), ...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
+      // 끝 쪽까지 못 갔거나 화면의 전체 개수보다 적게 읽었으면 '일부만 읽음' → 창을 새로 열어 다시 (마지막 시도면 일부라도 저장)
+      const partial = full && ((full.total > 1 && (full.pages || 0) < full.total) || (full.shownTotal && full.shownTotal > (r.records?.length || 0)));
+      if (partial && !opts.lastTry) throw new Error(`광고 목록 일부만 읽혔습니다 (${r.records.length}건, ${(r.notes || []).join(', ')})`);
+      if (partial) r.notes = [...(r.notes || []), '⚠ 일부만 읽힌 채 저장됨 — 다시 수집하면 채워집니다'];
       if (!hasNumbers(r)) throw new Error(`광고 목록 ${r.records.length}줄을 읽었지만 광고비·노출·클릭이 모두 0입니다 (성과 숫자가 아직 안 채워진 것으로 보여 저장하지 않았습니다). 설정의 대기(초)를 올려 보세요`);
       // 일부 줄만 성과가 0이면(늦게 채워지는 줄) 3초 뒤 한 번 더 읽어, 캠페인별로 숫자가 있는 쪽을 쓴다
       const rowHasNumbers = (rec) => Object.entries(rec).some(([k, v]) => NUM_HEADER.test(k) && parseFloat(String(v).replace(/[^\d.]/g, '')) > 0);
@@ -337,10 +341,10 @@ async function collectRange(start, end, kinds, onlyMissing) {
 }
 
 // 쿠팡 화면은 가끔 덜 그려진 채 열린다 → 실패하면 창을 닫고 새로 열어 한 번 더 (총 2번)
-async function collectWithRetry(kind, dateOverride, tries = 2) {
+async function collectWithRetry(kind, dateOverride, tries = 3) {
   let lastErr = null;
   for (let i = 1; i <= tries; i++) {
-    try { return await collectKind(kind, dateOverride); }
+    try { return await collectKind(kind, dateOverride, { lastTry: i === tries }); }
     catch (e) { lastErr = e; if (i < tries) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${i}번째 실패, 창을 새로 열어 다시 시도: ${e.message}`); await sleep(8000); } }
   }
   throw lastErr;

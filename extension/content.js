@@ -148,9 +148,13 @@
     const best = [...sel.options].reduce((a, o) => (parseInt(o.textContent, 10) || 0) > (parseInt(a.textContent, 10) || 0) ? o : a);
     if (best.value === sel.value) return null;
     const before = rowsFingerprint(kind); const beforeTotal = pageTotal();
-    setNativeValue(sel, best.value);
-    // 표의 줄 수나 쪽수가 실제로 바뀔 때까지 (최대 6초)
-    const changed = await waitUntil(() => rowsFingerprint(kind) !== before || pageTotal() !== beforeTotal, 6000);
+    // 표가 아직 준비 중이면 React 가 값을 되돌리기도 한다 → 안 먹으면 2초 뒤 다시, 최대 3번
+    let changed = false;
+    for (let i = 0; i < 3 && !changed; i++) {
+      if (i) await wait(2000);
+      sel.focus(); setNativeValue(sel, best.value); sel.dispatchEvent(new Event('blur', { bubbles: true }));
+      changed = await waitUntil(() => rowsFingerprint(kind) !== before || pageTotal() !== beforeTotal, 6000);
+    }
     await wait(500);
     return clean(best.textContent) + (changed ? '' : ' (적용 안 됨)');
   }
@@ -201,7 +205,12 @@
     const size = await maximizePageSize(kind); if (size) { notes.push(`페이지당 ${size}로 변경`); if (!(await settleRows(kind))) notes.push('줄 내용이 계속 바뀜'); }
     const total0 = pageTotal(); let pages = 0;
     for (let i = 1; i <= Math.min(total0, 30); i++) {
-      if (i > 1) { if (!(await gotoPage(i, kind))) { notes.push(`${i}쪽으로 넘어가도 내용이 바뀌지 않음`); break; } await settleRows(kind); }
+      if (i > 1) {
+        let ok = await gotoPage(i, kind);
+        if (!ok) { await wait(2500); ok = await gotoPage(i, kind); }   // 한 번 더
+        if (!ok) { notes.push(`${i}쪽으로 넘어가도 내용이 바뀌지 않음`); break; }
+        await settleRows(kind);
+      }
       const picked = window.__ccPick(kind); if (!picked) { if (i === 1) break; notes.push(`${i}쪽에서 표를 못 읽음`); break; }
       pages++;
       let added = 0;

@@ -569,7 +569,9 @@ function loadAds() {
   if (!$('#ads-date').value) $('#ads-date').value = localIso(yday);
   const d = DATA; const date = $('#ads-date').value; const rows = d.ads[date] || {};
   const names = Object.keys(rows); for (const c of S.campaigns(d)) if (!names.includes(c) && Object.values(d.ads).slice(-14).some((day) => day[c])) names.push(c);
-  $('#ads-table tbody').innerHTML = ''; names.forEach((c) => addAdsRow(c, rows[c])); msg('#ads-msg', names.length ? '' : '이 날짜에 저장된 광고 데이터가 없습니다. 행을 추가해 입력할 수 있습니다.');
+  $('#ads-table tbody').innerHTML = ''; names.forEach((c) => addAdsRow(c, rows[c]));
+  const missing = names.filter((c) => !rows[c]).length;
+  msg('#ads-msg', names.length ? (missing ? `빈 줄 ${missing}개는 이 날짜 광고센터 목록에서 읽히지 않은 캠페인입니다 (광고를 안 했으면 정상, 목록 일부만 읽혔으면 데이터·설정에서 그 날짜를 다시 수집하세요)` : '') : '이 날짜에 저장된 광고 데이터가 없습니다. 행을 추가해 입력할 수 있습니다.');
 }
 function addAdsRow(campaign = '', row = null) {
   const tr = document.createElement('tr');
