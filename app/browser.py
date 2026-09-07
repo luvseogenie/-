@@ -213,7 +213,16 @@ class BrowserThread(threading.Thread):
             log.info("이미 실행 중인 브라우저에 다시 접속합니다")
         browser = self.pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=30000)
         self.browser = browser
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        # 평소 프로필의 쿠키를 쓰려면 반드시 브라우저의 기본 컨텍스트여야 한다 (new_context 는 시크릿 창과 같아 쿠키가 없다)
+        waited = 0
+        while not browser.contexts and waited < 10000:
+            time.sleep(0.25)
+            waited += 250
+        if browser.contexts:
+            ctx = browser.contexts[0]
+        else:
+            log.warn("브라우저 기본 컨텍스트를 찾지 못해 새 컨텍스트로 엽니다 (프로필 쿠키가 적용되지 않을 수 있음)")
+            ctx = browser.new_context()
         self.context = ctx
         self._closed = False
         self.mode = "attach"
@@ -357,9 +366,38 @@ class BrowserThread(threading.Thread):
         return True
 
     def page(self):
+        """작업용 탭. 윙 탭은 건드리지 않고, 이미 만든 작업 탭이 살아 있으면 그대로 쓴다 (빈 탭을 계속 새로 열지 않게)."""
         ctx = self.ensure_context()
-        pages = ctx.pages
-        return pages[0] if pages else ctx.new_page()
+        wp = getattr(self, "work_page", None)
+        try:
+            if wp is not None and not wp.is_closed() and wp.context == ctx:
+                return wp
+        except Exception:  # noqa: BLE001
+            pass
+        cand = None
+        blanks = []
+        for pg in ctx.pages:
+            try:
+                u = pg.url or ""
+                if "wing.coupang.com" in u or "xauth.coupang.com" in u:
+                    continue
+                if u in ("", "about:blank"):
+                    blanks.append(pg)
+                elif cand is None:
+                    cand = pg
+            except Exception:  # noqa: BLE001
+                continue
+        if cand is None and blanks:
+            cand = blanks.pop(0)
+        for extra in blanks:          # 남는 빈 탭은 닫는다
+            try:
+                extra.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if cand is None:
+            cand = ctx.new_page()
+        self.work_page = cand
+        return cand
 
     def new_page(self):
         return self.ensure_context().new_page()
