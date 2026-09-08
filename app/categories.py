@@ -3,6 +3,8 @@ from . import config, db, log
 from .browser import human_delay
 from .coupang_list import fetch_children, fetch_home_tree
 
+leaf_page1 = {}     # 최하위 확인 때 이미 받아 둔 판매량순 1쪽 (cid -> listing). 수집 단계에서 꺼내 쓴다
+
 OLD_IDS = [185569, 178155, 317678, 183960, 317677, 317679, 305698]   # 예전에 잘못 알고 있던 1차 번호
 
 
@@ -87,12 +89,16 @@ def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
     how = data.get("how")
     if data.get("is_leaf"):
         db.mark_children_fetched(cid, is_leaf=True)
-        log.info(f"[카테고리] {parent_path}: 최하위 (필터에 자기 자신이 있음)")
+        if data.get("listing") and data["listing"].get("items"):
+            leaf_page1[cid] = data["listing"]
+        log.info(f"[카테고리] {parent_path}: 최하위 (필터에 자기 자신이 있음)" + (" · 1쪽 상품도 받아 둠" if cid in leaf_page1 else ""))
         human_delay()
         return []
     # 사이드바 전체를 긁은 경우엔 신뢰도가 낮다. 형제와 조상을 뺀 뒤에도 남은 것만 하위로 본다.
     if how == "all-side" and not kids:
         db.mark_children_fetched(cid, is_leaf=True)
+        if data.get("listing") and data["listing"].get("items"):
+            leaf_page1[cid] = data["listing"]
         log.info(f"[카테고리] {parent_path}: 최하위")
         return []
     if how == "all-side":

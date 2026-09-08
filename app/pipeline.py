@@ -134,7 +134,9 @@ class JobController:
                 for page_no in range(1, pages + 1):
                     self._check()
                     self.progress["label"] = f"{path} · {page_no}페이지"
-                    data = self._with_retry(lambda: fetch_listing(bt.page(), kind, key, page_no))
+                    from .categories import leaf_page1
+                    pre = leaf_page1.pop(key, None) if (kind == "category" and page_no == 1) else None
+                    data = pre if pre else self._with_retry(lambda: fetch_listing(bt.page(), kind, key, page_no))
                     items = data["items"] if data else []
                     badge_map = db.get_setting("badge_map", {}) or {}
                     for it in items:
@@ -150,10 +152,11 @@ class JobController:
                     cat_seen += len(items)
                     seen_total += len(items)
                     self.progress["done"] += 1
-                    log.info(f"[{idx + 1}/{len(targets)}] {path} {page_no}p: {len(items)}개")
+                    log.info(f"[{idx + 1}/{len(targets)}] {path} {page_no}p: {len(items)}개" + (" (미리 받아 둔 쪽)" if pre else ""))
                     if not items:
                         break
-                    human_delay()
+                    if not pre:
+                        human_delay()
                 db.update_run_category(run_id, cat_key, status="done", pages_done=pages, products_seen=cat_seen)
             db.set_setting(f"seen_total_{run_id}", seen_total)
             db.set_run_status(run_id, "collected")

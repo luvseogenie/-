@@ -662,7 +662,8 @@ def fetch_listing(page, kind: str, key, page_no: int) -> dict:
 
 
 def fetch_children(page, cid: int, exclude: list[int]) -> dict:
-    url = config.CATEGORY_PAGE.format(cid=cid)
+    # 판매량순 120개 1쪽 주소로 연다 → 최하위 카테고리면 이 화면이 곧 수집 1쪽이라 다시 열 필요가 없다
+    url = config.CATEGORY_URL.format(cid=cid, size=config.CATEGORY_LIST_SIZE, page=1)
     _goto(page, url, 'a[href*="/np/categories/"]')
     data = page.evaluate(CHILDREN_JS, {"cid": cid, "exclude": exclude})
     if not data["children"] and data.get("side_links", 0) == 0:
@@ -670,6 +671,8 @@ def fetch_children(page, cid: int, exclude: list[int]) -> dict:
     # 같은 페이지에서 상품도 뽑아 둔다 (재방문 절약)
     try:
         data["listing"] = page.evaluate(EXTRACT_JS)
+        if isinstance(data["listing"], dict):
+            data["listing"]["url"] = url
     except Exception:  # noqa: BLE001
         data["listing"] = None
     return data
