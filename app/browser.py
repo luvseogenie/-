@@ -226,6 +226,16 @@ class BrowserThread(threading.Thread):
         self.context = ctx
         self._closed = False
         self.mode = "attach"
+        if config.profile_dir() != config.PROFILE_DIR:
+            # 복사한 쿠키가 실제로 읽히는지 확인 (읽히지 않으면 새 브라우저와 같아서 복사가 무의미)
+            try:
+                cks = ctx.cookies(["https://www.coupang.com", "https://wing.coupang.com"])
+                names = {c.get("name") for c in cks}
+                log.info(f"복사본 프로필의 쿠팡 쿠키 {len(cks)}개 (봇 방어 쿠키 {'있음' if '_abck' in names else '없음'}, 윙 로그인 쿠키 {'있음' if any(n and n.lower().startswith(('wing', 'sso', 'x-coupang')) or n == 'PCID' for n in names) else '없음'})")
+                if not cks:
+                    log.warn("복사본에 쿠팡 쿠키가 없습니다. 평소 브라우저의 쿠키가 암호화되어 복사본에서 못 읽는 경우입니다 (이 방식은 효과가 없음)")
+            except Exception as e:  # noqa: BLE001
+                log.warn(f"쿠키 확인 실패(무시): {e}")
         ctx.on("close", self._on_close)
         browser.on("disconnected", self._on_close)
         self._install_stealth()

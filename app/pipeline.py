@@ -263,13 +263,15 @@ class JobController:
     def _fresh_start(self, what):
         """차단 시: 봇 방어 쿠키를 지우고(프로그램 전용 프로필) 첫 화면을 사람처럼 한 번 연 뒤 20~40초 쉰다."""
         import random as _r
-        try:
-            n = clear_bot_cookies(browser.ensure_context())   # 이 코드는 브라우저 스레드 안에서 돈다
-        except Exception:  # noqa: BLE001
-            n = 0
+        n = 0
+        if config.profile_dir() == config.PROFILE_DIR:        # 평소 프로필 복사본을 쓸 때는 검증된 쿠키를 지우면 안 된다
+            try:
+                n = clear_bot_cookies(browser.ensure_context())   # 이 코드는 브라우저 스레드 안에서 돈다
+            except Exception:  # noqa: BLE001
+                n = 0
         secs = _r.uniform(20, 40)
         if what:
-            self.message = f"차단 감지: {what}. 봇 방어 쿠키 {n}개를 지우고 {secs:.0f}초 뒤 다시 시도합니다"
+            self.message = f"차단 감지: {what}. " + (f"봇 방어 쿠키 {n}개를 지우고 " if n else "") + f"{secs:.0f}초 뒤 다시 시도합니다"
             log.warn(self.message)
         try:
             pg = browser.page()
