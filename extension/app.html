@@ -14,6 +14,7 @@
       <button data-page="tax"><span class="ico">₩</span>세후 순마진</button>
       <button data-page="dash" class="active"><span class="ico">▦</span>대시보드</button>
       <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
+      <button data-page="campaign"><span class="ico">🔎</span>캠페인 분석</button>
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
       <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
       <button data-page="expense"><span class="ico">－</span>광고 외 지출</button>
@@ -103,6 +104,32 @@
           <div class="tablewrap"><table id="camp-table"></table></div>
         </div>
         <div class="card" id="dash-check"></div>
+      </div>
+    </section>
+
+    <!-- ===== 캠페인 분석 (광고 보고서: 옵션·키워드) ===== -->
+    <section id="page-campaign" style="display:none">
+      <div id="cp-empty" class="card empty" style="display:none">
+        <b>아직 광고 보고서가 없습니다</b>
+        <div class="steps">
+          광고센터 → <b>보고서</b> 에서 기간을 정해 <b>키워드</b>(또는 상품/옵션) 기준 보고서를 받은 뒤, <a href="#data">데이터 · 설정</a> 의 <b>📢 광고 보고서 파일 올리기</b> 에 올리세요.<br>
+          파일에 날짜 열이 있으면 여러 날이 한 번에 들어갑니다. 캠페인별로 팔린 옵션, 키워드별 노출·클릭·주문·CPC·광고비·ROAS 를 볼 수 있습니다.
+        </div>
+      </div>
+      <div id="cp-body" class="cp-layout">
+        <aside class="card cp-side">
+          <div class="row" style="margin-bottom:6px"><input type="text" id="cp-search" placeholder="캠페인 검색" style="width:100%"></div>
+          <div id="cp-list" class="cp-list"></div>
+        </aside>
+        <div class="cp-main">
+          <div class="card">
+            <div class="row"><h2 style="margin:0;font-size:17px" id="cp-title">캠페인</h2><span class="sub" id="cp-sub"></span><span class="grow"></span><span class="sub" id="cp-range"></span></div>
+            <div class="tabs" id="cp-tabs" style="margin-top:8px">
+              <button data-tab="stats" class="active">기본통계</button><button data-tab="sold">팔린 옵션</button><button data-tab="options">전체 옵션</button><button data-tab="keywords">전체 키워드</button><button data-tab="excludes">제외 키워드 <span class="pill gray" id="cp-ex-count">0</span></button>
+            </div>
+          </div>
+          <div class="card" id="cp-panel"></div>
+        </div>
       </div>
     </section>
 
@@ -248,6 +275,12 @@
           <div class="msg" id="import-msg"></div>
           <div id="import-list" style="display:none;margin-top:8px"><table class="form-table"><thead><tr><th class="l">파일</th><th class="l">데이터 날짜</th><th class="l">결과</th></tr></thead><tbody id="import-rows"></tbody></table>
             <div class="row" style="margin-top:6px"><button class="btn primary sm" id="import-go">이 날짜로 가져오기</button><button class="btn sm" id="import-clear">취소</button></div></div>
+        </div>
+        <div class="card">
+          <h2>📢 광고 보고서 파일 올리기 <span class="sub">캠페인 분석용 (키워드·옵션별)</span></h2>
+          <p class="sub" style="margin:0 0 8px">광고센터 → 보고서에서 기간을 정해 받은 파일. 날짜 열이 있어 여러 날이 한 번에 들어가고, 같은 날짜·캠페인은 새 파일 내용으로 바뀝니다. 여러 개를 한 번에 올려도 됩니다.</p>
+          <div class="row"><label class="btn primary">보고서 파일 선택 <input type="file" id="import-adreport" accept=".xlsx,.csv" multiple style="display:none"></label><span id="adreport-msg" class="msg"></span></div>
+          <div id="adreport-info" class="sub" style="margin-top:6px"></div>
         </div>
         <div class="card">
           <h2>📗 예전 엑셀 장부 가져오기</h2>

@@ -4,7 +4,7 @@
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [] });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {} });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -99,6 +99,30 @@ export function campaigns(d) {
   for (const day of Object.values(d.legacy || {})) for (const c of Object.keys(day)) out.add(c);
   return sortCampaigns([...out]);
 }
+// ---- 광고 보고서 행 (키워드·옵션별 일별). 같은 날짜·캠페인은 새 파일 내용으로 통째로 바뀐다 ----
+export function upsertAdRows(d, rows) {
+  d.adrows ||= {};
+  const touched = new Set(rows.map((r) => r.date + '|' + r.campaign));
+  const byDate = {};
+  for (const r of rows) (byDate[r.date] ||= []).push(r);
+  let n = 0;
+  for (const [date, list] of Object.entries(byDate)) {
+    const keep = (d.adrows[date] || []).filter((r) => !touched.has(date + '|' + r.campaign));
+    d.adrows[date] = keep.concat(list); n += list.length;
+  }
+  return n;
+}
+// ---- 제외 키워드 담기 (캠페인별) ----
+export function addExclude(d, campaign, keyword, memo = '') {
+  d.excludes ||= {}; const list = (d.excludes[campaign] ||= []);
+  const k = String(keyword || '').trim(); if (!k) return false;
+  if (list.some((x) => x.keyword === k)) return false;
+  list.push({ keyword: k, added_at: new Date().toISOString().slice(0, 10), memo: String(memo || ''), synced: false });
+  return true;
+}
+export function removeExclude(d, campaign, keyword) { if (!d.excludes?.[campaign]) return; d.excludes[campaign] = d.excludes[campaign].filter((x) => x.keyword !== keyword); }
+export function markExcludesSynced(d, campaign, keywords) { for (const x of d.excludes?.[campaign] || []) if (keywords.includes(x.keyword)) x.synced = true; }
+
 export function dates(d) { return [...new Set([...Object.keys(d.sales), ...Object.keys(d.ads), ...Object.keys(d.legacy || {})])].sort(); }
 export function unmappedOptionIds(d) {
   const mapped = new Set(d.options.filter((o) => o.campaign).map((o) => o.option_id));

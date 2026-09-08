@@ -150,3 +150,18 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 .pivot tr.traffic td.on { background: #f1ecfb; color: #4a3aa7; font-weight: 700; }
 .pill.traffic { background: #f1ecfb; color: #4a3aa7; }
 .chart .bar.on { fill: #4a3aa7; } .chart .bar.off { fill: #c3c9d4; }
+
+/* ===== 캠페인 분석 ===== */
+.cp-layout { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
+.cp-side { position: sticky; top: 12px; max-height: calc(100vh - 40px); overflow: auto; padding: 10px; }
+.cp-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 7px 8px; border-radius: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.cp-list button:hover { background: var(--surface-2); } .cp-list button.active { background: var(--accent-soft); color: #1c4f8f; font-weight: 700; }
+.cp-list button .sub { display: block; font-size: 11px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; font-size: 13.5px; cursor: pointer; color: var(--text-2); }
+.tabs button.active { color: #1c4f8f; border-bottom-color: #2a78d6; font-weight: 700; }
+.cp-panel-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.cp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.cp-kpis .kpi { padding: 10px 12px; } .cp-kpis .kpi .v { font-size: 18px; }
+#cp-panel table th.sort { cursor: pointer; } #cp-panel table th.sort.asc::after { content: ' ↑'; } #cp-panel table th.sort.desc::after { content: ' ↓'; }
+#cp-panel td.kw { text-align: left; } .pill.sold { background: #e8f5ee; color: #0a7a0a; }
+@media (max-width: 1000px) { .cp-layout { grid-template-columns: 1fr; } .cp-side { position: static; max-height: 200px; } }

@@ -6,6 +6,8 @@ import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImp
 import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
 import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
+import * as AR from './lib/adreport.js';
+import { importAdReportFile } from './lib/importer.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
@@ -49,21 +51,21 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
   $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('main section').forEach((s) => s.style.display = s.id === 'page-' + page ? '' : 'none');
   $('#page-title').textContent = TITLES[page];
-  $('#range').style.display = (page === 'dash' || page === 'ledger' || page === 'traffic') ? '' : 'none';
+  $('#range').style.display = (page === 'dash' || page === 'ledger' || page === 'traffic' || page === 'campaign') ? '' : 'none';
   $('#notice').style.display = page === 'dash' ? '' : 'none';
   renderCurrent();
 }
 $$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
 function renderFoot() {
@@ -192,6 +194,100 @@ function openCampaign(name, led) {
 }
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#backdrop').classList.remove('open'); }
 $('#backdrop').onclick = closeDrawer;
+
+/* ===== 캠페인 분석 (광고 보고서: 옵션·키워드) ===== */
+const cp = { campaign: null, tab: 'stats', sort: { keywords: ['spend', 'desc'], options: ['spend', 'desc'], sold: ['orders', 'desc'], stats: ['key', 'asc'] }, search: '', kwSearch: '', checked: new Set() };
+try { cp.campaign = localStorage.getItem('cc-cp-campaign') || null; } catch { /* 무시 */ }
+const F = { won: (v) => fmtWon(v) + '원', int: fmtInt, pct1: (v) => ((v || 0) * 100).toFixed(1) + '%', pct2: (v) => ((v || 0) * 100).toFixed(2) + '%', ratio: (v) => Math.round((v || 0) * 100) + '%' };
+const CP_COLS = [['impressions', '노출', 'int'], ['clicks', '클릭', 'int'], ['ctr', '클릭률', 'pct2'], ['orders', '주문', 'int'], ['conversion', '전환율', 'pct1'], ['cpc', 'CPC', 'won'], ['spend', '광고비', 'won'], ['revenue', '광고매출', 'won'], ['roas', 'ROAS', 'ratio']];
+function renderCampaign() {
+  const has = AR.reportDates(DATA).length > 0;
+  $('#cp-empty').style.display = has ? 'none' : ''; $('#cp-body').style.display = has ? '' : 'none';
+  if (!has) return;
+  // 왼쪽 목록: 기간 내 광고비 순으로, 보고서에 있는 캠페인 (검색)
+  const allRows = AR.selectRows(DATA, { from: range.start, to: range.end });
+  const camps = AR.byCampaign(allRows); const names = S.sortCampaigns(AR.campaignsOf(DATA));
+  const spendOf = Object.fromEntries(camps.map((c) => [c.key, c]));
+  const q = cp.search.trim();
+  const list = names.filter((n) => !q || n.includes(q));
+  if (!cp.campaign || !names.includes(cp.campaign)) cp.campaign = list[0] || names[0];
+  $('#cp-list').innerHTML = list.map((n) => { const c = spendOf[n]; return `<button data-cp="${esc(n)}" class="${n === cp.campaign ? 'active' : ''}">${esc(n)}<span class="sub">${c ? `광고비 ${fmtWon(c.spend)}원 · ROAS ${F.ratio(c.roas)}` : '이 기간 데이터 없음'}</span></button>`; }).join('') || '<div class="sub">검색 결과 없음</div>';
+  $$('#cp-list button').forEach((b) => b.onclick = () => { cp.campaign = b.dataset.cp; cp.checked.clear(); try { localStorage.setItem('cc-cp-campaign', cp.campaign); } catch { /* 무시 */ } renderCampaign(); });
+  $('#cp-search').oninput = (e) => { cp.search = e.target.value; renderCampaign(); };
+  $$('#cp-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === cp.tab); b.onclick = () => { cp.tab = b.dataset.tab; renderCampaign(); }; });
+  $('#cp-title').textContent = cp.campaign || '';
+  $('#cp-range').textContent = `${range.start} ~ ${range.end}`;
+  $('#cp-ex-count').textContent = (DATA.excludes?.[cp.campaign] || []).length;
+  const rows = allRows.filter((r) => r.campaign === cp.campaign);
+  const ds = [...new Set(rows.map((r) => r.date))].sort();
+  $('#cp-sub').textContent = ds.length ? `보고서 ${ds[0]} ~ ${ds[ds.length - 1]} (${ds.length}일)` : '이 기간 보고서 없음';
+  const panel = $('#cp-panel');
+  if (cp.tab === 'stats') renderCpStats(panel, rows);
+  else if (cp.tab === 'sold' || cp.tab === 'options') renderCpOptions(panel, rows, cp.tab === 'sold');
+  else if (cp.tab === 'keywords') renderCpKeywords(panel, rows);
+  else renderCpExcludes(panel, rows);
+}
+function cpKpis(t) {
+  const k = [['광고비', F.won(t.spend), '#eb6834'], ['광고매출', F.won(t.revenue), '#2a78d6'], ['ROAS', F.ratio(t.roas), '#2a78d6'], ['주문', fmtInt(t.orders) + '건', '#4a3aa7'], ['노출', fmtInt(t.impressions), '#17202a'], ['클릭', fmtInt(t.clicks) + ` (${F.pct2(t.ctr)})`, '#17202a'], ['전환율', F.pct1(t.conversion), '#1baf7a'], ['CPC', F.won(t.cpc), '#eb6834']];
+  return `<div class="cp-kpis">${k.map(([l, v, c]) => `<div class="kpi"><div class="k"><span class="dot" style="background:${c}"></span>${l}</div><div class="v num">${v}</div></div>`).join('')}</div>`;
+}
+function sortRows(list, key, dir) { return [...list].sort((a, b) => { const va = a[key], vb = b[key]; const r = typeof va === 'string' ? va.localeCompare(vb, 'ko') : (va || 0) - (vb || 0); return dir === 'asc' ? r : -r; }); }
+function cpTable(list, firstCol, tabKey, opts = {}) {
+  const [sk, sd] = cp.sort[tabKey];
+  const sorted = sortRows(list, sk, sd);
+  const th = (k, l, cls = '') => `<th class="sort ${cls} ${sk === k ? sd : ''}" data-sk="${k}">${l}</th>`;
+  let h = `<div class="tablewrap" style="max-height:62vh"><table><thead><tr>${opts.check ? '<th><input type="checkbox" id="cp-check-all"></th>' : ''}${th('label', firstCol, 'l')}${CP_COLS.map(([k, l]) => th(k, l)).join('')}</tr></thead><tbody>`;
+  for (const r of sorted) {
+    h += `<tr>${opts.check ? `<td><input type="checkbox" data-kw="${esc(r.key)}" ${cp.checked.has(r.key) ? 'checked' : ''}></td>` : ''}<td class="l kw">${esc(r.label)}${opts.badge ? opts.badge(r) : ''}</td>${CP_COLS.map(([k, , f]) => `<td class="num ${k === 'roas' ? (r.roas >= 1 ? 'pos' : r.spend ? 'neg' : '') : ''}">${F[f](r[k])}</td>`).join('')}</tr>`;
+  }
+  h += `</tbody>${opts.total ? `<tfoot><tr>${opts.check ? '<td></td>' : ''}<td class="l">합계</td>${CP_COLS.map(([k, , f]) => `<td class="num">${F[f](opts.total[k])}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return h;
+}
+function bindSort(panel, tabKey) {
+  panel.querySelectorAll('th.sort').forEach((th) => th.onclick = () => { const k = th.dataset.sk; const [ck, cd] = cp.sort[tabKey]; cp.sort[tabKey] = [k, ck === k && cd === 'desc' ? 'asc' : 'desc']; renderCampaign(); });
+}
+function renderCpStats(panel, rows) {
+  const t = AR.total(rows); const days = AR.byDate(rows).map((x) => ({ ...x, label: x.key }));
+  panel.innerHTML = cpKpis(t) + `<h2>일별 성과 <span class="sub">주문·매출은 클릭 후 14일 전환 기준</span></h2>` + cpTable(days, '날짜', 'stats', { total: t });
+  bindSort(panel, 'stats');
+}
+function renderCpOptions(panel, rows, soldOnly) {
+  let list = AR.byOption(rows);
+  if (soldOnly) list = list.filter((o) => o.orders > 0);
+  const t = AR.total(rows);
+  const badge = (o) => (o.key !== o.label ? ` <span class="sub">${esc(o.key)}</span>` : '') + (o.orders > 0 ? ' <span class="pill sold">판매</span>' : '');
+  panel.innerHTML = `<div class="cp-panel-head"><h2 style="margin:0">${soldOnly ? '팔린 옵션' : '전체 옵션'} <span class="sub">${list.length}개</span></h2><span class="grow"></span><span class="sub">이 캠페인에서 어떤 옵션이 팔렸는지. 옵션 이름은 보고서의 광고집행 상품명</span></div>` + cpTable(list, '옵션', soldOnly ? 'sold' : 'options', { total: t, badge });
+  bindSort(panel, soldOnly ? 'sold' : 'options');
+}
+function renderCpKeywords(panel, rows) {
+  const ex = new Set((DATA.excludes?.[cp.campaign] || []).map((x) => x.keyword));
+  const q = cp.kwSearch.trim();
+  let list = AR.byKeyword(rows).filter((k) => !q || k.key.includes(q));
+  const t = AR.total(rows);
+  const badge = (r) => (r.orders > 0 ? ' <span class="pill sold">판매</span>' : '') + (ex.has(r.key) ? ' <span class="pill warn">제외 담김</span>' : '');
+  panel.innerHTML = `<div class="cp-panel-head"><h2 style="margin:0">전체 키워드 <span class="sub">${list.length}개</span></h2><input type="text" id="cp-kw-search" placeholder="키워드 검색" value="${esc(cp.kwSearch)}" style="width:180px"><button class="btn sm" id="cp-suggest">광고비만 나가는 키워드 고르기</button><span class="grow"></span><button class="btn primary sm" id="cp-add-ex">✓ 제외 키워드 담기 (<span id="cp-sel-n">${cp.checked.size}</span>)</button></div>
+    <p class="sub" style="margin:0 0 8px">광고비만 나가고 주문이 없는 키워드를 체크해 제외 키워드에 담으세요. 담긴 목록은 '제외 키워드' 탭에서 복사해 광고센터에 등록할 수 있습니다.</p>` + cpTable(list, '키워드', 'keywords', { check: true, badge, total: t });
+  bindSort(panel, 'keywords');
+  $('#cp-kw-search').oninput = (e) => { cp.kwSearch = e.target.value; renderCampaign(); setTimeout(() => { const i = $('#cp-kw-search'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); };
+  panel.querySelectorAll('input[data-kw]').forEach((c) => c.onchange = () => { if (c.checked) cp.checked.add(c.dataset.kw); else cp.checked.delete(c.dataset.kw); $('#cp-sel-n').textContent = cp.checked.size; });
+  const all = $('#cp-check-all'); if (all) all.onchange = () => { panel.querySelectorAll('input[data-kw]').forEach((c) => { c.checked = all.checked; if (all.checked) cp.checked.add(c.dataset.kw); else cp.checked.delete(c.dataset.kw); }); $('#cp-sel-n').textContent = cp.checked.size; };
+  $('#cp-suggest').onclick = () => { cp.checked = new Set(AR.excludeCandidates(rows).map((k) => k.key)); renderCampaign(); };
+  $('#cp-add-ex').onclick = async () => { if (!cp.checked.size) { alert('키워드를 먼저 체크하세요'); return; } const d = await reload(); let n = 0; for (const k of cp.checked) if (S.addExclude(d, cp.campaign, k)) n++; await S.save(d); cp.checked.clear(); await reload(); cp.tab = 'excludes'; renderCampaign(); msg('#cp-sub', `${n}개 담았습니다`, 'ok'); };
+}
+function renderCpExcludes(panel, rows) {
+  const list = DATA.excludes?.[cp.campaign] || [];
+  const stats = Object.fromEntries(AR.byKeyword(rows).map((k) => [k.key, k]));
+  panel.innerHTML = `<div class="cp-panel-head"><h2 style="margin:0">제외 키워드 <span class="sub">${list.length}개</span></h2><span class="grow"></span><button class="btn sm" id="cp-ex-copy">모두 복사</button><button class="btn sm" id="cp-ex-copy-new">아직 등록 안 한 것만 복사</button><button class="btn sm" id="cp-ex-synced">복사한 것 등록 완료로 표시</button></div>
+    <p class="sub" style="margin:0 0 8px">복사한 뒤 광고센터 → 캠페인 → 제외 키워드에 붙여넣어 등록하세요 (줄바꿈으로 나뉘어 있습니다). 등록을 마치면 '등록 완료로 표시' 를 눌러 두면 다음부터 새로 담은 것만 구분됩니다. 광고센터에 자동 등록은 다음 단계에서 넣습니다.</p>
+    <div class="row" style="margin-bottom:8px"><input type="text" id="cp-ex-add" placeholder="직접 추가할 키워드" style="width:220px"><button class="btn sm" id="cp-ex-add-btn">추가</button></div>
+    <div class="tablewrap" style="max-height:60vh"><table><thead><tr><th class="l">키워드</th><th>담은 날</th><th>등록</th><th>기간 광고비</th><th>주문</th><th>ROAS</th><th></th></tr></thead><tbody>` +
+    list.map((x) => { const k = stats[x.keyword]; return `<tr><td class="l kw">${esc(x.keyword)}</td><td>${x.added_at}</td><td>${x.synced ? '<span class="pill good">등록됨</span>' : '<span class="pill warn">아직</span>'}</td><td class="num">${k ? F.won(k.spend) : '-'}</td><td class="num">${k ? fmtInt(k.orders) : '-'}</td><td class="num">${k ? F.ratio(k.roas) : '-'}</td><td><button class="btn danger sm" data-rm="${esc(x.keyword)}">빼기</button></td></tr>`; }).join('') + '</tbody></table></div>';
+  const copy = async (only) => { const ks = list.filter((x) => !only || !x.synced).map((x) => x.keyword); if (!ks.length) { msg('#cp-sub', '복사할 키워드가 없습니다', 'err'); return; } await navigator.clipboard.writeText(ks.join('\n')); msg('#cp-sub', `${ks.length}개 복사됨`, 'ok'); };
+  $('#cp-ex-copy').onclick = () => copy(false); $('#cp-ex-copy-new').onclick = () => copy(true);
+  $('#cp-ex-synced').onclick = async () => { const d = await reload(); S.markExcludesSynced(d, cp.campaign, list.map((x) => x.keyword)); await S.save(d); await reload(); renderCampaign(); };
+  $('#cp-ex-add-btn').onclick = async () => { const k = $('#cp-ex-add').value.trim(); if (!k) return; const d = await reload(); S.addExclude(d, cp.campaign, k); await S.save(d); await reload(); renderCampaign(); };
+  panel.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { const d = await reload(); S.removeExclude(d, cp.campaign, b.dataset.rm); await S.save(d); await reload(); renderCampaign(); });
+}
 
 /* ===== 트래픽 효과 ===== */
 const fmtDelta = (v) => { const p = Math.round(v * 100); return `<span class="${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}" style="font-weight:700">${p > 0 ? '+' : ''}${p}%</span>`; };
@@ -713,6 +809,18 @@ $('#login-save').onclick = async () => {
   msg('#login-msg', enabled ? '자동 로그인 켜짐. 로그인이 풀려 있을 때 대신 로그인합니다.' : '자동 로그인 꺼짐', enabled ? 'ok' : 'err'); loadLogin(); loadSettings();
 };
 $('#login-clear').onclick = async () => { if (!confirm('저장된 아이디·비밀번호를 지우고 자동 로그인을 끌까요?')) return; await chrome.runtime.sendMessage({ type: 'clearLogin' }); msg('#login-msg', '지웠습니다', 'ok'); loadLogin(); };
+$('#import-adreport').onchange = async (e) => {
+  const files = [...e.target.files]; if (!files.length) return;
+  msg('#adreport-msg', `${files.length}개 파일 읽는 중…`); const out = [];
+  for (const f of files) {
+    try { const r = await importAdReportFile(await f.arrayBuffer(), f.name, null); out.push(`${f.name}: ${r.from}${r.from !== r.to ? ` ~ ${r.to}` : ''} ${r.days}일 · 캠페인 ${r.campaigns}개 · ${fmtInt(r.saved)}행 저장`); }
+    catch (err) { out.push(`${f.name}: 실패 — ${err.message}`); }
+  }
+  e.target.value = '';
+  msg('#adreport-msg', out.every((x) => x.includes('저장')) ? '저장했습니다' : '일부 실패', out.every((x) => x.includes('저장')) ? 'ok' : 'err');
+  $('#adreport-info').innerHTML = out.map((x) => `<div>${esc(x)}</div>`).join('') + `<div style="margin-top:4px"><a href="#campaign">캠페인 분석</a> 에서 보세요.</div>`;
+  await refreshAll();
+};
 $$('[data-reseturl]').forEach((b) => b.onclick = async () => { const k = b.dataset.reseturl; $('#set-' + k).value = SETTINGS[k]; await chrome.storage.sync.set({ [k]: SETTINGS[k] }); msg('#set-msg', '기본 주소로 되돌리고 저장했습니다', 'ok'); });
 $$('[data-testurl]').forEach((b) => b.onclick = async () => {
   const kind = b.dataset.testurl;

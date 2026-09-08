@@ -340,3 +340,49 @@ console.log('extension logic: all checks passed');
   assert.equal(d.ads['2025-06-08'].N.spend, 0);
   console.log('ads no-downgrade: all checks passed');
 }
+
+// 광고 보고서 (키워드·옵션별) 해석과 집계
+{
+  const AR = await import('../../extension/lib/adreport.js');
+  const { importAnyFile } = await import('../../extension/lib/importer.js');
+  const H = ['날짜', '캠페인명', '광고그룹', '광고집행 옵션ID', '광고집행 상품명', '광고 노출 지면', '키워드', '노출수', '클릭수', '광고비', '클릭률', '총 주문수(1일)', '총 판매수량(1일)', '총 전환매출액(1일)', '총 광고수익률(1일)', '총 주문수(14일)', '총 판매수량(14일)', '총 전환매출액(14일)', '총 광고수익률(14일)'];
+  assert.equal(AR.isAdReport(H), true);
+  assert.equal(AR.isAdReport(['옵션 ID', '옵션명', '매출(원)', '판매량']), false);   // 판매 리포트
+  assert.equal(AR.isAdReport(['캠페인 이름', '집행 광고비', '노출수', '클릭수']), false); // 캠페인 목록 (키워드/옵션 열 없음)
+  const rec = (date, kw, opt, imp, clk, spend, o1, r1, o14, r14) => Object.fromEntries(H.map((h, i) => [h, [date, '22. 마우스패드', '그룹', opt, 'DUGN 마우스패드 ' + opt, '검색', kw, imp, clk, spend, '', o1, o1, r1, '', o14, o14, r14, ''][i]]));
+  const records = [
+    rec('2026-09-01', '마우스패드', '94602333981', '1,000', '20', '10,000', 1, 20000, 2, 40000),
+    rec('2026-09-01', '손목마우스패드', '94602333981', '500', '10', '8,000', 0, 0, 1, 15000),
+    rec('2026-09-01', '구름마우스패드', '95600446021', '300', '6', '6,000', 0, 0, 0, 0),
+    rec('2026-09-02', '마우스패드', '94602333981', '900', '18', '9,000', 1, 20000, 1, 20000),
+    { ...rec('2026-09-02', '', '', 0, 0, 0, 0, 0, 0, 0), '캠페인명': '합계' },
+  ];
+  const rows = AR.normalizeAdReport(records);
+  assert.equal(rows.length, 4); assert.equal(rows[0].date, '2026-09-01'); assert.equal(rows[0].keyword, '마우스패드'); assert.equal(rows[0].option_id, '94602333981');
+  assert.equal(rows[0].impressions, 1000); assert.equal(rows[0].spend, 10000); assert.equal(rows[0].orders14, 2); assert.equal(rows[0].revenue14, 40000); approx(rows[0].roas14, 4, 1e-9); approx(rows[0].ctr, 0.02, 1e-9);
+  await S.replaceAll({}); const d = await S.load();
+  assert.equal(S.upsertAdRows(d, rows), 4); await S.save(d);
+  const sel = AR.selectRows(d, { from: '2026-09-01', to: '2026-09-02', campaign: '22. 마우스패드' }); assert.equal(sel.length, 4);
+  const kws = AR.byKeyword(sel).sort((a, b) => b.spend - a.spend);
+  assert.equal(kws[0].key, '마우스패드'); assert.equal(kws[0].spend, 19000); assert.equal(kws[0].orders, 3); assert.equal(kws[0].impressions, 1900); approx(kws[0].roas, 60000 / 19000, 1e-9); approx(kws[0].cpc, 19000 / 38, 1e-9);
+  const opts = AR.byOption(sel); assert.equal(opts.length, 2); assert.equal(opts.find((o) => o.key === '94602333981').orders, 4);
+  const days = AR.byDate(sel); assert.deepEqual(days.map((x) => x.key), ['2026-09-01', '2026-09-02']); assert.equal(days[0].spend, 24000);
+  const t = AR.total(sel); assert.equal(t.spend, 33000); assert.equal(t.revenue, 75000);
+  const cand = AR.excludeCandidates(sel, { minSpend: 5000, maxRoas: 1 }); assert.deepEqual(cand.map((k) => k.key), ['구름마우스패드']);
+  // 같은 날짜·캠페인은 새 파일로 통째로 교체, 다른 캠페인 행은 유지
+  S.upsertAdRows(d, [{ ...rows[0], campaign: '30. 보냉가방', keyword: '보냉가방' }]);
+  S.upsertAdRows(d, [{ ...rows[0], spend: 1 }]);   // 22. 마우스패드 9/1 을 1행으로 교체
+  assert.equal(d.adrows['2026-09-01'].filter((r) => r.campaign === '22. 마우스패드').length, 1);
+  assert.equal(d.adrows['2026-09-01'].filter((r) => r.campaign === '30. 보냉가방').length, 1);
+  // 제외 키워드 담기
+  assert.equal(S.addExclude(d, '22. 마우스패드', '구름마우스패드'), true); assert.equal(S.addExclude(d, '22. 마우스패드', '구름마우스패드'), false);
+  S.markExcludesSynced(d, '22. 마우스패드', ['구름마우스패드']); assert.equal(d.excludes['22. 마우스패드'][0].synced, true);
+  S.removeExclude(d, '22. 마우스패드', '구름마우스패드'); assert.equal(d.excludes['22. 마우스패드'].length, 0);
+  // importAnyFile 이 광고 보고서를 알아본다 (CSV)
+  const csv = H.join(',') + '\n' + ['2026-09-03', '22. 마우스패드', '그룹', '94602333981', '마우스패드 올리브', '검색', '마우스패드', 100, 5, 3000, '5%', 0, 0, 0, '0%', 1, 1, 20000, '667%'].join(',');
+  await S.replaceAll({});
+  const r = await importAnyFile(new TextEncoder().encode(csv).buffer, 'report.csv', null);
+  assert.equal(r.kind, 'adreport'); assert.equal(r.saved, 1); assert.equal(r.date, '2026-09-03');
+  const d2 = await S.load(); assert.equal(d2.adrows['2026-09-03'][0].keyword, '마우스패드'); approx(d2.adrows['2026-09-03'][0].roas14, 6.67, 0.01);
+  console.log('ad report: all checks passed');
+}
