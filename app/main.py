@@ -570,7 +570,17 @@ def tools(name: str):
             # 최신 엣지·크롬은 기본 프로필 폴더로는 프로그램이 붙을 수 없다 → 브라우저를 닫고 쿠키·설정만 복사본으로 가져온다
             from .browser import BrowserThread
             killed = BrowserThread._kill_browser_processes(pname)
-            time.sleep(1.5)
+            # 프로세스가 완전히 사라질 때까지 기다린다 (파일 잠금 해제)
+            import subprocess
+            exe = {"msedge": "msedge.exe", "chrome": "chrome.exe", "whale": "whale.exe"}.get(pname, "")
+            for _ in range(20):
+                try:
+                    out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True, timeout=10).stdout
+                    if exe.lower() not in (out or "").lower():
+                        break
+                except Exception:  # noqa: BLE001
+                    break
+                time.sleep(0.5)
             name, n = config.copy_my_profile()
             config.USE_MY_PROFILE_FLAG.write_text(str(ppath), encoding="utf-8")
             return {"ok": True, "message": f"평소 쓰는 {name} 프로필에서 쿠키·설정 {n}개 파일을 복사해 프로그램용 프로필을 만들었습니다"

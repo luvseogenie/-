@@ -48,13 +48,24 @@ def copy_my_profile() -> tuple[str, int]:
     src = root / sub
     if not src.is_dir():
         src = root / "Default"
+    import time as _time
     dst = MY_PROFILE_COPY
-    if dst.exists():
-        shutil.rmtree(dst, ignore_errors=True)
-    (dst / "Default").mkdir(parents=True, exist_ok=True)
-    n = 0
-    shutil.copy2(root / "Local State", dst / "Local State")
-    n += 1
+    # 복사본을 쓰던 브라우저가 막 닫힌 직후에는 파일이 잠겨 있을 수 있다 → 잠시 기다리며 다시 시도
+    last = None
+    for _ in range(20):
+        try:
+            if dst.exists():
+                shutil.rmtree(dst)
+            (dst / "Default").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / "Local State", dst / "Local State")
+            last = None
+            break
+        except PermissionError as e:
+            last = e
+            _time.sleep(0.5)
+    if last is not None:
+        raise RuntimeError("복사본 프로필 파일이 아직 잠겨 있습니다 (브라우저가 완전히 닫히지 않음). 엣지 창을 모두 닫고 5초 뒤 다시 눌러주세요.")
+    n = 1
     keep = ["Cookies", "Cookies-journal", "Network", "Local Storage", "Session Storage", "Preferences", "Secure Preferences",
             "Web Data", "Web Data-journal", "Trust Tokens", "Trust Tokens-journal", "TransportSecurity", "Network Persistent State"]
     for item in keep:
