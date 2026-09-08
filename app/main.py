@@ -487,7 +487,9 @@ def tools(name: str):
             name_, exe = cands[0]
             subprocess.Popen([exe, f"--user-data-dir={config.profile_dir()}", "--no-first-run", "--no-default-browser-check",
                               config.PRODUCT_URL.format(pid=7209394108)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"ok": True, "message": f"{name_} 을(를) 프로그램 연결 없이 같은 프로필로 열었습니다 (유한락스 상품 페이지). "
+            which = "평소 프로필 복사본" if config.profile_dir() == config.MY_PROFILE_COPY else "프로그램 전용 프로필"
+            log.info(f"연결 없이 브라우저 열기: {which} ({config.profile_dir()})")
+            return {"ok": True, "message": f"{name_} 을(를) 프로그램 연결 없이 [{which}]로 열었습니다 (유한락스 상품 페이지). "
                                            "여기서 상품이 열리면 프로필은 정상이고 자동화 연결이 문제인 것이고, 여기서도 Access Denied 면 이 프로필의 쿠키가 찍힌 것입니다. "
                                            "결과를 알려주시고, 창은 닫은 뒤 다시 작업을 시작하세요."}
         if name == "open_browser":

@@ -190,6 +190,8 @@ class BrowserThread(threading.Thread):
                 if match:
                     name, exe = match[0]
                 log.info(f"평소 쓰는 {name} 프로필의 복사본으로 실행합니다: {prof}")
+            else:
+                log.info(f"프로그램 전용 프로필로 실행합니다: {prof}")
             port = self._free_port()
             args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
                     "--no-first-run", "--no-default-browser-check"]

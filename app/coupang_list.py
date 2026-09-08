@@ -511,10 +511,30 @@ def _dump_debug(page, tag: str):
 _page_counter = {"n": 0}
 
 
+_NAV_LINK_JS = """
+(url) => {
+  const old = document.getElementById('__cs_nav');
+  if (old) old.remove();
+  const a = document.createElement('a');
+  a.id = '__cs_nav'; a.href = url; a.textContent = ' ';
+  a.style.cssText = 'position:fixed;left:40px;top:40px;width:120px;height:40px;z-index:2147483647;display:block;opacity:0.01;background:#fff;';
+  document.body.appendChild(a);
+  return true;
+}
+"""
+
+
+def _click_navigate(page, url: str):
+    """현재 쿠팡 페이지 안에 링크를 하나 넣고 실제로 클릭해서 이동한다.
+    프로그램이 주소로 바로 이동시키는 요청(Page.navigate)은 사용자 동작 표식(Sec-Fetch-User 등)이 없어
+    봇 방어가 첫 요청부터 구분해 낸다. 클릭으로 이동하면 사람이 링크를 누른 것과 같은 요청이 된다."""
+    page.evaluate(_NAV_LINK_JS, url)
+    with page.expect_navigation(wait_until="domcontentloaded", timeout=60000) as nav:
+        page.click("#__cs_nav", timeout=10000)
+    return nav.value
+
+
 def _goto(page, url: str, wait_selector: str | None = None):
-    # 출처(Referer)는 붙이지 않는다. 방문한 적 없는 검색 페이지를 출처로 꾸미면 오히려 봇 표식이 된다.
-    # 사람이 주소창에 주소를 넣어 여는 것과 같은 요청이 되며, 그 방식은 차단 중에도 평소 브라우저에서 열린다.
-    referer = None
     _page_counter["n"] += 1
     if config.REST_EVERY and _page_counter["n"] % config.REST_EVERY == 0:
         import random as _r
@@ -522,7 +542,27 @@ def _goto(page, url: str, wait_selector: str | None = None):
         log.info(f"페이지 {_page_counter['n']}개째 · {pause:.0f}초 쉽니다")
         time.sleep(pause)
     _human_before_nav(page)
-    resp = page.goto(url, wait_until="domcontentloaded", timeout=60000, referer=referer)
+    cur = page.url or ""
+    on_coupang = "coupang.com" in cur
+    resp = None
+    if on_coupang and "wing.coupang.com" not in cur:
+        try:
+            resp = _click_navigate(page, url)
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"클릭 이동 실패, 주소로 이동합니다: {str(e)[:120]}")
+            resp = None
+    if resp is None:
+        if "coupang.com" not in cur and "/vp/products/" in url:
+            # 빈 탭에서 상품으로 바로 가지 않고 첫 화면을 거친 뒤 클릭으로 들어간다
+            try:
+                page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(800)
+                resp = _click_navigate(page, url)
+            except Exception as e:  # noqa: BLE001
+                log.warn(f"첫 화면 경유 이동 실패, 주소로 이동합니다: {str(e)[:120]}")
+                resp = None
+    if resp is None:
+        resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
     status = resp.status if resp else None
     if status in (403, 429, 503):
         _dump_debug(page, f"blocked_{status}")
