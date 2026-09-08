@@ -618,6 +618,8 @@ class JobController:
                         sure = data.get("delivery_how") == "seller"      # 판매자 정보로 판정한 것만 확정 (화면 글자는 오판이 잦음)
                         db.set_delivery(run_id, pid, data["delivery"], sure)
                         bk = p.get("badge_key")
+                        if bk and ("cash" in bk.lower() or "coupon" in bk.lower()):
+                            bk = None            # 캐시백·쿠폰 아이콘은 배송 뱃지가 아니다 (예전 수집분에 남아 있음)
                         if sure and bk:
                             bm = db.get_setting("badge_map", {}) or {}
                             if bm.get(bk) != data["delivery"]:
