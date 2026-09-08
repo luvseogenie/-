@@ -471,6 +471,25 @@ def tools(name: str):
             ip = _lan_ip() or "(컴퓨터 IP)"
             return {"ok": True, "message": f"휴대폰에서 보기를 켰습니다. 프로그램을 껐다 켜면(2_run.bat) 같은 와이파이의 휴대폰에서 http://{ip}:{config.PORT}/ 로 열 수 있습니다. "
                                            "처음 실행 때 Windows 방화벽 창이 뜨면 '액세스 허용'을 눌러주세요. 집·사무실 와이파이에서만 쓰세요."}
+        if name == "open_plain":
+            # 프로그램이 붙지 않은(원격 디버깅 없음) 상태로 같은 프로필의 엣지를 연다 → 여기서 상품이 열리면 프로필 문제가 아니라 자동화 연결 문제
+            if job.is_running():
+                return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+            try:
+                browser.call(lambda bt: bt.reset_profile_soft(), "브라우저 닫기", timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
+            import subprocess
+            from .browser import BrowserThread
+            cands = BrowserThread._exe_candidates()
+            if not cands:
+                return _err("브라우저 실행 파일을 찾지 못했습니다.")
+            name_, exe = cands[0]
+            subprocess.Popen([exe, f"--user-data-dir={config.profile_dir()}", "--no-first-run", "--no-default-browser-check",
+                              config.PRODUCT_URL.format(pid=7209394108)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"ok": True, "message": f"{name_} 을(를) 프로그램 연결 없이 같은 프로필로 열었습니다 (유한락스 상품 페이지). "
+                                           "여기서 상품이 열리면 프로필은 정상이고 자동화 연결이 문제인 것이고, 여기서도 Access Denied 면 이 프로필의 쿠키가 찍힌 것입니다. "
+                                           "결과를 알려주시고, 창은 닫은 뒤 다시 작업을 시작하세요."}
         if name == "open_browser":
             browser.call(lambda bt: bt.page().goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000), "브라우저 열기", timeout=90)
             return {"ok": True, "message": "브라우저 창을 열었습니다."}

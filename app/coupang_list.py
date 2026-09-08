@@ -512,10 +512,9 @@ _page_counter = {"n": 0}
 
 
 def _goto(page, url: str, wait_selector: str | None = None):
-    # 상품 페이지는 검색 목록에서 클릭해 들어온 것처럼 출처를 남긴다
+    # 출처(Referer)는 붙이지 않는다. 방문한 적 없는 검색 페이지를 출처로 꾸미면 오히려 봇 표식이 된다.
+    # 사람이 주소창에 주소를 넣어 여는 것과 같은 요청이 되며, 그 방식은 차단 중에도 평소 브라우저에서 열린다.
     referer = None
-    if "/vp/products/" in url:
-        referer = "https://www.coupang.com/np/search?q=%EC%83%81%ED%92%88&channel=user"
     _page_counter["n"] += 1
     if config.REST_EVERY and _page_counter["n"] % config.REST_EVERY == 0:
         import random as _r
@@ -535,6 +534,30 @@ def _goto(page, url: str, wait_selector: str | None = None):
             pass
     _human_on_page(page, deep=("/vp/products/" in url))
     return status
+
+
+_warmed = {"at": 0.0}
+
+
+def warm_up(page, seconds: float | None = None):
+    """세션을 시작할 때 쿠팡 첫 화면을 열고 사람처럼 15~25초 머문다 (봇 방어가 쿠키를 '사람'으로 매기게).
+    최근 30분 안에 했으면 건너뛴다."""
+    import random as _r
+    if time.time() - _warmed["at"] < 1800:
+        return
+    secs = seconds or _r.uniform(15, 25)
+    try:
+        page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+        end = time.time() + secs
+        while time.time() < end:
+            page.mouse.move(_r.randint(100, 1100), _r.randint(120, 750), steps=_r.randint(8, 20))
+            page.wait_for_timeout(_r.randint(300, 900))
+            if _r.random() < 0.6:
+                page.mouse.wheel(0, _r.randint(200, 900) * (1 if _r.random() < 0.75 else -1))
+                page.wait_for_timeout(_r.randint(400, 1200))
+        _warmed["at"] = time.time()
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"첫 화면 준비 동작 실패(무시): {e}")
 
 
 def _human_before_nav(page):
@@ -881,6 +904,7 @@ def _product_url(product_id, item_id=None, vendor_item_id=None, mobile: bool = F
 def _goto_product(page, product_id, item_id=None, vendor_item_id=None):
     """상품 페이지(www)를 연다. 막히면 BlockedError. (모바일 페이지 대체는 판매자 정보가 없어 배송을 틀리게 만들므로 쓰지 않는다)"""
     install_capture(page)
+    warm_up(page)
     _goto(page, _product_url(product_id, item_id, vendor_item_id), None)
     return "www"
 

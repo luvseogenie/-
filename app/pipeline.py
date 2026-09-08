@@ -274,11 +274,9 @@ class JobController:
             self.message = f"차단 감지: {what}. " + (f"봇 방어 쿠키 {n}개를 지우고 " if n else "") + f"{secs:.0f}초 뒤 다시 시도합니다"
             log.warn(self.message)
         try:
-            pg = browser.page()
-            pg.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
-            pg.wait_for_timeout(1500)
-            pg.mouse.wheel(0, 600)
-            pg.wait_for_timeout(800)
+            from .coupang_list import warm_up, _warmed
+            _warmed["at"] = 0.0
+            warm_up(browser.page())
         except Exception:  # noqa: BLE001
             pass
         self._sleep_checked(secs)
