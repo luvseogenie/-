@@ -67,7 +67,7 @@ def copy_my_profile() -> tuple[str, int]:
     for old_dir in DATA_DIR.glob("profile-mine*"):
         if old_dir.is_dir():
             shutil.rmtree(old_dir, ignore_errors=True)
-    dst = DATA_DIR / f"profile-mine-{_time.strftime('%Y%m%d%H%M%S')}"
+    dst = DATA_DIR / f"profile-mine-{int(_time.time() * 1000)}"
     (dst / "Default").mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "Local State", dst / "Local State")
     n = 1
