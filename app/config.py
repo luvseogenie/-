@@ -22,13 +22,27 @@ def my_browser_profile():
     return None, None
 
 
-MY_PROFILE_COPY = DATA_DIR / "profile-mine"          # 평소 프로필에서 쿠키 등만 복사한 프로그램용 프로필
+MY_PROFILE_COPY_FILE = DATA_DIR / "profile-mine.txt"   # 현재 쓰는 복사본 폴더 이름
+
+
+def my_profile_copy():
+    """현재 복사본 폴더 (없으면 None)."""
+    try:
+        name = MY_PROFILE_COPY_FILE.read_text(encoding="utf-8").strip()
+        d = DATA_DIR / name
+        if name and (d / "Local State").exists():
+            return d
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def profile_dir():
     # 최신 엣지·크롬은 기본 프로필 폴더로 띄우면 접속 포트를 무시한다 → 평소 프로필은 복사본으로만 쓴다
-    if USE_MY_PROFILE_FLAG.exists() and (MY_PROFILE_COPY / "Local State").exists():
-        return MY_PROFILE_COPY
+    if USE_MY_PROFILE_FLAG.exists():
+        d = my_profile_copy()
+        if d:
+            return d
     return PROFILE_DIR
 
 
@@ -49,22 +63,13 @@ def copy_my_profile() -> tuple[str, int]:
     if not src.is_dir():
         src = root / "Default"
     import time as _time
-    dst = MY_PROFILE_COPY
-    # 복사본을 쓰던 브라우저가 막 닫힌 직후에는 파일이 잠겨 있을 수 있다 → 잠시 기다리며 다시 시도
-    last = None
-    for _ in range(20):
-        try:
-            if dst.exists():
-                shutil.rmtree(dst)
-            (dst / "Default").mkdir(parents=True, exist_ok=True)
-            shutil.copy2(root / "Local State", dst / "Local State")
-            last = None
-            break
-        except PermissionError as e:
-            last = e
-            _time.sleep(0.5)
-    if last is not None:
-        raise RuntimeError("복사본 프로필 파일이 아직 잠겨 있습니다 (브라우저가 완전히 닫히지 않음). 엣지 창을 모두 닫고 5초 뒤 다시 눌러주세요.")
+    # 예전 복사본 폴더가 잠겨 있어도 상관없도록 매번 새 폴더에 복사한다 (예전 것은 지울 수 있으면 지움)
+    for old_dir in DATA_DIR.glob("profile-mine*"):
+        if old_dir.is_dir():
+            shutil.rmtree(old_dir, ignore_errors=True)
+    dst = DATA_DIR / f"profile-mine-{_time.strftime('%Y%m%d%H%M%S')}"
+    (dst / "Default").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(root / "Local State", dst / "Local State")
     n = 1
     keep = ["Cookies", "Cookies-journal", "Network", "Local Storage", "Session Storage", "Preferences", "Secure Preferences",
             "Web Data", "Web Data-journal", "Trust Tokens", "Trust Tokens-journal", "TransportSecurity", "Network Persistent State"]
@@ -80,6 +85,7 @@ def copy_my_profile() -> tuple[str, int]:
                 n += 1
         except Exception:  # noqa: BLE001
             continue
+    MY_PROFILE_COPY_FILE.write_text(dst.name, encoding="utf-8")
     return name, n
 LOG_DIR = DATA_DIR / "logs"
 CAPTURE_DIR = DATA_DIR / "wing-capture"          # 윙 캡처 모드 결과

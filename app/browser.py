@@ -253,11 +253,8 @@ class BrowserThread(threading.Thread):
         if not exe:
             return False
         try:
-            out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True, timeout=10).stdout
-            if exe.lower() not in (out or "").lower():
-                return False
-            subprocess.run(["taskkill", "/F", "/IM", exe, "/T"], capture_output=True, timeout=15)
-            return True
+            r = subprocess.run(["taskkill", "/F", "/IM", exe, "/T"], capture_output=True, timeout=15)
+            return r.returncode == 0       # 0 = 하나 이상 끝냄, 128 = 없었음
         except Exception as e:  # noqa: BLE001
             log.warn(f"{exe} 종료 실패(무시): {e}")
             return False

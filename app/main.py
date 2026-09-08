@@ -487,7 +487,7 @@ def tools(name: str):
             name_, exe = cands[0]
             subprocess.Popen([exe, f"--user-data-dir={config.profile_dir()}", "--no-first-run", "--no-default-browser-check",
                               config.PRODUCT_URL.format(pid=7209394108)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            which = "평소 프로필 복사본" if config.profile_dir() == config.MY_PROFILE_COPY else "프로그램 전용 프로필"
+            which = "평소 프로필 복사본" if config.profile_dir() != config.PROFILE_DIR else "프로그램 전용 프로필"
             log.info(f"연결 없이 브라우저 열기: {which} ({config.profile_dir()})")
             return {"ok": True, "message": f"{name_} 을(를) 프로그램 연결 없이 [{which}]로 열었습니다 (유한락스 상품 페이지). "
                                            "여기서 상품이 열리면 프로필은 정상이고 자동화 연결이 문제인 것이고, 여기서도 Access Denied 면 이 프로필의 쿠키가 찍힌 것입니다. "
@@ -570,17 +570,7 @@ def tools(name: str):
             # 최신 엣지·크롬은 기본 프로필 폴더로는 프로그램이 붙을 수 없다 → 브라우저를 닫고 쿠키·설정만 복사본으로 가져온다
             from .browser import BrowserThread
             killed = BrowserThread._kill_browser_processes(pname)
-            # 프로세스가 완전히 사라질 때까지 기다린다 (파일 잠금 해제)
-            import subprocess
-            exe = {"msedge": "msedge.exe", "chrome": "chrome.exe", "whale": "whale.exe"}.get(pname, "")
-            for _ in range(20):
-                try:
-                    out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True, timeout=10).stdout
-                    if exe.lower() not in (out or "").lower():
-                        break
-                except Exception:  # noqa: BLE001
-                    break
-                time.sleep(0.5)
+            time.sleep(2.0)
             name, n = config.copy_my_profile()
             config.USE_MY_PROFILE_FLAG.write_text(str(ppath), encoding="utf-8")
             return {"ok": True, "message": f"평소 쓰는 {name} 프로필에서 쿠키·설정 {n}개 파일을 복사해 프로그램용 프로필을 만들었습니다"
