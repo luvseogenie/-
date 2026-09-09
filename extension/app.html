@@ -202,6 +202,7 @@
           <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:280px">
           <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
           <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
+          <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select>
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
           <button class="btn sm" id="opt-apply-suggest">제안 모두 적용</button>
@@ -214,6 +215,10 @@
           <button class="btn primary sm" id="opt-new-save">추가</button>
         </div>
         <div class="msg" id="opt-msg"></div>
+        <details id="newcamp-details" open style="margin-bottom:10px"><summary>🆕 옵션이 연결되지 않은 캠페인 <span class="sub" id="newcamp-count"></span></summary>
+          <p class="sub" style="margin:6px 0">새로 만든 광고 캠페인은 여기에 뜹니다. 광고 보고서가 있으면 그 캠페인이 광고한 옵션이 자동으로 나오니 마진만 넣고 <b>추가</b>를 누르세요. 보고서가 없으면 옵션ID 를 직접 넣어 추가할 수 있습니다.</p>
+          <div id="newcamp-list"></div>
+        </details>
         <details id="unlisted-details" style="margin-bottom:10px"><summary>목록에 없는 판매 옵션 <span class="sub" id="unlisted-count"></span></summary>
           <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순. '추가'를 누르면 위 목록에 들어갑니다 (캠페인·마진은 그 다음에 입력).</span></div>
           <div class="tablewrap" style="max-height:320px"><table id="unlisted-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>

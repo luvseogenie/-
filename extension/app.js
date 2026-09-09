@@ -562,7 +562,10 @@ function renderOptions() {
     if (f === 'suggest' && !sug[o.option_id]) return false;
     return !q || `${o.option_id} ${o.product_name} ${o.campaign} ${prod[o.option_id] || ''}`.toLowerCase().includes(q);
   };
-  const list = S.sortedOptions(d).filter(pass);
+  const sortMode = $('#opt-sort').value;
+  const byCamp = (a, b) => { const ca = a.campaign || '(캠페인 없음)', cb = b.campaign || '(캠페인 없음)'; if (ca !== cb) { if (ca === '(캠페인 없음)') return 1; if (cb === '(캠페인 없음)') return -1; const [na, sa] = S.campaignKey(ca), [nb, sb] = S.campaignKey(cb); return na - nb || sa.localeCompare(sb, 'ko'); } return a.sort_order - b.sort_order; };
+  const list = (sortMode === 'campaign' ? [...d.options].sort(byCamp) : S.sortedOptions(d)).filter(pass);
+  renderNewCampaigns(d);
   const nSug = Object.keys(sug).length;
   $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개`;
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
@@ -616,7 +619,38 @@ function renderOptions() {
   }
   if (list.length > 400) tb.insertAdjacentHTML('beforeend', `<tr><td colspan="7" class="sub">400개까지만 표시합니다. 검색이나 필터로 줄여 주세요.</td></tr>`);
 }
-$('#opt-group').onchange = () => renderOptions();
+$('#opt-group').onchange = () => renderOptions(); $('#opt-sort').onchange = () => renderOptions();
+// 옵션이 하나도 연결되지 않은 캠페인 (새로 만든 광고). 광고 보고서에 그 캠페인이 광고한 옵션ID 가 있으면 후보로 보여 준다.
+function renderNewCampaigns(d) {
+  const mapped = {}; for (const o of d.options) if (o.campaign) mapped[o.campaign] = (mapped[o.campaign] || 0) + 1;
+  const camps = S.sortCampaigns(S.campaigns(d).concat(AR.campaignsOf(d)).filter((c, i, a) => a.indexOf(c) === i)).filter((c) => c !== '(캠페인 없음)' && !mapped[c]);
+  $('#newcamp-count').textContent = camps.length ? `— ${camps.length}개` : '— 없음 (모든 캠페인에 옵션이 연결돼 있습니다)';
+  $('#newcamp-details').open = camps.length > 0;
+  const box = $('#newcamp-list'); box.innerHTML = '';
+  const listed = new Set(d.options.map((o) => o.option_id));
+  const names = S.productNames(d);
+  for (const c of camps) {
+    // 보고서에서 이 캠페인이 광고한 옵션 (광고비 순)
+    const cand = {};
+    for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign === c && r.option_id) { const x = (cand[r.option_id] ||= { option_id: r.option_id, name: r.product_name, spend: 0, orders: 0 }); x.spend += r.spend || 0; x.orders += r.orders14 || 0; if (r.product_name) x.name = r.product_name; }
+    const opts = Object.values(cand).sort((a, b) => b.spend - a.spend);
+    const div = document.createElement('div'); div.className = 'card'; div.style.margin = '6px 0'; div.style.padding = '10px 12px';
+    div.innerHTML = `<div class="row"><b>${esc(c)}</b><span class="sub">${opts.length ? `보고서에서 광고한 옵션 ${opts.length}개` : '보고서에 이 캠페인의 옵션이 없음 — 옵션ID 를 직접 넣으세요'}</span></div>
+      <table class="form-table" style="margin-top:6px"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th>광고비</th><th>주문</th><th class="l">개당 마진</th><th></th></tr></thead><tbody>
+      ${opts.map((o) => `<tr><td class="l num">${esc(o.option_id)}${listed.has(o.option_id) ? ' <span class="pill gray">목록에 있음</span>' : ''}</td><td class="l">${esc(o.name || names[o.option_id] || '')}</td><td class="num">${fmtWon(o.spend)}</td><td class="num">${fmtInt(o.orders)}</td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn primary sm" data-add="${esc(o.option_id)}" data-name="${esc(o.name || '')}">${listed.has(o.option_id) ? '연결 + 마진' : '추가'}</button></td></tr>`).join('')}
+      <tr><td class="l"><input type="text" class="short" data-newid placeholder="옵션ID 직접 입력"></td><td class="l"><input class="wide" data-newname placeholder="옵션명(선택)"></td><td></td><td></td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn sm" data-add="" >추가</button></td></tr>
+      </tbody></table>
+      ${opts.length > 1 ? `<div class="row" style="margin-top:6px"><input type="number" class="tiny" data-margin-all placeholder="마진"><button class="btn sm" data-add-all="1">위 옵션 ${opts.length}개 모두 이 마진으로 추가</button></div>` : ''}`;
+    const addOne = async (id, name, margin) => { const dd = await reload(); S.upsertOption(dd, { option_id: id, product_name: name || dd.options.find((x) => x.option_id === id)?.product_name || '', campaign: c, source: 'manual' }); if (margin) S.setMargin(dd, id, margin, ''); await S.save(dd); };
+    div.querySelectorAll('button[data-add]').forEach((b) => b.onclick = async () => {
+      const tr = b.closest('tr'); const id = b.dataset.add || tr.querySelector('[data-newid]')?.value.trim(); if (!id) { msg('#opt-msg', '옵션ID 를 넣어 주세요', 'err'); return; }
+      const name = b.dataset.name || tr.querySelector('[data-newname]')?.value.trim() || ''; const margin = parseNumber(tr.querySelector('[data-margin]').value) || 0;
+      await addOne(id, name, margin); await reload(); msg('#opt-msg', `${id} → ${c}${margin ? ` · 마진 ${fmtInt(margin)}원` : ''}`, 'ok'); renderOptions(); renderFoot();
+    });
+    const all = div.querySelector('[data-add-all]'); if (all) all.onclick = async () => { const margin = parseNumber(div.querySelector('[data-margin-all]').value) || 0; for (const o of opts) await addOne(o.option_id, o.name, margin); await reload(); msg('#opt-msg', `${opts.length}개 옵션을 ${c} 에 연결`, 'ok'); renderOptions(); renderFoot(); };
+    box.appendChild(div);
+  }
+}
 function renderUnlisted() {
   const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
   const list = S.unlistedSoldOptions(DATA, since); const q = ($('#unlisted-search').value || '').toLowerCase();
