@@ -393,6 +393,39 @@ async function collectReport(dateOverride) {
   } finally { await close(); }
 }
 
+// ---- 광고센터에서 캠페인의 광고 옵션(상품명·옵션ID) 읽어 오기: 캠페인 목록 → 캠페인 이름 클릭 → 상품 표 ----
+async function fetchCampaignOptions(campaigns) {
+  const s = await getSettings();
+  const url = s.adsUrl.replace(/\{date\}/g, yesterdayIso());
+  const { tab, close } = await openWorkTab(url, s);
+  const results = {};
+  try {
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`광고센터를 열지 못했습니다: ${bad}`);
+    const li = await ensureLoggedIn(tab.id, url, s); if (li.needed && !li.ok) throw new Error(li.reason);
+    const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
+    await readWithRetry(tab.id, 'ads', Date.now() + 30000);   // 목록이 뜰 때까지
+    for (const camp of campaigns) {
+      try {
+        const st0 = await tabState(tab.id);
+        if (st0.url !== url) { await chrome.tabs.update(tab.id, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); await readWithRetry(tab.id, 'ads', Date.now() + 30000); }
+        // 목록에서 이름 클릭 (링크면 주소로 이동)
+        const l = await chrome.tabs.sendMessage(tab.id, { type: 'findLink', texts: [camp] }).catch(() => ({ ok: false }));
+        if (l?.ok && l.href !== url) { await chrome.tabs.update(tab.id, { url: l.href }); }
+        else { const c = await click(tab.id, [camp], { exactOnly: true }); if (!c.ok) { results[camp] = { ok: false, error: '목록에서 캠페인 이름을 찾지 못했습니다 (2쪽에 있으면 페이지당 개수를 늘려 주세요)' }; continue; } }
+        // 상품 목록이 뜰 때까지 (ID: 숫자 가 보이면)
+        let opts = []; const t0 = Date.now();
+        while (Date.now() - t0 < 25000) { await sleep(2500); await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); if (r?.ok && r.options.length) { opts = r.options; break; } }
+        if (!opts.length) { results[camp] = { ok: false, error: `캠페인을 눌렀지만 상품 목록(ID: 숫자)을 찾지 못했습니다 (${await describePage(tab.id)})` }; continue; }
+        const d = await S.load(); S.setCampaignOptions(d, camp, opts); await S.save(d);
+        results[camp] = { ok: true, options: opts };
+        await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${opts.map((o) => o.option_id).join(', ').slice(0, 80)})`);
+      } catch (e) { results[camp] = { ok: false, error: e.message }; }
+    }
+    return { ok: true, results };
+  } finally { await close(); }
+}
+
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
 const job = { running: false, total: 0, done: 0, log: [], cancel: false };
 function isoRange(start, end) { const out = []; const d = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
@@ -625,6 +658,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'saveLogin') { const enc = msg.pw ? btoa(unescape(encodeURIComponent(msg.pw))) : ''; await chrome.storage.local.set({ loginId: String(msg.id || '').trim(), loginPw: enc, autoLogin: !!msg.enabled }); await log(`[로그인] 자동 로그인 ${msg.enabled ? '켬' : '끔'}${msg.id ? ` (${String(msg.id).slice(0, 3)}***)` : ''}`); sendResponse({ ok: true }); }
     else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
+    else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {

@@ -448,6 +448,29 @@
     fire(target, [...HOVER, ...CLICK]); try { if (target !== el) fire(el, CLICK); } catch { /* 무시 */ }
     return { ok: true, text: clean(el.innerText || el.value || '').slice(0, 30), tag: target.tagName.toLowerCase() };
   }
+  // 캠페인 상세 화면의 상품(옵션) 목록: '상품명 … ID: 95988650186' → [{option_id, name}]
+  function readCampaignOptions() {
+    const out = {};
+    const ID = /ID\s*[:：]?\s*(\d{6,})/;
+    for (const t of allTables()) {
+      const hi = t.headers.findIndex((h) => /상품명|옵션명|상품|옵션/.test(h));
+      for (const r of t.rows) {
+        const cells = hi >= 0 ? [r[hi], ...r] : r;
+        for (const c of cells) { const m = String(c || '').match(ID); if (m) { const name = clean(String(c).replace(m[0], '')); if (!out[m[1]] || name.length > out[m[1]].length) out[m[1]] = name; break; } }
+      }
+    }
+    if (!Object.keys(out).length) {
+      // 표를 못 읽으면: 'ID: 숫자' 글자 조각에서 위로 올라가며 상품명이 같이 들어간 짧은 덩어리를 찾는다
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n; while ((n = walker.nextNode())) {
+        const m = (n.textContent || '').match(ID); if (!m) continue;
+        let el = n.parentElement; for (let i = 0; i < 5 && el && el.parentElement && clean(el.parentElement.innerText).length < 200; i++) el = el.parentElement;
+        const name = clean((el?.innerText || '').replace(ID, '')); if (!out[m[1]] || name.length > out[m[1]].length) out[m[1]] = name;
+      }
+    }
+    return Object.entries(out).map(([option_id, name]) => ({ option_id, name: name.replace(/^(ON|OFF)\s*/i, '').slice(0, 80) }));
+  }
+
   // 글자로 링크 주소 찾기 (메뉴가 흉내 클릭에 반응하지 않을 때 주소로 직접 이동하기 위해)
   function findLink(texts) {
     const norm = (t) => clean(t).replace(/\s+/g, '');
@@ -528,6 +551,8 @@
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+    } else if (msg?.type === 'readCampaignOptions') {
+      try { sendResponse({ ok: true, options: readCampaignOptions(), url: location.href }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
     } else if (msg?.type === 'findLink') {
       sendResponse(findLink(msg.texts || []));
     } else if (msg?.type === 'selectOption') {

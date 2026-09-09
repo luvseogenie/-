@@ -4,7 +4,7 @@
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {} });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {} });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -112,6 +112,8 @@ export function upsertAdRows(d, rows) {
   }
   return n;
 }
+// ---- 광고센터에서 읽어 온 캠페인별 광고 옵션 (캠페인 상세 화면의 상품 목록) ----
+export function setCampaignOptions(d, campaign, list) { d.campaignOptions ||= {}; d.campaignOptions[campaign] = { at: new Date().toISOString().slice(0, 10), options: list.map((o) => ({ option_id: String(o.option_id), name: String(o.name || '') })) }; }
 // ---- 제외 키워드 담기 (캠페인별) ----
 export function addExclude(d, campaign, keyword, memo = '') {
   d.excludes ||= {}; const list = (d.excludes[campaign] ||= []);
