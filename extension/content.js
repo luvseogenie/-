@@ -450,11 +450,15 @@
   }
   // 글자로 링크 주소 찾기 (메뉴가 흉내 클릭에 반응하지 않을 때 주소로 직접 이동하기 위해)
   function findLink(texts) {
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    // 1) 보이는 요소 → 2) 숨은 메뉴 안의 링크까지
     const el = findClickable(texts);
-    if (!el) return { ok: false };
-    const a = el.closest('a[href]') || el.querySelector?.('a[href]');
-    const href = a ? a.href : (el.getAttribute('data-href') || el.getAttribute('data-url') || '');
-    return { ok: !!href && !/^javascript:|#$/.test(href), href, text: clean(el.innerText).slice(0, 30) };
+    let a = el ? (el.closest('a[href]') || el.querySelector?.('a[href]')) : null;
+    if (!a || /^javascript:|#$/.test(a.href)) {
+      for (const t of texts) { a = deepAll('a[href]').find((x) => norm(x.innerText) === norm(t) && !/^javascript:|#$/.test(x.href)) || deepAll('a[href]').find((x) => norm(x.innerText).includes(norm(t)) && !/^javascript:|#$/.test(x.href)); if (a) break; }
+    }
+    if (!a) return { ok: false };
+    return { ok: true, href: a.href, text: clean(a.innerText).slice(0, 30) };
   }
   // <select> 에서 글자가 들어간 항목 고르기
   function selectOption(texts) {
@@ -483,7 +487,10 @@
       if (!t || t.length > 40 || seen.has(t)) continue; seen.add(t); out.push(t);
       if (out.length >= 60) break;
     }
-    return { buttons: out, url: location.href, title: document.title, inputs: deepAll('input').filter(visible).map((i) => `${i.type}:${clean(i.placeholder || i.value || '').slice(0, 20)}`).slice(0, 15) };
+    // 보고서·report 가 들어간 링크 주소 (보이지 않는 메뉴 안의 것도 포함)
+    const links = []; const seenL = new Set();
+    for (const a of deepAll('a[href]')) { const t = clean(a.innerText); const h = a.href; if (!(/보고서|리포트/.test(t) || /report/i.test(h)) || seenL.has(h) || /^javascript:/.test(h)) continue; seenL.add(h); links.push(`${t.slice(0, 16) || '(글자 없음)'} → ${h}`); if (links.length >= 12) break; }
+    return { buttons: out, links, url: location.href, title: document.title, inputs: deepAll('input').filter(visible).map((i) => `${i.type}:${clean(i.placeholder || i.value || '').slice(0, 20)}`).slice(0, 15) };
   }
 
   // 광고센터 로그인 선택 화면 (advertising.coupang.com/user/login): '쿠팡 윙 판매자' 카드의 첫(왼쪽) '로그인하기' 를 누른다

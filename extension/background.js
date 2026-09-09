@@ -342,17 +342,30 @@ async function collectReport(dateOverride) {
     const li = await ensureLoggedIn(tab.id, url, s); if (li.needed && !li.ok) throw new Error(li.reason);
     const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
     const info = () => chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
-    // 1) 보고서 화면으로. 주소를 모르면 메뉴 '광고보고서' 의 링크 주소를 읽어 직접 이동하고, 알아낸 주소는 설정에 저장해 둔다
+    // 1) 보고서 화면으로. 지금 화면이 보고서 화면인지 확인하고, 아니면 메뉴 링크 → 후보 주소 순으로 찾는다. 찾은 주소만 설정에 저장.
     const goto = async (u) => { await chrome.tabs.update(tab.id, { url: u }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); };
-    if (!s.adsReportUrl) {
+    const isReportPage = async () => {
+      const d = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); if (!d) return false;
+      const b = d.buttons.join('|'); const st = await tabState(tab.id);
+      const notDash = !/\/dashboard\//.test(st.url);
+      return (notDash && /report|보고서/i.test(st.url) && /다운로드|생성|조회|키워드|요청/.test(b)) || /보고서 다운로드|보고서 생성|보고서 만들기|보고서 요청/.test(b);
+    };
+    const tried = [];
+    let onReport = await isReportPage();
+    if (!onReport && s.adsReportUrl && s.adsReportUrl !== s.adsUrl) { tried.push('설정 주소'); await goto(s.adsReportUrl); onReport = await isReportPage(); if (!onReport) { await chrome.storage.sync.set({ adsReportUrl: '' }); steps.push('설정의 보고서 주소가 보고서 화면이 아니라 지움'); await goto(url); } }
+    if (!onReport) {
       const l = await chrome.tabs.sendMessage(tab.id, { type: 'findLink', texts: ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서', '리포트'] }).catch(() => ({ ok: false }));
-      if (l?.ok) { steps.push(`보고서 메뉴 주소 ${l.href.slice(0, 60)}`); await chrome.storage.sync.set({ adsReportUrl: l.href }); await goto(l.href); }
-      else {
-        const r1 = await click(tab.id, ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서', '리포트']); steps.push(`보고서 메뉴 ${r1.ok ? `누름(${r1.text})` : '못 찾음'}`);
-        await sleep(5000); await inject(tab.id);
-        const st = await tabState(tab.id); if (r1.ok && st.url && st.url !== url) { await chrome.storage.sync.set({ adsReportUrl: st.url }); steps.push(`주소 저장 ${st.url.slice(0, 60)}`); }
+      if (l?.ok && l.href !== url) { tried.push(l.href); await goto(l.href); onReport = await isReportPage(); steps.push(`메뉴 링크 ${l.href.slice(0, 70)} ${onReport ? '= 보고서 화면' : '(보고서 화면 아님)'}`); }
+      else steps.push('보고서 메뉴 링크 없음');
+    }
+    if (!onReport) {
+      const origin = new URL(url).origin;
+      for (const path of ['/marketing/report', '/marketing/reports', '/marketing/report/campaign', '/marketing/report/download', '/marketing/dashboard/report', '/report', '/reports']) {
+        tried.push(path); await goto(origin + path); if (await isReportPage()) { onReport = true; steps.push(`후보 주소 ${path} = 보고서 화면`); break; }
       }
     }
+    if (onReport) { const st = await tabState(tab.id); if (st.url && st.url !== s.adsReportUrl) await chrome.storage.sync.set({ adsReportUrl: st.url }); }
+    else { const d = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); throw new Error(`광고 보고서 화면을 찾지 못했습니다 (${steps.join(' → ')}; 시도: ${tried.join(', ')}). 화면의 보고서 관련 링크: ${(d?.links || []).join(' ; ') || '없음'} · 버튼: ${(d?.buttons || []).join(' | ').slice(0, 400)}`); }
     const before = await tabState(tab.id);
     // 2) 기간: 어제
     const r2 = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false })); steps.push(`어제 ${r2?.clicked ? '누름' : '못 찾음'}`);
