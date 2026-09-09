@@ -564,6 +564,71 @@
 
   // 페이지(MAIN world)에 심은 훅이 window.open / target=_blank 링크의 주소를 이벤트로 보내면 백그라운드로 전달
   document.addEventListener('cc-download-url', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadUrl', url: e.detail?.url, how: e.detail?.how }); } catch { /* 무시 */ } });
+  document.addEventListener('cc-download-blob', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadBlob', name: e.detail?.name, data: e.detail?.data, how: e.detail?.how }); } catch { /* 무시 */ } });
+
+  // 글자가 든 줄(표의 행) 찾기. mustHave 가 있으면 그 중 하나도 같이 들어 있어야 한다
+  function findRowByText(texts, mustHave = []) {
+    const rows = deepAll('tr, .rt-tr, [role="row"], li').filter(visible);
+    const norm = (t) => clean(t).toLowerCase();
+    for (const r of rows) {
+      const t = norm(r.innerText); if (t.length > 600) continue;
+      if (!texts.some((x) => t.includes(norm(x)))) continue;
+      if (mustHave.length && !mustHave.some((m) => t.includes(norm(m)))) continue;
+      return { ok: true, row: r, rowText: clean(r.innerText).slice(0, 120) };
+    }
+    return { ok: false };
+  }
+  function clickInRow(texts, buttonTexts, mustHave = []) {
+    const r = findRowByText(texts, mustHave); if (!r.ok) return { ok: false, reason: '줄 없음' };
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    const btn = [...r.row.querySelectorAll('button, a, [role="button"], span, div')].filter(visible).find((b) => buttonTexts.some((x) => norm(b.innerText) === norm(x) || (b.getAttribute('aria-label') || '').includes(x)));
+    if (!btn) return { ok: false, reason: '줄 안에 버튼 없음', rowText: r.rowText };
+    const target = btn.closest('button, a, [role="button"]') || btn; fire(target, [...HOVER, ...CLICK]); try { target.click(); } catch { /* 무시 */ }
+    return { ok: true, rowText: r.rowText };
+  }
+  // 라벨/자리표시 글자로 입력칸을 찾아 날짜를 넣는다 (여러 표기 시도)
+  function fillDates(labels, iso) {
+    const inputs = deepAll('input').filter((i) => visible(i) && ['text', 'date', ''].includes(i.type || ''));
+    const byLabel = (l) => inputs.find((i) => (i.placeholder || '').includes(l) || (i.getAttribute('aria-label') || '').includes(l) || (i.name || '').toLowerCase().includes(l.toLowerCase()) || (i.id && document.querySelector(`label[for="${i.id}"]`)?.innerText.includes(l)));
+    const targets = labels.map(byLabel).filter(Boolean);
+    if (!targets.length) return { ok: false, inputs: inputs.map((i) => `${i.type}:${i.placeholder || i.name || i.id || ''}`).slice(0, 10) };
+    const formats = [iso, iso.replace(/-/g, '.'), iso.replace(/-/g, '/'), iso.replace(/-/g, '')];
+    let how = '';
+    for (const inp of targets) {
+      for (const v of formats) {
+        inp.focus(); setNativeValue(inp, v);
+        for (const t of ['keydown', 'keypress', 'keyup']) inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        inp.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (inp.value && inp.value.replace(/[^\d]/g, '') === iso.replace(/-/g, '')) { how = v; break; }
+      }
+    }
+    return { ok: !!how, how: how || '값이 유지되지 않음', values: targets.map((i) => i.value) };
+  }
+  // 글자 옆 체크박스를 원하는 상태로
+  function setCheckbox(texts, checked) {
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    for (const t of texts) {
+      const lab = deepAll('label').find((l) => visible(l) && norm(l.innerText).includes(norm(t)));
+      let box = lab ? (lab.querySelector('input[type="checkbox"]') || (lab.htmlFor && document.getElementById(lab.htmlFor))) : null;
+      if (!box) { const el = deepAll('span, div, p').find((e) => visible(e) && e.children.length <= 2 && norm(e.innerText) === norm(t)); const wrap = el && (el.closest('label') || el.parentElement); box = wrap && wrap.querySelector('input[type="checkbox"]'); }
+      if (!box) continue;
+      if (box.checked === checked) return { ok: true, changed: false };
+      (lab || box).click(); if (box.checked !== checked) { box.checked = checked; box.dispatchEvent(new Event('change', { bubbles: true })); }
+      return { ok: true, changed: true };
+    }
+    return { ok: false };
+  }
+  // '캠페인을 선택하세요' 같은 다중 선택: 열어서 전체 선택 항목을 누른다
+  async function selectAllCampaigns() {
+    const opener = findClickable(['캠페인을 선택하세요', '캠페인 선택', '전체 캠페인']);
+    if (!opener) return { ok: false };
+    fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ } await wait(600);
+    const all = findClickable(['전체 선택', '모두 선택', '전체선택', '모두', '전체']);
+    if (all) { fire(all, [...HOVER, ...CLICK]); try { all.click(); } catch { /* 무시 */ } await wait(300); document.body.click(); return { ok: true, how: `전체 선택(${clean(all.innerText).slice(0, 12)})` }; }
+    const boxes = deepAll('input[type="checkbox"]').filter(visible); let n = 0; for (const b of boxes) if (!b.checked) { b.click(); n++; }
+    document.body.click();
+    return { ok: n > 0, how: `체크박스 ${n}개 체크` };
+  }
 
   window.__ccReadTables = allTables;
   window.__ccDetectDate = detectDate; window.__ccDivGrids = readDivGrids; window.__ccReadAllPages = readAllPages; window.__ccDateFromUrl = dateFromUrl; window.__ccClickDownloadReport = clickDownloadReport; window.__ccPageInfo = pageInfo;
@@ -586,6 +651,16 @@
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+    } else if (msg?.type === 'findRowByText') {
+      const r = findRowByText(msg.texts || [], msg.mustHave || []); delete r.row; sendResponse(r);
+    } else if (msg?.type === 'clickInRow') {
+      sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || []));
+    } else if (msg?.type === 'fillDates') {
+      sendResponse(fillDates(msg.labels || [], msg.value || ''));
+    } else if (msg?.type === 'setCheckbox') {
+      sendResponse(setCheckbox(msg.texts || [], !!msg.checked));
+    } else if (msg?.type === 'selectAllCampaigns') {
+      selectAllCampaigns().then(sendResponse);
     } else if (msg?.type === 'findRowLink') {
       const r = findRowLink(msg.text || ''); delete r.el; sendResponse(r);
     } else if (msg?.type === 'clickRowName') {

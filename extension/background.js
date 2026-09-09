@@ -101,6 +101,17 @@ function pageDownloadHook() {
     return { closed: false, close() {}, focus() {}, blur() {}, location: loc, document: { write() {}, close() {} }, opener: window };
   };
   window.open = function (url) { if (url && String(url) !== 'about:blank') { send(url, 'window.open'); return fakeWindow('window.open'); } return fakeWindow('window.open()'); };
+  // blob 다운로드: 페이지가 URL.createObjectURL(blob) 로 만든 주소를 <a download> 로 누르면 확장이 그 파일을 읽을 수 없다
+  // → blob 을 기억해 두었다가 그 주소가 눌리면 내용을 base64 로 이벤트에 실어 보낸다 (다운로드 자체는 그대로 진행)
+  const blobs = new Map(); const origCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = function (obj) { const u = origCreate(obj); try { if (obj instanceof Blob) blobs.set(u, obj); } catch { /* 무시 */ } return u; };
+  const sendBlob = (blob, name, how) => { const fr = new FileReader(); fr.onload = () => { try { document.dispatchEvent(new CustomEvent('cc-download-blob', { detail: { name: name || 'report.xlsx', data: String(fr.result).split(',')[1] || '', how } })); } catch { /* 무시 */ } }; fr.readAsDataURL(blob); };
+  document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[href^="blob:"]') : null;
+    if (a) { const b = blobs.get(a.href); if (b) sendBlob(b, a.download || '', 'a[blob]'); }
+  }, true);
+  const origClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () { try { if (/^blob:/.test(this.href)) { const b = blobs.get(this.href); if (b) sendBlob(b, this.download || '', 'a.click(blob)'); } } catch { /* 무시 */ } return origClick.call(this); };
   document.addEventListener('click', (e) => {
     const a = e.target && e.target.closest ? e.target.closest('a[target="_blank"][href]') : null;
     if (a && /^https?:/.test(a.href) && !/^javascript:/.test(a.getAttribute('href') || '')) { e.preventDefault(); e.stopImmediatePropagation(); send(a.href, 'a[target=_blank]'); }
@@ -389,25 +400,43 @@ async function collectReport(dateOverride) {
     }
     if (onReport) { const st = await tabState(tab.id); if (st.url && st.url !== s.adsReportUrl) await chrome.storage.sync.set({ adsReportUrl: st.url }); }
     else { const d = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); throw new Error(`광고 보고서 화면을 찾지 못했습니다 (${steps.join(' → ')}; 시도: ${tried.join(', ')}). 화면의 보고서 관련 링크: ${(d?.links || []).join(' ; ') || '없음'} · 버튼: ${(d?.buttons || []).join(' | ').slice(0, 400)}`); }
-    const before = await tabState(tab.id);
-    // 2) 기간: 어제
-    const r2 = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false })); steps.push(`어제 ${r2?.clicked ? '누름' : '못 찾음'}`);
-    await sleep(1500);
-    // 3) 보고서 종류: 키워드 (선택 상자 → 탭/체크 글자 순서로)
-    const r3s = await chrome.tabs.sendMessage(tab.id, { type: 'selectOption', texts: ['키워드'] }).catch(() => ({ ok: false }));
-    const r3 = r3s?.ok ? { ok: true, text: '선택상자 ' + r3s.text } : await click(tab.id, ['키워드 보고서', '키워드별', '키워드']);
-    steps.push(`키워드 ${r3.ok ? `고름(${r3.text})` : '못 찾음'}`);
-    await sleep(1500);
-    // 4) 다운로드 (새 창 가로채기 + 크롬 다운로드 감지)
+    // 쿠팡 광고보고서 화면(marketing-reporting/billboard/reports/pa): 위에서 조건을 정해 '보고서 만들기' → 아래 '요청한 보고서' 목록에 생김 → 줄의 '다운로드'(blob)
     await installHook(tab.id);
-    expectUntil = Date.now() + 150000; expectDate = target; lastHookedUrl = null;
+    expectUntil = Date.now() + 240000; expectDate = target; lastHookedUrl = null;
+    const compact = target.replace(/-/g, '');
+    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: [compact, target, target.replace(/-/g, '.')], mustHave: ['키워드', 'keyword', '일별', 'daily'] }).catch(() => ({ ok: false }));
+    const tryDownloadRow = async (label) => {
+      const waiting = waitForReport(45000);
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: [compact, target, target.replace(/-/g, '.')], button: ['다운로드'] }).catch(() => ({ ok: false }));
+      steps.push(`${label}: 어제 날짜 줄의 다운로드 ${c?.ok ? `누름(${(c.rowText || '').slice(0, 40)})` : '못 찾음'}`);
+      if (!c?.ok) { settle(null); return null; }
+      return waiting;
+    };
     let res = null;
-    for (let i = 0; i < 3 && !res?.ok; i++) {
-      const waiting = waitForReport(i === 0 ? 40000 : 30000);
-      const r4 = await click(tab.id, ['보고서 다운로드', '엑셀 다운로드', '다운로드', '보고서 생성', '생성', '내보내기']); steps.push(`다운로드 ${r4.ok ? `누름(${r4.text})` : '못 찾음'}`);
-      if (!r4.ok) { settle(null); break; }
-      res = await waiting;
-      if (!res?.ok) { await sleep(3000); await inject(tab.id); }   // 보고서가 목록에 만들어지는 방식이면 한 번 더 눌러 받는다
+    // 2) 이미 만들어진 어제 보고서가 목록에 있으면 바로 받는다
+    let row = await rowFor();
+    if (row?.ok) res = await tryDownloadRow('기존 보고서');
+    // 3) 없으면 만든다: 기간 설정 → 시작일·종료일 = 어제 → 일별 → 키워드 포함 체크 → 보고서 만들기 → 목록 새로 고침하며 기다림
+    if (!res?.ok) {
+      const c1 = await click(tab.id, ['기간 설정', '직접 설정', '기간설정']); steps.push(`기간 설정 ${c1.ok ? '누름' : '못 찾음'}`); await sleep(800);
+      const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target }).catch(() => ({ ok: false }));
+      steps.push(`날짜 입력 ${f?.ok ? `됨(${f.how})` : '못 함'}`); await sleep(800);
+      const c2 = await click(tab.id, ['일별'], { exactOnly: true }); steps.push(`일별 ${c2.ok ? '누름' : '못 찾음'}`); await sleep(500);
+      const ck = await chrome.tabs.sendMessage(tab.id, { type: 'setCheckbox', texts: ['클릭이 발생한 키워드만 보고서에 포함', '키워드'], checked: true }).catch(() => ({ ok: false }));
+      steps.push(`키워드 포함 ${ck?.ok ? (ck.changed ? '체크함' : '이미 체크') : '못 찾음'}`); await sleep(500);
+      const cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); steps.push(`캠페인 ${cs?.ok ? cs.how : '선택 못 함'}`); await sleep(800);
+      const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : '못 찾음'}`);
+      if (mk.ok) {
+        const t0 = Date.now(); let found = false;
+        while (Date.now() - t0 < 120000) {
+          await sleep(6000); await inject(tab.id);
+          await click(tab.id, ['목록 새로 고침', '새로 고침', '새로고침']);
+          await sleep(2500); await inject(tab.id);
+          row = await rowFor(); if (row?.ok && /다운로드/.test(row.rowText || '')) { found = true; break; }
+        }
+        steps.push(found ? `목록에 생김 (${Math.round((Date.now() - t0) / 1000)}초)` : '2분 안에 목록에 안 생김');
+        if (found) res = await tryDownloadRow('새 보고서');
+      }
     }
     if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). 보고서 화면: ${await diag(tab.id)}`);
     if (res.kind && res.kind !== 'adreport') await log(`[보고서] 받은 파일이 광고 보고서가 아니라 ${res.kind} 로 저장됐습니다`);
@@ -672,7 +701,19 @@ function notify(message) { try { chrome.notifications.create({ type: 'basic', ic
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
+    if (msg.type === 'downloadBlob') {
+      sendResponse({ ok: true });
+      if (Date.now() < expectUntil && msg.data) {
+        try {
+          const bin = atob(msg.data); const buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          let name = msg.name || 'report.xlsx'; if (!/\.(xlsx|xls|csv)$/i.test(name)) name += '.xlsx';
+          const res = await importAnyFile(buf.buffer, name, expectDate); expectDate = null;
+          await log(`[다운로드] ${msg.how} 로 받은 ${name} → ${res.date} ${res.kind === 'ads' ? '광고' : res.kind === 'adreport' ? '광고 보고서' : '판매'} ${res.saved}${res.kind === 'adreport' ? '행' : '건'} 저장`);
+          lastReportSavedAt = Date.now(); settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
+        } catch (e) { await log(`[다운로드] blob 파일 저장 실패: ${e.message}`); settle({ ok: false, error: e.message }); }
+      } else await log(`[다운로드] 기다리는 중이 아닐 때 blob 파일이 잡혔습니다 (무시): ${msg.name || ''} ${msg.data ? Math.round(msg.data.length * 3 / 4 / 1024) + 'KB' : ''}`);
+    }
+    else if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
