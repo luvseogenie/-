@@ -471,6 +471,26 @@
     return Object.entries(out).map(([option_id, name]) => ({ option_id, name: name.replace(/^(ON|OFF)\s*/i, '').slice(0, 80) }));
   }
 
+  // 캠페인 목록에서 이름이 든 줄을 찾아, 그 줄 안의 링크 주소와 구조를 돌려준다 (이름 클릭이 안 먹을 때 주소로 이동하기 위해)
+  function findRowLink(text) {
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    const nt = norm(text);
+    // 같은 글자를 가진 요소가 겹겹이면(칸 > 링크 > 글자) 가장 안쪽 것을 고른다 — 클릭 처리기가 보통 거기 붙어 있다
+    const el = deepAll('a, span, div, td, button').filter((e) => visible(e) && e.children.length <= 2 && norm(e.innerText) === nt).sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length)[0];
+    if (!el) return { ok: false, reason: '이름 없음' };
+    let row = el.closest('.rt-tr, tr, [role="row"]'); if (!row) { row = el; for (let i = 0; i < 6 && row.parentElement && row.parentElement.children.length < 3; i++) row = row.parentElement; }
+    const anchors = [...row.querySelectorAll('a[href]')].map((a) => a.href).filter((h) => !/^javascript:|#$/.test(h));
+    const selfA = el.closest('a[href]'); if (selfA && !/^javascript:|#$/.test(selfA.href)) anchors.unshift(selfA.href);
+    const html = el.outerHTML.slice(0, 200).replace(/\s+/g, ' ');
+    return { ok: anchors.length > 0, href: anchors[0] || null, anchors: anchors.slice(0, 5), html, rowTag: row.tagName.toLowerCase() + (row.className ? '.' + String(row.className).split(' ')[0] : ''), el };
+  }
+  function clickRowName(text) {
+    const r = findRowLink(text); if (!r.el) return { ok: false, reason: r.reason };
+    const el = r.el; const a = el.closest('a') || el.querySelector('a') || el;
+    fire(a, [...HOVER, ...CLICK]); try { a.click(); } catch { /* 무시 */ } if (a !== el) { try { el.click(); } catch { /* 무시 */ } }
+    return { ok: true, html: r.html, anchors: r.anchors, rowTag: r.rowTag };
+  }
+
   // 글자로 링크 주소 찾기 (메뉴가 흉내 클릭에 반응하지 않을 때 주소로 직접 이동하기 위해)
   function findLink(texts) {
     const norm = (t) => clean(t).replace(/\s+/g, '');
@@ -551,6 +571,10 @@
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+    } else if (msg?.type === 'findRowLink') {
+      const r = findRowLink(msg.text || ''); delete r.el; sendResponse(r);
+    } else if (msg?.type === 'clickRowName') {
+      sendResponse(clickRowName(msg.text || ''));
     } else if (msg?.type === 'readCampaignOptions') {
       try { sendResponse({ ok: true, options: readCampaignOptions(), url: location.href }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
     } else if (msg?.type === 'findLink') {

@@ -631,7 +631,11 @@ async function fetchCampOpts(camps) {
 // 옵션이 하나도 연결되지 않은 캠페인 (새로 만든 광고). 광고 보고서에 그 캠페인이 광고한 옵션ID 가 있으면 후보로 보여 준다.
 function renderNewCampaigns(d) {
   const mapped = {}; for (const o of d.options) if (o.campaign) mapped[o.campaign] = (mapped[o.campaign] || 0) + 1;
-  const camps = S.sortCampaigns(S.campaigns(d).concat(AR.campaignsOf(d)).filter((c, i, a) => a.indexOf(c) === i)).filter((c) => c !== '(캠페인 없음)' && !mapped[c]);
+  // 최근 60일 광고센터 목록이나 광고 보고서에 있는 캠페인만 (엑셀 시절의 끝난 캠페인은 제외)
+  const since = addDays(localIso(yday), -59); const recent = new Set();
+  for (const [date, day] of Object.entries(d.ads)) if (date >= since) for (const c of Object.keys(day)) recent.add(c);
+  for (const [date, rows] of Object.entries(d.adrows || {})) if (date >= since) for (const r of rows) recent.add(r.campaign);
+  const camps = S.sortCampaigns([...recent]).filter((c) => c && c !== '(캠페인 없음)' && !mapped[c]);
   $('#newcamp-count').textContent = camps.length ? `— ${camps.length}개` : '— 없음 (모든 캠페인에 옵션이 연결돼 있습니다)';
   // 기본은 닫힘. 사용자가 열어 둔 상태는 다시 그릴 때 유지
   const box = $('#newcamp-list'); box.innerHTML = '';

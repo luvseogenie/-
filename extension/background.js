@@ -409,14 +409,16 @@ async function fetchCampaignOptions(campaigns) {
       try {
         const st0 = await tabState(tab.id);
         if (st0.url !== url) { await chrome.tabs.update(tab.id, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); await readWithRetry(tab.id, 'ads', Date.now() + 30000); }
-        // 목록에서 이름 클릭 (링크면 주소로 이동)
-        const l = await chrome.tabs.sendMessage(tab.id, { type: 'findLink', texts: [camp] }).catch(() => ({ ok: false }));
-        if (l?.ok && l.href !== url) { await chrome.tabs.update(tab.id, { url: l.href }); }
-        else { const c = await click(tab.id, [camp], { exactOnly: true }); if (!c.ok) { results[camp] = { ok: false, error: '목록에서 캠페인 이름을 찾지 못했습니다 (2쪽에 있으면 페이지당 개수를 늘려 주세요)' }; continue; } }
+        // 목록에서 이름이 든 줄의 링크 주소로 이동. 링크가 없으면 이름을 눌러 본다
+        const rl = await chrome.tabs.sendMessage(tab.id, { type: 'findRowLink', text: camp }).catch(() => ({ ok: false, reason: '스크립트 없음' }));
+        if (rl?.reason === '이름 없음') { results[camp] = { ok: false, error: '광고센터 목록에 이 캠페인이 없습니다 (끝났거나 지운 캠페인이면 정상)' }; continue; }
+        let how = '';
+        if (rl?.ok && rl.href && rl.href !== url) { await chrome.tabs.update(tab.id, { url: rl.href }); how = `줄 링크 ${rl.href.slice(0, 70)}`; }
+        else { const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickRowName', text: camp }).catch(() => ({ ok: false })); how = `이름 클릭(${c?.ok ? '됨' : '실패'})`; }
         // 상품 목록이 뜰 때까지 (ID: 숫자 가 보이면)
         let opts = []; const t0 = Date.now();
         while (Date.now() - t0 < 25000) { await sleep(2500); await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); if (r?.ok && r.options.length) { opts = r.options; break; } }
-        if (!opts.length) { results[camp] = { ok: false, error: `캠페인을 눌렀지만 상품 목록(ID: 숫자)을 찾지 못했습니다 (${await describePage(tab.id)})` }; continue; }
+        if (!opts.length) { const st = await tabState(tab.id); results[camp] = { ok: false, error: `상품 목록(ID: 숫자)을 찾지 못했습니다 — ${how}, 지금 주소 ${st.url.slice(0, 80)}, 줄 구조 ${rl?.rowTag || '?'} 링크 ${(rl?.anchors || []).join(', ').slice(0, 120) || '없음'}, 이름 요소 ${rl?.html || ''}` }; continue; }
         const d = await S.load(); S.setCampaignOptions(d, camp, opts); await S.save(d);
         results[camp] = { ok: true, options: opts };
         await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${opts.map((o) => o.option_id).join(', ').slice(0, 80)})`);
