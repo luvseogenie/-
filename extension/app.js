@@ -633,7 +633,7 @@ function renderNewCampaigns(d) {
   const mapped = {}; for (const o of d.options) if (o.campaign) mapped[o.campaign] = (mapped[o.campaign] || 0) + 1;
   const camps = S.sortCampaigns(S.campaigns(d).concat(AR.campaignsOf(d)).filter((c, i, a) => a.indexOf(c) === i)).filter((c) => c !== '(캠페인 없음)' && !mapped[c]);
   $('#newcamp-count').textContent = camps.length ? `— ${camps.length}개` : '— 없음 (모든 캠페인에 옵션이 연결돼 있습니다)';
-  $('#newcamp-details').open = camps.length > 0;
+  // 기본은 닫힘. 사용자가 열어 둔 상태는 다시 그릴 때 유지
   const box = $('#newcamp-list'); box.innerHTML = '';
   if (camps.length) {
     const top = document.createElement('div'); top.className = 'row'; top.style.margin = '4px 0 8px';
