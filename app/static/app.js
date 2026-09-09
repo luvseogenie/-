@@ -241,6 +241,13 @@
     const rTotal = Object.values(r).reduce((a, b) => a + b, 0);
     const parts = [`${fmt(state.total)}개 표시 중 (전체 ${fmt(s.unique)}개)`, '같은 상품의 옵션은 한 줄로 묶음'];
     if (rTotal && state.conditions.exclude_restricted) parts.push(`못 파는 물건 ${rTotal}개 뺌 (${Object.entries(r).map(([k, v]) => `${k} ${v}`).join(', ')})`);
+    const warn = $('#restricted-warn');
+    if (warn) {
+      if (s.all_restricted) {
+        warn.hidden = false;
+        warn.textContent = `수집한 상품 ${fmt(rTotal)}개가 전부 '못 파는 물건'(${Object.keys(r).join('·')})으로 빠졌습니다. 출산/유아동·완구는 어린이제품, 가전은 전기용품으로 분류돼 KC 인증이 필요한 물건들입니다. 이 물건들을 팔 수 있다면 상품 조건에서 "못 파는 물건 빼기"를 끄고 즉시 적용을 누르세요.`;
+      } else warn.hidden = true;
+    }
     if (d.excluded) parts.push(`가격·리뷰 조건에 안 맞는 ${fmt(d.excluded)}개는 숨김`);
     $('#results-sub').textContent = parts.join(' · ');
     // 작업 상태가 바뀌면 표를 다시 그린다

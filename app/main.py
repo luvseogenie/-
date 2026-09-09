@@ -317,6 +317,9 @@ def status():
         if cond.get("hide_ads"):
             rows = [r for r in rows if not r.get("is_ad")]
         stats = summarize(rows, db.run_categories(run["id"]), seen)
+        stats["counts"]["restricted"] = sum(restricted.values())     # 못 파는 물건 칩은 빼기 전 개수로
+        stats["restricted_total"] = sum(restricted.values())
+        stats["all_restricted"] = bool(restricted) and not rows and cond.get("exclude_restricted")
     excluded_n = sum(1 for r in rows if r["verdict"] == "excluded") if run else 0
     return {"status": st, "run": dict(run) if run else None, "stats": stats, "restricted": restricted,
             "excluded": excluded_n, "logs": log.recent(60)}
