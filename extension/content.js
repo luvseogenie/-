@@ -369,6 +369,7 @@
     return { hasExcelDownload: text.includes('엑셀 다운로드'), hasAnyDownload: /다운로드|내보내기|Excel/i.test(text), hasOptionList: text.includes('옵션목록'),
       hasLogin: !!deepAll('input[type="password"]').find(visible),
       hasLoginChooser: /\/user\/login/.test(location.pathname) || (/광고센터 로그인/.test(text) && loginChooserButtons().length > 0),
+      header: headerTexts(),
       hasCampaignText: text.includes('캠페인'), textLength: text.length, frames: window.top === window ? 'top' : 'iframe', title: document.title, url: location.href };
   }
   // 구조 진단: 프레임, 커스텀 엘리먼트(shadow DOM), 반복 줄 그룹, 캠페인처럼 보이는 글자
@@ -426,6 +427,50 @@
     return { ok: true, how };
   }
 
+  // 글자로 누를 것 찾기: 정확히 같은 글자 → 그 글자로 시작 → 포함, 순서대로. 보이는 것만.
+  const CLICKABLE = 'button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], li, label, span, div, td';
+  function findClickable(texts, { exactOnly = false } = {}) {
+    const els = deepAll(CLICKABLE).filter((e) => visible(e) && e.children.length <= 3);
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    for (const mode of exactOnly ? ['exact'] : ['exact', 'start', 'contain']) {
+      for (const t of texts) {
+        const nt = norm(t);
+        const hit = els.find((e) => { const et = norm(e.innerText || e.value || e.getAttribute('aria-label') || ''); if (!et || et.length > 40) return false; return mode === 'exact' ? et === nt : mode === 'start' ? et.startsWith(nt) : et.includes(nt); });
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  function clickText(texts, opts = {}) {
+    const el = findClickable(texts, opts);
+    if (!el) return { ok: false, reason: `'${texts[0]}' 를 찾지 못했습니다` };
+    const target = el.closest('button, a, [role="button"], [role="tab"], [role="menuitem"], label') || el;
+    fire(target, [...HOVER, ...CLICK]); try { if (target !== el) fire(el, CLICK); } catch { /* 무시 */ }
+    return { ok: true, text: clean(el.innerText || el.value || '').slice(0, 30), tag: target.tagName.toLowerCase() };
+  }
+  // 화면 맨 위 90px 안의 짧은 글자들 (계정 이름·상호가 보통 여기 있다)
+  function headerTexts() {
+    const out = []; const seen = new Set();
+    for (const e of deepAll('header *, nav *, [class*="header" i] *, [class*="gnb" i] *, [class*="top" i] *, [class*="account" i] *, [class*="user" i] *, [class*="profile" i] *')) {
+      if (!visible(e) || e.children.length > 1) continue;
+      const r = e.getBoundingClientRect(); if (r.top > 90 || r.height > 60) continue;
+      const t = clean(e.innerText); if (!t || t.length > 24 || seen.has(t)) continue; seen.add(t); out.push(t);
+      if (out.length >= 25) break;
+    }
+    return out;
+  }
+  // 화면에 보이는 누를 수 있는 것들의 글자 (진단용)
+  function buttonsDiag() {
+    const seen = new Set(); const out = [];
+    for (const e of deepAll('button, a, [role="button"], [role="tab"], [role="menuitem"], label, select')) {
+      if (!visible(e)) continue;
+      const t = e.tagName === 'SELECT' ? 'select:' + [...e.options].slice(0, 6).map((o) => clean(o.textContent)).join('/') : clean(e.innerText || e.value || e.getAttribute('aria-label') || '');
+      if (!t || t.length > 40 || seen.has(t)) continue; seen.add(t); out.push(t);
+      if (out.length >= 60) break;
+    }
+    return { buttons: out, url: location.href, title: document.title, inputs: deepAll('input').filter(visible).map((i) => `${i.type}:${clean(i.placeholder || i.value || '').slice(0, 20)}`).slice(0, 15) };
+  }
+
   // 광고센터 로그인 선택 화면 (advertising.coupang.com/user/login): '쿠팡 윙 판매자' 카드의 첫(왼쪽) '로그인하기' 를 누른다
   function loginChooserButtons() {
     return deepAll('button, a, [role="button"]').filter((b) => visible(b) && /^로그인하기$/.test(clean(b.innerText))).sort((x, y) => x.getBoundingClientRect().left - y.getBoundingClientRect().left);
@@ -459,6 +504,10 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
+    } else if (msg?.type === 'clickText') {
+      sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+    } else if (msg?.type === 'buttonsDiag') {
+      sendResponse(buttonsDiag());
     } else if (msg?.type === 'clickLoginChooser') {
       sendResponse(clickLoginChooser());
     } else if (msg?.type === 'login') {

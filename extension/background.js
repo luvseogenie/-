@@ -4,7 +4,7 @@ import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, serverSync: false, server: 'http://127.0.0.1:8765' };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765' };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -134,7 +134,7 @@ async function fetchAndImportInner(url, how) {
     const label = res.kind === 'ads' ? '광고' : '판매';
     await log(`[다운로드] ${how} 로 받은 ${name} → ${res.date} ${label} ${res.saved}건 저장`);
     lastReportSavedAt = Date.now();
-    settle({ ok: true, saved: res.saved, date: res.date });
+    settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
   } catch (e) {
     await log(`[다운로드] 주소를 직접 받아 읽지 못해(${e.message}) 크롬 다운로드로 넘깁니다: ${url.slice(0, 120)}`);
     try { await chrome.downloads.download({ url }); } catch (e2) { settle({ ok: false, error: `다운로드 시작 실패: ${e2.message}` }); }
@@ -173,6 +173,22 @@ async function ensureLoggedIn(tabId, url, s) {
   // 로그인 뒤 다른 화면으로 갔으면 원래 주소로
   await chrome.tabs.update(tabId, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tabId);
   return { needed: true, ok: true };
+}
+
+// 열린 화면이 내 계정인지 확인한다 (쿠팡 아이디 하나에 광고 계정이 여럿이거나, 다른 아이디로 로그인돼 있을 때 남의 숫자를 저장하지 않게)
+async function ensureAccount(tabId, kind, s) {
+  const want = String(kind === 'sales' ? s.sellerName : s.adsAccount || '').trim();
+  const p = await chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }).catch(() => null);
+  const seen = [p?.title || '', ...(p?.header || [])];
+  if (!want) return { ok: true, seen };
+  const has = () => seen.some((t) => t.includes(want));
+  if (has()) return { ok: true, seen };
+  // 계정 전환 메뉴가 있으면 이름을 눌러 본다
+  const c = await click(tabId, [want]); await sleep(4000); await inject(tabId);
+  const p2 = await chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }).catch(() => null);
+  const seen2 = [p2?.title || '', ...(p2?.header || [])];
+  if (seen2.some((t) => t.includes(want))) { await log(`[계정] '${want}' 로 전환했습니다 (${c.ok ? c.text : ''})`); return { ok: true, seen: seen2, switched: true }; }
+  return { ok: false, seen: seen2, reason: `${kind === 'sales' ? '판매자센터' : '광고센터'} 화면이 '${want}' 계정이 아닙니다 (화면에 보이는 이름: ${seen2.filter(Boolean).slice(0, 8).join(' / ') || '없음'}). 저장하지 않았습니다. 쿠팡에서 '${want}' 계정으로 바꿔 두거나 설정의 계정 이름을 확인하세요` };
 }
 
 // 수집용 탭. 크롬은 보이지 않는(배경) 탭에서 화면 그리기를 멈추기 때문에, 기본은 작은 창을 따로 띄워 보이게 한다.
@@ -234,6 +250,9 @@ async function collectKind(kind, dateOverride, opts = {}) {
     const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`${kind === 'sales' ? '판매분석' : '광고 관리'} 화면을 열지 못했습니다: ${bad}`);
     const li = await ensureLoggedIn(tab.id, url, s);
     if (li.needed && !li.ok) throw new Error(li.reason);
+    const acc = await ensureAccount(tab.id, kind, s);
+    if (!acc.ok) throw new Error(acc.reason);
+    if (!(kind === 'sales' ? s.sellerName : s.adsAccount)) await log(`[계정] ${KIND_NAME[kind]} 화면의 이름 후보: ${acc.seen.filter(Boolean).slice(0, 8).join(' / ')} — 설정의 '${kind === 'sales' ? '판매자센터 상호' : '광고 계정 이름'}' 에 내 것을 적어 두면 다른 계정이 열렸을 때 저장하지 않습니다`);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
     if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
@@ -308,6 +327,51 @@ async function collectKind(kind, dateOverride, opts = {}) {
   } finally { await close(); }
 }
 
+// ---- 광고 보고서(키워드·옵션별) 자동 받기: 보고서 화면 → 어제 → 키워드 → 다운로드. 화면 구조를 글자로 찾는다. ----
+const click = (tabId, texts, opts = {}) => chrome.tabs.sendMessage(tabId, { type: 'clickText', texts, ...opts }).catch(() => ({ ok: false }));
+const diag = async (tabId) => { const d = await chrome.tabs.sendMessage(tabId, { type: 'buttonsDiag' }).catch(() => null); return d ? `주소 ${d.url.slice(0, 90)} · 버튼: ${d.buttons.join(' | ').slice(0, 600)} · 입력칸: ${d.inputs.join(', ')}` : '화면 정보 없음'; };
+async function collectReport(dateOverride) {
+  const s = await getSettings();
+  const target = dateOverride || yesterdayIso();
+  const url = (s.adsReportUrl || s.adsUrl).replace(/\{date\}/g, target);
+  const { tab, close } = await openWorkTab(url, s);
+  const steps = [];
+  try {
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`광고센터를 열지 못했습니다: ${bad}`);
+    const li = await ensureLoggedIn(tab.id, url, s); if (li.needed && !li.ok) throw new Error(li.reason);
+    const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
+    const info = () => chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
+    // 1) 보고서 화면으로 (주소를 따로 안 적었으면 메뉴의 '보고서' 를 누른다)
+    let p = await info();
+    if (!s.adsReportUrl || !/보고서/.test(p?.title || '')) {
+      const r1 = await click(tab.id, ['보고서 다운로드', '보고서', '리포트']); steps.push(`보고서 메뉴 ${r1.ok ? `누름(${r1.text})` : '못 찾음'}`);
+      await sleep(4000); await inject(tab.id);
+    }
+    // 2) 기간: 어제
+    const r2 = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false })); steps.push(`어제 ${r2?.clicked ? '누름' : '못 찾음'}`);
+    await sleep(1500);
+    // 3) 보고서 종류: 키워드
+    const r3 = await click(tab.id, ['키워드 보고서', '키워드별', '키워드']); steps.push(`키워드 ${r3.ok ? `누름(${r3.text})` : '못 찾음'}`);
+    await sleep(1500);
+    // 4) 다운로드 (새 창 가로채기 + 크롬 다운로드 감지)
+    await installHook(tab.id);
+    expectUntil = Date.now() + 150000; expectDate = target; lastHookedUrl = null;
+    let res = null;
+    for (let i = 0; i < 3 && !res?.ok; i++) {
+      const waiting = waitForReport(i === 0 ? 40000 : 30000);
+      const r4 = await click(tab.id, ['보고서 다운로드', '엑셀 다운로드', '다운로드', '보고서 생성', '생성', '내보내기']); steps.push(`다운로드 ${r4.ok ? `누름(${r4.text})` : '못 찾음'}`);
+      if (!r4.ok) { settle(null); break; }
+      res = await waiting;
+      if (!res?.ok) { await sleep(3000); await inject(tab.id); }   // 보고서가 목록에 만들어지는 방식이면 한 번 더 눌러 받는다
+    }
+    if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). ${await diag(tab.id)}`);
+    if (res.kind && res.kind !== 'adreport') await log(`[보고서] 받은 파일이 광고 보고서가 아니라 ${res.kind} 로 저장됐습니다`);
+    await log(`[자동] 광고 보고서 ${res.date} ${res.saved}행 저장 (${steps.join(' → ')})`);
+    return { ok: true, saved: res.saved, date: res.date };
+  } finally { await close(); }
+}
+
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
 const job = { running: false, total: 0, done: 0, log: [], cancel: false };
 function isoRange(start, end) { const out = []; const d = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
@@ -344,14 +408,16 @@ async function collectRange(start, end, kinds, onlyMissing) {
 async function collectWithRetry(kind, dateOverride, tries = 3) {
   let lastErr = null;
   for (let i = 1; i <= tries; i++) {
-    try { return await collectKind(kind, dateOverride, { lastTry: i === tries }); }
-    catch (e) { lastErr = e; if (i < tries) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${i}번째 실패, 창을 새로 열어 다시 시도: ${e.message}`); await sleep(8000); } }
+    try { return kind === 'report' ? await collectReport(dateOverride) : await collectKind(kind, dateOverride, { lastTry: i === tries }); }
+    catch (e) { lastErr = e; if (i < tries) { await log(`[자동] ${KIND_NAME[kind]} ${i}번째 실패, 창을 새로 열어 다시 시도: ${e.message}`); await sleep(8000); } }
   }
   throw lastErr;
 }
 const RETRY_MAX = 3;
+const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' };
 let autoRunning = false;
-async function runAuto(dateOverride, kinds = ['sales', 'ads']) {
+async function runAuto(dateOverride, kinds = null) {
+  if (!kinds) { const s = await getSettings(); kinds = s.reportEnabled ? ['sales', 'ads', 'report'] : ['sales', 'ads']; }
   if (autoRunning) { await log('[자동] 이미 수집 중이라 건너뜀'); return [{ ok: false, error: '이미 수집 중' }]; }
   autoRunning = true;
   try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
@@ -360,11 +426,11 @@ async function runAutoInner(dateOverride, kinds) {
   await fixUrls();
   const results = [];
   for (const kind of kinds) {
-    try { results.push({ kind, ...(await collectWithRetry(kind, dateOverride)) }); }
-    catch (e) { await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} 실패: ${e.message}`); results.push({ kind, ok: false, error: e.message }); }
+    try { results.push({ kind, ...(await collectWithRetry(kind, dateOverride, kind === 'report' ? 2 : 3)) }); }
+    catch (e) { await log(`[자동] ${KIND_NAME[kind]} 실패: ${e.message}`); results.push({ kind, ok: false, error: e.message }); }
   }
-  const okAll = results.every((r) => r.ok);
-  await chrome.storage.local.set({ lastAuto: { at: Date.now(), date: dateOverride || yesterdayIso(), ok: okAll, detail: results.map((r) => (r.ok ? `${r.date} ${r.saved}건` : r.error)).join(' / ') } });
+  const okAll = results.filter((r) => r.kind !== 'report').every((r) => r.ok);
+  await chrome.storage.local.set({ lastAuto: { at: Date.now(), date: dateOverride || yesterdayIso(), ok: okAll, reportOk: results.find((r) => r.kind === 'report')?.ok ?? null, detail: results.map((r) => (r.ok ? `${r.date} ${r.saved}건` : r.error)).join(' / ') } });
   // 실패한 종류만 10분 뒤 자동으로 다시 (하루 최대 3번). 사람이 다시 누를 필요가 없게.
   if (!dateOverride) {
     const failed = results.filter((r) => !r.ok).map((r) => r.kind);
@@ -373,7 +439,7 @@ async function runAutoInner(dateOverride, kinds) {
     if (failed.length && count < RETRY_MAX) {
       await chrome.storage.local.set({ autoRetry: { count: count + 1, date: yesterdayIso(), kinds: failed } });
       await chrome.alarms.create('retry-auto', { delayInMinutes: 10 });
-      await log(`[자동] ${failed.map((k) => (k === 'sales' ? '판매' : '광고')).join('·')} 를 10분 뒤 다시 시도합니다 (${count + 1}/${RETRY_MAX})`);
+      await log(`[자동] ${failed.map((k) => KIND_NAME[k]).join('·')} 를 10분 뒤 다시 시도합니다 (${count + 1}/${RETRY_MAX})`);
     } else if (!failed.length && autoRetry.date === yesterdayIso()) { await chrome.storage.local.remove('autoRetry'); }
   }
   try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message: okAll ? '어제 판매·광고 데이터를 저장했습니다.' : '일부 수집이 실패했습니다. 10분 뒤 자동으로 다시 시도합니다.' }); } catch { /* 무시 */ }
@@ -406,7 +472,8 @@ async function testUrl(kind) {
     let download = null;
     if (!r && kind === 'sales') { await inject(tab.id); download = await chrome.tabs.sendMessage(tab.id, { type: 'clickDownloadReport', dryRun: true }).catch(() => null); }
     const page = (!r && !download?.ok) ? await describePage(tab.id) : null;
-    return { ok: !!r || !!download?.ok, rows: r?.records?.length || 0, headers: r?.headers?.slice(0, 8) || [], date: r?.date || null, url, hint, page, download: download?.ok ? '엑셀 다운로드 버튼을 찾았습니다' : null };
+    const acc = await ensureAccount(tab.id, kind, s);
+    return { ok: (!!r || !!download?.ok) && acc.ok, rows: r?.records?.length || 0, headers: r?.headers?.slice(0, 8) || [], date: r?.date || null, url, hint: hint || (acc.ok ? null : acc.reason), page, download: download?.ok ? '엑셀 다운로드 버튼을 찾았습니다' : null, account: acc.seen.filter(Boolean).slice(0, 8) };
   } finally { await close(); }
 }
 
@@ -490,7 +557,7 @@ chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.
 async function retryAuto() {
   const { autoRetry } = await chrome.storage.local.get('autoRetry');
   if (!autoRetry || autoRetry.date !== yesterdayIso()) return;
-  await log(`[자동] 다시 시도 (${autoRetry.count}/${RETRY_MAX}): ${autoRetry.kinds.map((k) => (k === 'sales' ? '판매' : '광고')).join('·')}`);
+  await log(`[자동] 다시 시도 (${autoRetry.count}/${RETRY_MAX}): ${autoRetry.kinds.map((k) => KIND_NAME[k]).join('·')}`);
   await runAuto(undefined, autoRetry.kinds);
 }
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
@@ -515,7 +582,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     const label = res.kind === 'ads' ? '광고' : '판매';
     await log(`[다운로드] ${name} → ${res.date} ${label} ${res.saved}건 저장`);
     if (!reportWaiter) notify(`${res.date} ${label} 데이터 ${res.saved}건 저장 완료` + (res.unmapped ? ` · 캠페인/마진 미입력 옵션 ${res.unmapped}개` : ''));
-    settle({ ok: true, saved: res.saved, date: res.date });
+    settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
   } catch (e) {
     await log(`[다운로드] 자동 저장 실패: ${e.message}`);
     if (!reportWaiter) notify('리포트 자동 저장에 실패했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.');
@@ -537,6 +604,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'saveLogin') { const enc = msg.pw ? btoa(unescape(encodeURIComponent(msg.pw))) : ''; await chrome.storage.local.set({ loginId: String(msg.id || '').trim(), loginPw: enc, autoLogin: !!msg.enabled }); await log(`[로그인] 자동 로그인 ${msg.enabled ? '켬' : '끔'}${msg.id ? ` (${String(msg.id).slice(0, 3)}***)` : ''}`); sendResponse({ ok: true }); }
     else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
+    else if (msg.type === 'collectReport') { try { sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
