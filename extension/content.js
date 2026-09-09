@@ -448,6 +448,21 @@
     fire(target, [...HOVER, ...CLICK]); try { if (target !== el) fire(el, CLICK); } catch { /* 무시 */ }
     return { ok: true, text: clean(el.innerText || el.value || '').slice(0, 30), tag: target.tagName.toLowerCase() };
   }
+  // 글자로 링크 주소 찾기 (메뉴가 흉내 클릭에 반응하지 않을 때 주소로 직접 이동하기 위해)
+  function findLink(texts) {
+    const el = findClickable(texts);
+    if (!el) return { ok: false };
+    const a = el.closest('a[href]') || el.querySelector?.('a[href]');
+    const href = a ? a.href : (el.getAttribute('data-href') || el.getAttribute('data-url') || '');
+    return { ok: !!href && !/^javascript:|#$/.test(href), href, text: clean(el.innerText).slice(0, 30) };
+  }
+  // <select> 에서 글자가 들어간 항목 고르기
+  function selectOption(texts) {
+    for (const sel of deepAll('select').filter(visible)) {
+      for (const t of texts) { const o = [...sel.options].find((x) => clean(x.textContent).includes(t)); if (o) { setNativeValue(sel, o.value); return { ok: true, text: clean(o.textContent), options: [...sel.options].map((x) => clean(x.textContent)).slice(0, 8) }; } }
+    }
+    return { ok: false, selects: deepAll('select').filter(visible).map((s2) => [...s2.options].map((x) => clean(x.textContent)).slice(0, 6).join('/')).slice(0, 6) };
+  }
   // 화면 맨 위 90px 안의 짧은 글자들 (계정 이름·상호가 보통 여기 있다)
   function headerTexts() {
     const out = []; const seen = new Set();
@@ -506,6 +521,10 @@
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+    } else if (msg?.type === 'findLink') {
+      sendResponse(findLink(msg.texts || []));
+    } else if (msg?.type === 'selectOption') {
+      sendResponse(selectOption(msg.texts || []));
     } else if (msg?.type === 'buttonsDiag') {
       sendResponse(buttonsDiag());
     } else if (msg?.type === 'clickLoginChooser') {

@@ -342,17 +342,25 @@ async function collectReport(dateOverride) {
     const li = await ensureLoggedIn(tab.id, url, s); if (li.needed && !li.ok) throw new Error(li.reason);
     const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
     const info = () => chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
-    // 1) 보고서 화면으로 (주소를 따로 안 적었으면 메뉴의 '보고서' 를 누른다)
-    let p = await info();
-    if (!s.adsReportUrl || !/보고서/.test(p?.title || '')) {
-      const r1 = await click(tab.id, ['보고서 다운로드', '보고서', '리포트']); steps.push(`보고서 메뉴 ${r1.ok ? `누름(${r1.text})` : '못 찾음'}`);
-      await sleep(4000); await inject(tab.id);
+    // 1) 보고서 화면으로. 주소를 모르면 메뉴 '광고보고서' 의 링크 주소를 읽어 직접 이동하고, 알아낸 주소는 설정에 저장해 둔다
+    const goto = async (u) => { await chrome.tabs.update(tab.id, { url: u }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); };
+    if (!s.adsReportUrl) {
+      const l = await chrome.tabs.sendMessage(tab.id, { type: 'findLink', texts: ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서', '리포트'] }).catch(() => ({ ok: false }));
+      if (l?.ok) { steps.push(`보고서 메뉴 주소 ${l.href.slice(0, 60)}`); await chrome.storage.sync.set({ adsReportUrl: l.href }); await goto(l.href); }
+      else {
+        const r1 = await click(tab.id, ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서', '리포트']); steps.push(`보고서 메뉴 ${r1.ok ? `누름(${r1.text})` : '못 찾음'}`);
+        await sleep(5000); await inject(tab.id);
+        const st = await tabState(tab.id); if (r1.ok && st.url && st.url !== url) { await chrome.storage.sync.set({ adsReportUrl: st.url }); steps.push(`주소 저장 ${st.url.slice(0, 60)}`); }
+      }
     }
+    const before = await tabState(tab.id);
     // 2) 기간: 어제
     const r2 = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false })); steps.push(`어제 ${r2?.clicked ? '누름' : '못 찾음'}`);
     await sleep(1500);
-    // 3) 보고서 종류: 키워드
-    const r3 = await click(tab.id, ['키워드 보고서', '키워드별', '키워드']); steps.push(`키워드 ${r3.ok ? `누름(${r3.text})` : '못 찾음'}`);
+    // 3) 보고서 종류: 키워드 (선택 상자 → 탭/체크 글자 순서로)
+    const r3s = await chrome.tabs.sendMessage(tab.id, { type: 'selectOption', texts: ['키워드'] }).catch(() => ({ ok: false }));
+    const r3 = r3s?.ok ? { ok: true, text: '선택상자 ' + r3s.text } : await click(tab.id, ['키워드 보고서', '키워드별', '키워드']);
+    steps.push(`키워드 ${r3.ok ? `고름(${r3.text})` : '못 찾음'}`);
     await sleep(1500);
     // 4) 다운로드 (새 창 가로채기 + 크롬 다운로드 감지)
     await installHook(tab.id);
@@ -365,7 +373,7 @@ async function collectReport(dateOverride) {
       res = await waiting;
       if (!res?.ok) { await sleep(3000); await inject(tab.id); }   // 보고서가 목록에 만들어지는 방식이면 한 번 더 눌러 받는다
     }
-    if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). ${await diag(tab.id)}`);
+    if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). 보고서 화면: ${await diag(tab.id)}`);
     if (res.kind && res.kind !== 'adreport') await log(`[보고서] 받은 파일이 광고 보고서가 아니라 ${res.kind} 로 저장됐습니다`);
     await log(`[자동] 광고 보고서 ${res.date} ${res.saved}행 저장 (${steps.join(' → ')})`);
     return { ok: true, saved: res.saved, date: res.date };
