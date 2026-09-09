@@ -104,8 +104,9 @@ function pageDownloadHook() {
   // blob 다운로드: 페이지가 URL.createObjectURL(blob) 로 만든 주소를 <a download> 로 누르면 확장이 그 파일을 읽을 수 없다
   // → blob 을 기억해 두었다가 그 주소가 눌리면 내용을 base64 로 이벤트에 실어 보낸다 (다운로드 자체는 그대로 진행)
   const blobs = new Map(); const origCreate = URL.createObjectURL.bind(URL);
-  URL.createObjectURL = function (obj) { const u = origCreate(obj); try { if (obj instanceof Blob) blobs.set(u, obj); } catch { /* 무시 */ } return u; };
-  const sendBlob = (blob, name, how) => { const fr = new FileReader(); fr.onload = () => { try { document.dispatchEvent(new CustomEvent('cc-download-blob', { detail: { name: name || 'report.xlsx', data: String(fr.result).split(',')[1] || '', how } })); } catch { /* 무시 */ } }; fr.readAsDataURL(blob); };
+  const sendBlob = (blob, name, how) => { const fr = new FileReader(); fr.onload = () => { try { document.dispatchEvent(new CustomEvent('cc-download-blob', { detail: { name: name || '', size: blob.size, type: blob.type || '', data: String(fr.result).split(',')[1] || '', how } })); } catch { /* 무시 */ } }; fr.readAsDataURL(blob); };
+  // 화면에 붙이지 않은 <a> 로 내려주면 클릭 이벤트가 문서까지 오지 않는다 → 파일(blob)이 만들어지는 순간 바로 보낸다 (작은 이미지 등은 제외)
+  URL.createObjectURL = function (obj) { const u = origCreate(obj); try { if (obj instanceof Blob) { blobs.set(u, obj); if (obj.size > 500 && !/^image\//.test(obj.type || '')) sendBlob(obj, '', 'createObjectURL'); } } catch { /* 무시 */ } return u; };
   document.addEventListener('click', (e) => {
     const a = e.target && e.target.closest ? e.target.closest('a[href^="blob:"]') : null;
     if (a) { const b = blobs.get(a.href); if (b) sendBlob(b, a.download || '', 'a[blob]'); }
@@ -132,6 +133,7 @@ async function fetchAndImport(url, how, baseUrl) {
   reportFetching = true; try { await fetchAndImportInner(url, how); } finally { reportFetching = false; }
 }
 let reportFetching = false;
+let blobPending = false; const recentBlobs = new Map();
 async function fetchAndImportInner(url, how) {
   lastHookedUrl = { url, how, at: Date.now() };
   try {
@@ -422,7 +424,9 @@ async function collectReport(dateOverride) {
       const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target }).catch(() => ({ ok: false }));
       steps.push(`날짜 입력 ${f?.ok ? `됨(${f.how})` : '못 함'}`); await sleep(800);
       const c2 = await click(tab.id, ['일별'], { exactOnly: true }); steps.push(`일별 ${c2.ok ? '누름' : '못 찾음'}`); await sleep(500);
-      const ck = await chrome.tabs.sendMessage(tab.id, { type: 'setCheckbox', texts: ['클릭이 발생한 키워드만 보고서에 포함', '키워드'], checked: true }).catch(() => ({ ok: false }));
+      const lv = await chrome.tabs.sendMessage(tab.id, { type: 'clickRadio', values: ['keyword'], texts: ['캠페인 > 광고그룹 > 상품 > 키워드', '키워드'] }).catch(() => ({ ok: false }));
+      steps.push(`단위=키워드 ${lv?.ok ? lv.how : '못 찾음'}`); await sleep(500);
+      const ck = await chrome.tabs.sendMessage(tab.id, { type: 'setCheckbox', texts: ['클릭이 발생한 키워드만 보고서에 포함', '키워드만 보고서에 포함'], checked: true }).catch(() => ({ ok: false }));
       steps.push(`키워드 포함 ${ck?.ok ? (ck.changed ? '체크함' : '이미 체크') : '못 찾음'}`); await sleep(500);
       const cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); steps.push(`캠페인 ${cs?.ok ? cs.how : '선택 못 함'}`); await sleep(800);
       const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : '못 찾음'}`);
@@ -681,7 +685,11 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   if (!ext || !(expected || (fromCoupang && looksLikeReport(item)))) return;
   handled.add(delta.id);
   const url = item.finalUrl || item.url;
-  if (!/^https?:/.test(url)) { await log(`[다운로드] 파일을 자동으로 읽을 수 없는 방식(blob)입니다. 장부 보기 → 리포트 파일 올리기 로 올려 주세요: ${item.filename}`); notify('리포트를 자동으로 읽지 못했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.'); settle({ ok: false, error: 'blob 다운로드는 자동으로 읽을 수 없습니다. 파일을 직접 올려 주세요' }); return; }
+  if (!/^https?:/.test(url)) {
+    // 훅이 blob 내용을 이미 받아 처리 중이거나 방금 저장했으면 여기서는 아무것도 하지 않는다
+    await sleep(2500);
+    if (blobPending || Date.now() - lastReportSavedAt < 60000) return;
+    await log(`[다운로드] 파일을 자동으로 읽을 수 없는 방식(blob)입니다. 장부 보기 → 리포트 파일 올리기 로 올려 주세요: ${item.filename}`); notify('리포트를 자동으로 읽지 못했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.'); settle({ ok: false, error: 'blob 다운로드는 자동으로 읽을 수 없습니다. 파일을 직접 올려 주세요' }); return; }
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const name = item.filename.split(/[\\/]/).pop();
@@ -703,15 +711,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg.type === 'downloadBlob') {
       sendResponse({ ok: true });
+      const key = `${msg.size || 0}|${String(msg.data || '').slice(0, 64)}`;
       if (Date.now() < expectUntil && msg.data) {
+        if (recentBlobs.has(key) && Date.now() - recentBlobs.get(key) < 90000) return;   // 같은 파일이 createObjectURL 과 클릭에서 두 번 오면 한 번만
+        recentBlobs.set(key, Date.now()); blobPending = true;
         try {
           const bin = atob(msg.data); const buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-          let name = msg.name || 'report.xlsx'; if (!/\.(xlsx|xls|csv)$/i.test(name)) name += '.xlsx';
+          const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
+          if (!isZip && !/csv|text/.test(msg.type || '') && !/\.csv$/i.test(msg.name || '')) { blobPending = false; return; }   // 엑셀/CSV 가 아니면 무시
+          let name = msg.name || `report_${expectDate || ''}.${isZip ? 'xlsx' : 'csv'}`; if (!/\.(xlsx|xls|csv)$/i.test(name)) name += isZip ? '.xlsx' : '.csv';
           const res = await importAnyFile(buf.buffer, name, expectDate); expectDate = null;
-          await log(`[다운로드] ${msg.how} 로 받은 ${name} → ${res.date} ${res.kind === 'ads' ? '광고' : res.kind === 'adreport' ? '광고 보고서' : '판매'} ${res.saved}${res.kind === 'adreport' ? '행' : '건'} 저장`);
+          await log(`[다운로드] ${msg.how} 로 받은 ${name} (${Math.round(buf.length / 1024)}KB) → ${res.date} ${res.kind === 'ads' ? '광고' : res.kind === 'adreport' ? '광고 보고서' : '판매'} ${res.saved}${res.kind === 'adreport' ? '행' : '건'} 저장`);
           lastReportSavedAt = Date.now(); settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
         } catch (e) { await log(`[다운로드] blob 파일 저장 실패: ${e.message}`); settle({ ok: false, error: e.message }); }
-      } else await log(`[다운로드] 기다리는 중이 아닐 때 blob 파일이 잡혔습니다 (무시): ${msg.name || ''} ${msg.data ? Math.round(msg.data.length * 3 / 4 / 1024) + 'KB' : ''}`);
+        finally { blobPending = false; }
+      } else if (msg.data && msg.how !== 'createObjectURL') await log(`[다운로드] 기다리는 중이 아닐 때 blob 파일이 잡혔습니다 (무시): ${msg.name || ''} ${Math.round((msg.size || 0) / 1024)}KB`);
     }
     else if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }

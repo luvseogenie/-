@@ -610,13 +610,24 @@
     for (const t of texts) {
       const lab = deepAll('label').find((l) => visible(l) && norm(l.innerText).includes(norm(t)));
       let box = lab ? (lab.querySelector('input[type="checkbox"]') || (lab.htmlFor && document.getElementById(lab.htmlFor))) : null;
-      if (!box) { const el = deepAll('span, div, p').find((e) => visible(e) && e.children.length <= 2 && norm(e.innerText) === norm(t)); const wrap = el && (el.closest('label') || el.parentElement); box = wrap && wrap.querySelector('input[type="checkbox"]'); }
+      if (!box) { const el = deepAll('span, div, p, li').filter((e) => visible(e) && e.children.length <= 3 && norm(e.innerText).includes(norm(t))).sort((x, y) => x.innerText.length - y.innerText.length)[0]; let wrap = el; for (let i = 0; i < 4 && wrap && !wrap.querySelector('input[type="checkbox"]'); i++) wrap = wrap.parentElement; box = wrap && wrap.querySelector('input[type="checkbox"]'); if (box && !lab) { const l2 = box.closest('label'); if (l2) { (l2).click(); if (box.checked === checked) return { ok: true, changed: true }; } } }
       if (!box) continue;
       if (box.checked === checked) return { ok: true, changed: false };
       (lab || box).click(); if (box.checked !== checked) { box.checked = checked; box.dispatchEvent(new Event('change', { bubbles: true })); }
       return { ok: true, changed: true };
     }
     return { ok: false };
+  }
+  // 라디오: value 또는 옆 글자로 찾아 누른다
+  function clickRadio(values, texts) {
+    const norm = (t) => clean(t).replace(/\s+/g, '');
+    let r = deepAll('input[type="radio"]').find((i) => values.includes(i.value));
+    if (!r) for (const t of texts) { const lab = deepAll('label').find((l) => norm(l.innerText) === norm(t)) || deepAll('label').find((l) => norm(l.innerText).includes(norm(t))); r = lab && (lab.querySelector('input[type="radio"]') || (lab.htmlFor && document.getElementById(lab.htmlFor))); if (r) break; }
+    if (!r) return { ok: false, radios: deepAll('input[type="radio"]').map((i) => i.value).slice(0, 12) };
+    if (r.checked) return { ok: true, how: `이미 선택(${r.value})` };
+    const lab = r.closest('label') || (r.id && document.querySelector(`label[for="${r.id}"]`)); (lab || r).click();
+    if (!r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); r.dispatchEvent(new Event('input', { bubbles: true })); }
+    return { ok: true, how: `선택(${r.value})` };
   }
   // '캠페인을 선택하세요' 같은 다중 선택: 열어서 전체 선택 항목을 누른다
   async function selectAllCampaigns() {
@@ -657,6 +668,8 @@
       sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || []));
     } else if (msg?.type === 'fillDates') {
       sendResponse(fillDates(msg.labels || [], msg.value || ''));
+    } else if (msg?.type === 'clickRadio') {
+      sendResponse(clickRadio(msg.values || [], msg.texts || []));
     } else if (msg?.type === 'setCheckbox') {
       sendResponse(setCheckbox(msg.texts || [], !!msg.checked));
     } else if (msg?.type === 'selectAllCampaigns') {
