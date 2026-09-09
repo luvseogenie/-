@@ -430,7 +430,8 @@
   // 글자로 누를 것 찾기: 정확히 같은 글자 → 그 글자로 시작 → 포함, 순서대로. 보이는 것만.
   const CLICKABLE = 'button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], li, label, span, div, td';
   function findClickable(texts, { exactOnly = false } = {}) {
-    const els = deepAll(CLICKABLE).filter((e) => visible(e) && e.children.length <= 3);
+    // 같은 글자를 가진 요소가 겹겹이면(li > button > span) 가장 안쪽 것을 고른다 — 클릭 처리기가 보통 거기 붙어 있다
+    const els = deepAll(CLICKABLE).filter((e) => visible(e) && e.children.length <= 3).sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length);
     const norm = (t) => clean(t).replace(/\s+/g, '');
     for (const mode of exactOnly ? ['exact'] : ['exact', 'start', 'contain']) {
       for (const t of texts) {
@@ -446,7 +447,21 @@
     if (!el) return { ok: false, reason: `'${texts[0]}' 를 찾지 못했습니다` };
     const target = el.closest('button, a, [role="button"], [role="tab"], [role="menuitem"], label') || el;
     fire(target, [...HOVER, ...CLICK]); try { if (target !== el) fire(el, CLICK); } catch { /* 무시 */ }
+    try { target.click(); } catch { /* 무시 */ } try { if (target !== el) el.click(); } catch { /* 무시 */ }
     return { ok: true, text: clean(el.innerText || el.value || '').slice(0, 30), tag: target.tagName.toLowerCase() };
+  }
+  // 글자 위에 마우스 올리기 (드롭다운 메뉴 열기용)
+  function hoverText(texts) {
+    const el = findClickable(texts); if (!el) return { ok: false };
+    const target = el.closest('li, a, button, div') || el; fire(target, HOVER); fire(el, HOVER);
+    return { ok: true, text: clean(el.innerText).slice(0, 30) };
+  }
+  // 이 화면이 불러온 같은 도메인 스크립트 주소 (라우트 경로를 찾기 위해)
+  function scriptUrls() {
+    const out = new Set();
+    for (const s2 of deepAll('script[src]')) { try { const u = new URL(s2.src, location.href); if (u.origin === location.origin) out.add(u.href); } catch { /* 무시 */ } }
+    try { for (const e of performance.getEntriesByType('resource')) if (/\.js(\?|$)/.test(e.name) && e.name.startsWith(location.origin)) out.add(e.name); } catch { /* 무시 */ }
+    return [...out].slice(0, 20);
   }
   // 캠페인 상세 화면의 상품(옵션) 목록: '상품명 … ID: 95988650186' → [{option_id, name}]
   function readCampaignOptions() {
@@ -581,6 +596,10 @@
       sendResponse(findLink(msg.texts || []));
     } else if (msg?.type === 'selectOption') {
       sendResponse(selectOption(msg.texts || []));
+    } else if (msg?.type === 'hoverText') {
+      sendResponse(hoverText(msg.texts || []));
+    } else if (msg?.type === 'scriptUrls') {
+      sendResponse({ urls: scriptUrls() });
     } else if (msg?.type === 'buttonsDiag') {
       sendResponse(buttonsDiag());
     } else if (msg?.type === 'clickLoginChooser') {

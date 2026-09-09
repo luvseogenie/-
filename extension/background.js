@@ -359,6 +359,29 @@ async function collectReport(dateOverride) {
       else steps.push('보고서 메뉴 링크 없음');
     }
     if (!onReport) {
+      // 메뉴가 자바스크립트 버튼이면: 상위 메뉴에 마우스를 올려 연 뒤 '광고보고서' 를 실제 클릭 방식으로
+      for (const parent of ['광고 관리', '보고서', '광고보고서']) { await chrome.tabs.sendMessage(tab.id, { type: 'hoverText', texts: [parent] }).catch(() => null); await sleep(700); }
+      const c = await click(tab.id, ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서']);
+      await sleep(5000); await inject(tab.id);
+      const st = await tabState(tab.id); onReport = await isReportPage();
+      steps.push(`메뉴 클릭 ${c.ok ? `(${c.text})` : '실패'} → ${st.url.slice(0, 70)} ${onReport ? '= 보고서 화면' : '(아님)'}`);
+      if (!onReport && st.url !== url) await goto(url);
+    }
+    if (!onReport) {
+      // 광고센터 스크립트 파일에서 'report' 가 들어간 화면 경로를 찾아 본다
+      const origin = new URL(url).origin;
+      const found = new Set();
+      try {
+        const { urls = [] } = await chrome.tabs.sendMessage(tab.id, { type: 'scriptUrls' }).catch(() => ({ urls: [] }));
+        for (const su of urls.slice(0, 12)) {
+          try { const txt = await (await fetch(su, { credentials: 'include' })).text(); for (const m of txt.matchAll(/["'`](\/marketing\/[A-Za-z0-9\-_/]*report[A-Za-z0-9\-_/]*)["'`]/gi)) found.add(m[1]); } catch { /* 무시 */ }
+          if (found.size >= 8) break;
+        }
+      } catch { /* 무시 */ }
+      steps.push(`스크립트에서 찾은 경로 ${found.size}개${found.size ? ': ' + [...found].slice(0, 6).join(', ') : ''}`);
+      for (const path of [...found].slice(0, 8)) { tried.push(path); await goto(origin + path); if (await isReportPage()) { onReport = true; steps.push(`경로 ${path} = 보고서 화면`); break; } }
+    }
+    if (!onReport) {
       const origin = new URL(url).origin;
       for (const path of ['/marketing/report', '/marketing/reports', '/marketing/report/campaign', '/marketing/report/download', '/marketing/dashboard/report', '/report', '/reports']) {
         tried.push(path); await goto(origin + path); if (await isReportPage()) { onReport = true; steps.push(`후보 주소 ${path} = 보고서 화면`); break; }
