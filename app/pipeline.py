@@ -101,7 +101,7 @@ class JobController:
                 self._check()
                 if item["type"] == "category":
                     self.progress["label"] = f"최하위 카테고리 찾는 중: {item.get('name', item['id'])}"
-                    leaves = expand_to_leaves(bt, int(item["id"]), lambda: self._stop)
+                    leaves = expand_to_leaves(bt, int(item["id"]), lambda: self._stop, retry=self._with_retry)
                     for leaf in leaves:
                         targets.append(("category", leaf["id"], leaf["name"], leaf["path"]))
                 elif item["type"] == "category_url":

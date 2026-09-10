@@ -388,7 +388,17 @@ class BrowserThread(threading.Thread):
         except Exception:  # noqa: BLE001
             shutil.rmtree(old, ignore_errors=True)
         old.mkdir(parents=True, exist_ok=True)
-        log.info("브라우저 저장 데이터를 초기화했습니다 (윙 로그인 다시 필요)")
+        # 평소 프로필 복사본과 그 스위치도 지운다 (복사본은 실제로 새 프로필과 같으므로, 초기화 뒤에는 전용 프로필로 돌아간다)
+        for d in config.DATA_DIR.glob("profile-mine*"):
+            if d.is_dir():
+                shutil.rmtree(d, ignore_errors=True)
+        for f in (config.USE_MY_PROFILE_FLAG, config.MY_PROFILE_COPY_FILE):
+            try:
+                f.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+        self.work_page = None
+        log.info("브라우저 저장 데이터를 초기화했습니다 (윙 로그인 다시 필요) · 프로그램 전용 새 프로필로 실행됩니다")
         return True
 
     def page(self):

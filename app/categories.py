@@ -68,7 +68,7 @@ def _ancestor_ids(cid) -> list[int]:
     return out
 
 
-def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
+def discover_children(bt, cid: int, force: bool = False, retry=None) -> list[dict]:
     """브라우저 스레드 안에서 호출. 하위 카테고리를 찾아 저장하고 돌려준다."""
     row = db.get_category(cid)
     if not home_tree_loaded() or force and row is not None and row["depth"] <= 2:
@@ -84,7 +84,13 @@ def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
     exclude = list({*ancestors, *siblings, cid})
     # 현재 항목의 형제는 제외하되, 자기 자신은 제외 목록에 포함시킨다
     page = bt.page()
-    data = fetch_children(page, cid, exclude)
+    if retry is not None:
+        data = retry(lambda: fetch_children(bt.page(), cid, exclude))    # 차단이면 쉬었다가 다시 (pipeline._with_retry)
+        if data is None:
+            from .coupang_list import BlockedError
+            raise BlockedError("카테고리 페이지가 계속 막혀 있습니다")
+    else:
+        data = fetch_children(page, cid, exclude)
     kids = data["children"]
     how = data.get("how")
     if data.get("is_leaf"):
@@ -113,7 +119,7 @@ def discover_children(bt, cid: int, force: bool = False) -> list[dict]:
     return [dict(r) for r in db.get_children(cid)]
 
 
-def expand_to_leaves(bt, cid: int, should_stop, max_depth: int = 6, _depth: int = 0) -> list[dict]:
+def expand_to_leaves(bt, cid: int, should_stop, max_depth: int = 6, _depth: int = 0, retry=None) -> list[dict]:
     """선택한 카테고리를 최하위 카테고리 목록으로 펼친다."""
     if should_stop():
         return []
@@ -122,11 +128,11 @@ def expand_to_leaves(bt, cid: int, should_stop, max_depth: int = 6, _depth: int 
         return [dict(row)]
     if _depth >= max_depth:
         return [dict(row)] if row else []
-    kids = discover_children(bt, cid)
+    kids = discover_children(bt, cid, retry=retry)
     if not kids:
         row = db.get_category(cid)
         return [dict(row)] if row else []
     out = []
     for k in kids:
-        out.extend(expand_to_leaves(bt, k["id"], should_stop, max_depth, _depth + 1))
+        out.extend(expand_to_leaves(bt, k["id"], should_stop, max_depth, _depth + 1, retry=retry))
     return out
