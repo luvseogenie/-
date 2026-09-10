@@ -43,10 +43,10 @@ class BrowserThread(threading.Thread):
 
     # ----- 브라우저 -----
     def ensure_context(self):
+        import os as _os
         if self.context is not None and not self._closed:
             return self.context
         if self.pw is None:
-            import os as _os
             _os.environ.setdefault("REBROWSER_PATCHES_RUNTIME_FIX_MODE", "addBinding")
             try:
                 # 자동 조작 탐지(CDP 흔적)를 피하도록 패치된 구동 라이브러리 (있으면 우선 사용)
@@ -63,9 +63,10 @@ class BrowserThread(threading.Thread):
             if ctx is not None:
                 return ctx
         except Exception as e:  # noqa: BLE001
+            if not _os.environ.get("CS_ALLOW_LEGACY_LAUNCH"):
+                # 기존 방식(플레이라이트가 직접 띄우는 실행)은 자동화 표식이 붙어 쿠팡이 바로 막는다 → 자동으로 넘어가지 않는다
+                raise RuntimeError(f"브라우저를 일반 방식으로 열지 못했습니다: {e}. 엣지 창을 모두 닫고(작업 관리자에서 msedge 종료) 다시 시도해 주세요")
             log.warn(f"일반 실행 방식 실패, 기존 방식으로 엽니다: {e}")
-            if config.profile_dir() != config.PROFILE_DIR:
-                log.warn("기존 방식은 평소 프로필을 쓸 수 없어 프로그램 전용 프로필로 엽니다")
         last = None
         for channel in self._candidates():
             try:
@@ -199,13 +200,22 @@ class BrowserThread(threading.Thread):
                 args += ["--headless=new", "--no-sandbox"]
             args.append("about:blank")
             flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
-            self.proc = proc
-            for _ in range(100):
-                if self._port_alive(port):
+            opened = False
+            for attempt in (1, 2):
+                proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+                self.proc = proc
+                for _ in range(100):
+                    if self._port_alive(port):
+                        opened = True
+                        break
+                    _t.sleep(0.2)
+                if opened:
                     break
-                _t.sleep(0.2)
-            else:
+                # 포트가 안 열리는 흔한 이유: 같은 프로필을 쥔 브라우저가 (백그라운드에라도) 이미 떠 있어 새 창이 거기에 붙어 버림
+                if attempt == 1 and self._kill_browser_processes(name):
+                    log.warn(f"{name} 이(가) 이미 떠 있어 접속 포트가 열리지 않았습니다. 그 {name} 을(를) 종료하고 다시 실행합니다")
+                    _t.sleep(2.0)
+                    continue
                 raise RuntimeError(f"{name} 실행 후 접속 포트가 열리지 않았습니다")
             port_file.write_text(str(port))
             self.channel = name
