@@ -476,7 +476,7 @@ def diagnose_category(page, cid: int) -> dict:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = config.DEBUG_DIR / f"{stamp}_diag_{cid}"
     try:
-        page.screenshot(path=str(base) + ".png", full_page=False)
+        page.screenshot(path=str(base) + ".png", full_page=False, timeout=8000)
         (config.DEBUG_DIR / f"{stamp}_diag_{cid}.html").write_text(page.content(), encoding="utf-8")
         data["screenshot"] = f"{stamp}_diag_{cid}.png"
     except Exception as e:  # noqa: BLE001
@@ -501,7 +501,7 @@ def _dump_debug(page, tag: str):
     try:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base = config.DEBUG_DIR / f"{stamp}_{tag}"
-        page.screenshot(path=str(base) + ".png", full_page=False)
+        page.screenshot(path=str(base) + ".png", full_page=False, timeout=8000)
         (config.DEBUG_DIR / f"{stamp}_{tag}.html").write_text(page.content(), encoding="utf-8")
         log.warn(f"확인용 화면을 저장했습니다: data/debug/{stamp}_{tag}.png")
     except Exception as e:  # noqa: BLE001
