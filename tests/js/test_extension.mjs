@@ -369,6 +369,10 @@ console.log('extension logic: all checks passed');
   const days = AR.byDate(sel); assert.deepEqual(days.map((x) => x.key), ['2026-09-01', '2026-09-02']); assert.equal(days[0].spend, 24000);
   const t = AR.total(sel); assert.equal(t.spend, 33000); assert.equal(t.revenue, 75000);
   const cand = AR.excludeCandidates(sel, { minSpend: 5000, maxRoas: 1 }); assert.deepEqual(cand.map((k) => k.key), ['구름마우스패드']);
+  // 키워드 '-' = 검색어 없이 노출된 광고 → NO_KEYWORD 로 묶이고 제외 후보에서 빠진다
+  const dash = AR.normalizeAdReport([rec('2026-09-01', '-', '94602333981', '5000', '50', '30000', 0, 0, 0, 0)]);
+  assert.equal(dash[0].keyword, ''); assert.equal(AR.byKeyword(dash)[0].key, AR.NO_KEYWORD);
+  assert.equal(AR.excludeCandidates(dash, { minSpend: 1000, maxRoas: 1 }).length, 0);
   // 같은 날짜·캠페인은 새 파일로 통째로 교체, 다른 캠페인 행은 유지
   S.upsertAdRows(d, [{ ...rows[0], campaign: '30. 보냉가방', keyword: '보냉가방' }]);
   S.upsertAdRows(d, [{ ...rows[0], spend: 1 }]);   // 22. 마우스패드 9/1 을 1행으로 교체

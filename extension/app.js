@@ -262,9 +262,9 @@ function renderCpOptions(panel, rows, soldOnly) {
 function renderCpKeywords(panel, rows) {
   const ex = new Set((DATA.excludes?.[cp.campaign] || []).map((x) => x.keyword));
   const q = cp.kwSearch.trim();
-  let list = AR.byKeyword(rows).filter((k) => !q || k.key.includes(q));
+  let list = AR.byKeyword(rows.map((r) => (/^[-–—ㆍ·]?$/.test(r.keyword || '') ? { ...r, keyword: '' } : r))).filter((k) => !q || k.key.includes(q));
   const t = AR.total(rows);
-  const badge = (r) => (r.orders > 0 ? ' <span class="pill sold">판매</span>' : '') + (ex.has(r.key) ? ' <span class="pill warn">제외 담김</span>' : '');
+  const badge = (r) => (r.key === AR.NO_KEYWORD ? ' <span class="sub" title="상품 상세페이지·홈·카테고리 등 검색어 없이 노출된 광고. 보고서에는 키워드가 - 로 적힙니다. 제외 키워드로 막을 수 없습니다">ⓘ 검색어 없는 지면</span>' : '') + (r.orders > 0 ? ' <span class="pill sold">판매</span>' : '') + (ex.has(r.key) ? ' <span class="pill warn">제외 담김</span>' : '');
   panel.innerHTML = `<div class="cp-panel-head"><h2 style="margin:0">전체 키워드 <span class="sub">${list.length}개</span></h2><input type="text" id="cp-kw-search" placeholder="키워드 검색" value="${esc(cp.kwSearch)}" style="width:180px"><button class="btn sm" id="cp-suggest">광고비만 나가는 키워드 고르기</button><span class="grow"></span><button class="btn primary sm" id="cp-add-ex">✓ 제외 키워드 담기 (<span id="cp-sel-n">${cp.checked.size}</span>)</button></div>
     <p class="sub" style="margin:0 0 8px">광고비만 나가고 주문이 없는 키워드를 체크해 제외 키워드에 담으세요. 담긴 목록은 '제외 키워드' 탭에서 복사해 광고센터에 등록할 수 있습니다.</p>` + cpTable(list, '키워드', 'keywords', { check: true, badge, total: t });
   bindSort(panel, 'keywords');

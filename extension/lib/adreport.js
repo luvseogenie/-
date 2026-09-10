@@ -51,6 +51,7 @@ export function normalizeAdReport(records, fallbackDate = null) {
       else row[f] = parseNumber(v) ?? 0;
     }
     if (!row.campaign || ['합계', '총계', '전체'].includes(normHeader(row.campaign))) continue;
+    if (/^[-–—ㆍ·]?$/.test(row.keyword)) row.keyword = '';   // '-' = 검색어 없이 노출된 광고 (비검색 지면)
     if (!row.date) continue;
     // 14일 값이 없고 1일 값만 있으면 14일 칸에 1일 값을 (화면에서는 14일 기준을 쓴다)
     if (idx.orders14 == null && idx.orders1 != null) { row.orders14 = row.orders1; row.qty14 = row.qty1; row.revenue14 = row.revenue1; row.roas14 = row.roas1; }
@@ -90,7 +91,8 @@ export function groupBy(rows, keyFn, labelFn = null) {
   }
   return Object.values(by).map(finish);
 }
-export const byKeyword = (rows) => groupBy(rows, (r) => r.keyword || '(키워드 없음)');
+export const NO_KEYWORD = '비검색 노출 (키워드 없음)';
+export const byKeyword = (rows) => groupBy(rows, (r) => r.keyword || NO_KEYWORD);
 export const byOption = (rows) => groupBy(rows, (r) => r.option_id || r.product_name || '(옵션 없음)', (r) => r.product_name || r.option_id);
 export const byDate = (rows) => groupBy(rows, (r) => r.date).sort((a, b) => a.key.localeCompare(b.key));
 export const byCampaign = (rows) => groupBy(rows, (r) => r.campaign);
@@ -101,5 +103,5 @@ export function reportDates(d) { return Object.keys(d.adrows || {}).sort(); }
 
 // 제외 키워드 후보: 광고비는 썼는데 주문이 없거나, ROAS 가 기준보다 낮은 키워드
 export function excludeCandidates(rows, { minSpend = 5000, maxRoas = 1 } = {}) {
-  return byKeyword(rows).filter((k) => k.key !== '(키워드 없음)' && k.spend >= minSpend && (k.orders14 === 0 || k.roas < maxRoas)).sort((a, b) => b.spend - a.spend);
+  return byKeyword(rows).filter((k) => k.key !== NO_KEYWORD && k.spend >= minSpend && (k.orders14 === 0 || k.roas < maxRoas)).sort((a, b) => b.spend - a.spend);
 }
