@@ -6,7 +6,7 @@ from . import config, db, log, wing
 from .browser import browser, human_delay, clear_bot_cookies
 from .categories import expand_to_leaves
 from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, ensure_product_context, reset_debug_budget
-from .metrics import restricted_reason
+from .metrics import restricted_reason, needs_option_sum
 
 
 class Stopped(Exception):
@@ -413,7 +413,7 @@ class JobController:
         rows = [enrich(p, cond) for p in db.products(run_id)]
         todo = [r for r in rows
                 if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
-                                          or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))]
+                                          or needs_option_sum(r, cond))]
         todo.sort(key=lambda r: -(r.get("views_28") or 0))      # 조회수 높은 상품부터
         ids = [r["product_id"] for r in todo]
         if not ids:
@@ -629,7 +629,8 @@ class JobController:
                                 db.set_setting("badge_map", bm)
                                 n = db.apply_badge_map(run_id, bk, data["delivery"])
                                 log.info(f"배송 뱃지 학습: {bk} → {data['delivery']} (같은 뱃지 {n}개 반영)")
-                    if cond.get("sum_options") and (p.get("option_total") or p.get("option_count") or 1) > 1:
+                    probe = dict(p, buyers_min=data.get("buyers_min") if data.get("buyers_min") is not None else p.get("buyers_min"))
+                    if needs_option_sum(probe, cond):
                         self._sum_option_buyers(bt, run_id, p, data, cond)
                     parts = []
                     if data.get("price"):

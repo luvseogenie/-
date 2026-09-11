@@ -56,7 +56,7 @@
       <p class="muted small">빈칸이나 0은 "제한 없음"입니다. 조회수는 윙의 정확한 28일 값. 28일 판매는 <b>최근 28일 리뷰 수 × 리뷰당 판매 배수</b>로 추정하며(페이지를 열지 않아 차단 위험 낮음), 상세 확인을 하면 "월 N명 이상 구매" 문구도 함께 표시됩니다.</p>
       <label class="check-row"><input type="checkbox" id="c-review_estimate"> 리뷰로 28일 판매 추정 (리뷰 API 수백 번 호출 → 차단 잦음, 상세 확인이 막힐 때만 권장)</label>
       <label class="check-row"><input type="checkbox" id="c-auto_verify"> 자동 실행 때 상세 확인(최종가·"한 달간 N명 구매"·배송)까지 이어서 하기 (사람처럼 페이지만 열고 추가 호출 없음, 권장)</label>
-      <label class="check-row"><input type="checkbox" id="c-sum_options"> 상세 확인 때 "월 N명 이상"을 옵션 전체 합산 (옵션마다 페이지를 열어 느림, 최대 8개)</label>
+      <label class="check-row"><input type="checkbox" id="c-sum_options"> 옵션 합산: 대표 옵션의 "월 N명 이상"이 28일 판매 하한의 25%~100% 사이인 상품만 옵션 페이지를 열어 전체를 합산 (넘거나 한참 못 미치는 상품은 안 엶)</label>
       <label class="check-row"><input type="checkbox" id="c-quick_price"> 수집 직후 쿠폰 적용가 미리 확인 (가격 API 다량 호출, 차단 위험 있음)</label>
       <div class="cond-row" style="align-items:flex-start"><span>배송 형태</span>
         <div class="chips small" id="c-delivery_types" title="비워 두면 전부. 상세 확인으로 확정된 배송만 걸러내고, 확인 전 상품은 후보로 남겨 확인 뒤 판정합니다">

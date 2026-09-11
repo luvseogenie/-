@@ -17,7 +17,7 @@ from .browser import browser
 from .categories import discover_children, load_home_tree, top_categories, tree
 from .coupang_list import PAGE_INFO_JS, diagnose_category, diagnose_site, fetch_listing, parse_scope_url
 from .export import build_xlsx
-from .metrics import enrich, summarize
+from .metrics import enrich, summarize, needs_option_sum
 from . import update as updater
 from .pipeline import job, Stopped
 
@@ -261,7 +261,7 @@ async def run_verify(req: Request):
     # 아직 확인 안 했거나, 최종가·배송 형태가 확정되지 않은 상품은 다시 연다
     todo = {r["product_id"] for r in rows
             if r.get("pre_pass") and (not r.get("verified_at") or not r.get("verified_price") or not r.get("delivery_sure")
-                                      or (cond.get("sum_options") and (r.get("option_total") or r.get("option_count") or 1) > 1 and not r.get("buyers_options")))}
+                                      or needs_option_sum(r, cond))}
     if ids:
         skipped = len([i for i in ids if i not in eligible_ids])
         ids = [i for i in ids if i in eligible_ids]

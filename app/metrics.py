@@ -177,3 +177,17 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
             "hidden": sum(1 for r in rows if r.get("hidden")),
         },
     }
+
+
+def needs_option_sum(r: dict, cond: dict) -> bool:
+    """옵션 합산이 필요한 상품만 고른다: 옵션이 여러 개이고, 대표 옵션의 '월 N명 이상'이 조건(28일 판매 하한)에는
+    못 미치지만 그 25% 이상인 경우. 이미 조건을 넘는 상품이나 한참 못 미치는 상품은 옵션 페이지를 열지 않는다."""
+    if not cond.get("sum_options"):
+        return False
+    if (r.get("option_total") or r.get("option_count") or 1) <= 1 or r.get("buyers_options"):
+        return False
+    need = int(cond.get("buyers_min") or 0)
+    b = r.get("buyers_min")
+    if not need or not b:
+        return False
+    return need * 0.25 <= b < need
