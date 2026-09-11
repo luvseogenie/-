@@ -543,24 +543,17 @@ def _goto(page, url: str, wait_selector: str | None = None):
         time.sleep(pause)
     _human_before_nav(page)
     cur = page.url or ""
-    on_coupang = "coupang.com" in cur
+    on_coupang = "www.coupang.com" in cur
     resp = None
-    if on_coupang and "wing.coupang.com" not in cur:
-        try:
-            resp = _click_navigate(page, url)
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"클릭 이동 실패, 주소로 이동합니다: {str(e)[:120]}")
-            resp = None
-    if resp is None:
-        if "coupang.com" not in cur and "/vp/products/" in url:
-            # 빈 탭에서 상품으로 바로 가지 않고 첫 화면을 거친 뒤 클릭으로 들어간다
-            try:
-                page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_timeout(800)
-                resp = _click_navigate(page, url)
-            except Exception as e:  # noqa: BLE001
-                log.warn(f"첫 화면 경유 이동 실패, 주소로 이동합니다: {str(e)[:120]}")
-                resp = None
+    if not on_coupang:
+        # 첫 요청을 목록·상품 주소로 바로 보내지 않는다. 쿠팡 첫 화면에서 사람처럼 머문 뒤(봇 방어가 쿠키를 '사람'으로 매김) 클릭으로 들어간다.
+        _warmed["at"] = 0.0
+        warm_up(page)
+    try:
+        resp = _click_navigate(page, url)
+    except Exception as e:  # noqa: BLE001
+        log.warn(f"클릭 이동 실패, 주소로 이동합니다: {str(e)[:120]}")
+        resp = None
     if resp is None:
         resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
     status = resp.status if resp else None
@@ -587,7 +580,9 @@ def warm_up(page, seconds: float | None = None):
         return
     secs = seconds or _r.uniform(15, 25)
     try:
-        page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+        r = page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
+        if r is not None and r.status in (403, 429):
+            log.warn(f"쿠팡 첫 화면부터 막혀 있습니다 (HTTP {r.status}). 평소 브라우저에서도 쿠팡이 안 열리면 IP 차단입니다")
         end = time.time() + secs
         while time.time() < end:
             page.mouse.move(_r.randint(100, 1100), _r.randint(120, 750), steps=_r.randint(8, 20))
