@@ -480,6 +480,8 @@
   }));
   $('#btn-refresh').addEventListener('click', guard(refreshAll));
   $('#btn-archive').addEventListener('click', guard(async () => {
+    if (state.selected.size > 300 && !confirm(`${fmt(state.selected.size)}개를 보관함에 넣습니다. 조건 통과 상품만 넣으려면 취소하고 '조건 통과' 칩에서 맨 위 체크를 다시 하세요. 계속할까요?`)) return;
+    toast('보관함에 넣는 중…');
     const r = await api('/api/archive', { product_ids: Array.from(state.selected) });
     toast(`${r.added}개를 보관함에 저장했습니다 (총 ${r.total}개).`);
   }));
@@ -510,6 +512,7 @@
   $$('#filter-chips .chip').forEach((el) => el.addEventListener('click', () => {
     $$('#filter-chips .chip').forEach((c) => c.classList.remove('active')); el.classList.add('active');
     state.filter = el.dataset.f; try { localStorage.setItem('cs_filter', state.filter); } catch (e) { /* 무시 */ }
+    state.selected.clear(); renderSel();      // 다른 칩에서 고른 선택은 버린다 (수천 개가 딸려오지 않게)
     loadProducts(true);
   }));
   try { const f = localStorage.getItem('cs_filter'); if (f && $(`#filter-chips .chip[data-f="${f}"]`)) state.filter = f; } catch (e) { /* 무시 */ }

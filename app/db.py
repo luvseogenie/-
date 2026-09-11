@@ -495,16 +495,13 @@ def set_hidden(run_id, product_ids, hidden: bool):
 # ---------- archive ----------
 def archive_add(run_id, items: list[dict]) -> int:
     c = conn()
-    n = 0
-    for p in items:
-        exists = c.execute("SELECT 1 FROM archive WHERE product_id=?", (p["product_id"],)).fetchone()
-        if exists:
-            continue
-        c.execute("INSERT INTO archive(saved_at, run_id, product_id, data) VALUES (?,?,?,?)",
-                  (now(), run_id, p["product_id"], json.dumps(p, ensure_ascii=False)))
-        n += 1
+    have = {r[0] for r in c.execute("SELECT product_id FROM archive").fetchall()}
+    ts = now()
+    rows = [(ts, run_id, p["product_id"], json.dumps(p, ensure_ascii=False)) for p in items if p["product_id"] not in have]
+    if rows:
+        c.executemany("INSERT INTO archive(saved_at, run_id, product_id, data) VALUES (?,?,?,?)", rows)
     c.commit()
-    return n
+    return len(rows)
 
 
 def archive_list():
