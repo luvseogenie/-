@@ -381,14 +381,16 @@
         <select id="arc-day" class="input" style="max-width:220px"><option value="">모든 날짜 (${all.length}개)</option>${days.map((d) => `<option value="${d}" ${arcView.day === d ? 'selected' : ''}>${d} (${cnt(d)}개)</option>`).join('')}</select>
         <select id="arc-cat" class="input" style="max-width:320px"><option value="">모든 카테고리 (${byDay.length}개)</option>${cats.map((c) => `<option value="${esc(c)}" ${arcView.cat === c ? 'selected' : ''}>${esc(c.split(' > ').join(' › '))} (${byDay.filter((r) => r.category_path === c).length})</option>`).join('')}</select>
         <a href="/api/export?source=archive${qs}" class="btn">이 목록 엑셀 내려받기</a><button class="btn" id="arc-del">선택 삭제</button><span class="muted small">${list.length}개 표시</span></div>
-      <table class="grid"><thead><tr><th class="chk"></th><th class="left">상품</th><th class="left">카테고리</th><th>28일 판매</th><th>전환율</th><th>리뷰</th><th>가격</th><th>28일 매출</th><th>배송</th><th>시각</th></tr></thead><tbody>
+      <table class="grid"><thead><tr><th class="chk"><input type="checkbox" id="arc-all" title="표시된 목록 전체 선택"></th><th class="left">상품</th><th class="left">카테고리</th><th>28일 판매</th><th>전환율</th><th>리뷰</th><th>가격</th><th>28일 매출</th><th>배송</th><th>시각</th></tr></thead><tbody>
       ${groups.map((g) => `<tr class="group-row"><td colspan="10"><b>${g.day}</b> <span class="muted small">저장 ${g.rows.length}개</span></td></tr>${g.rows.map(row).join('')}`).join('') || '<tr><td colspan="10" class="empty">보관한 상품이 없습니다.</td></tr>'}
       </tbody></table>`);
     $('#arc-day').addEventListener('change', (e) => { arcView.day = e.target.value; arcView.cat = ''; showArchive(); });
     $('#arc-cat').addEventListener('change', (e) => { arcView.cat = e.target.value; showArchive(); });
+    $('#arc-all').addEventListener('change', (e) => { $$('.arc').forEach((c) => { c.checked = e.target.checked; }); });
     $('#arc-del').addEventListener('click', guard(async () => {
       const ids = $$('.arc:checked').map((e) => Number(e.dataset.id));
       if (!ids.length) return toast('삭제할 항목을 선택하세요.', true);
+      if (ids.length > 50 && !confirm(`${ids.length}개를 보관함에서 지웁니다. 계속할까요?`)) return;
       await api('/api/archive/delete', { ids }); showArchive();
     }));
   }
