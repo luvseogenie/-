@@ -476,7 +476,7 @@ def diagnose_category(page, cid: int) -> dict:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = config.DEBUG_DIR / f"{stamp}_diag_{cid}"
     try:
-        page.screenshot(path=str(base) + ".png", full_page=False, timeout=8000)
+        page.screenshot(path=str(base) + ".png", full_page=False, timeout=4000)
         (config.DEBUG_DIR / f"{stamp}_diag_{cid}.html").write_text(page.content(), encoding="utf-8")
         data["screenshot"] = f"{stamp}_diag_{cid}.png"
     except Exception as e:  # noqa: BLE001
@@ -501,7 +501,7 @@ def _dump_debug(page, tag: str):
     try:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base = config.DEBUG_DIR / f"{stamp}_{tag}"
-        page.screenshot(path=str(base) + ".png", full_page=False, timeout=8000)
+        page.screenshot(path=str(base) + ".png", full_page=False, timeout=4000)
         (config.DEBUG_DIR / f"{stamp}_{tag}.html").write_text(page.content(), encoding="utf-8")
         log.warn(f"확인용 화면을 저장했습니다: data/debug/{stamp}_{tag}.png")
     except Exception as e:  # noqa: BLE001
@@ -582,7 +582,7 @@ def warm_up(page, seconds: float | None = None):
     try:
         r = page.goto(config.COUPANG_HOME, wait_until="domcontentloaded", timeout=60000)
         if r is not None and r.status in (403, 429):
-            log.warn(f"쿠팡 첫 화면부터 막혀 있습니다 (HTTP {r.status}). 평소 브라우저에서도 쿠팡이 안 열리면 IP 차단입니다")
+            log.warn(f"첫 화면도 지금은 막혀 있습니다 (HTTP {r.status}). 쉬었다가 다시 시도합니다. 몇 번을 쉬어도 계속 이러면 IP 차단이니 평소 브라우저에서 쿠팡이 열리는지 확인해 보세요")
         end = time.time() + secs
         while time.time() < end:
             page.mouse.move(_r.randint(100, 1100), _r.randint(120, 750), steps=_r.randint(8, 20))
