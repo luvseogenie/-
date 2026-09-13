@@ -478,11 +478,13 @@ function renderLedgerTable() {
   { const th = $('#lg-table thead'); const top = th ? th.getBoundingClientRect().height : 0; $$('#lg-table tr.grand td').forEach((td) => td.style.top = top + 'px'); }
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
-  $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-panel').style.display = ''; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
+  $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-details').open = true; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
 }
 
 /* ===== 트래픽 슬롯 설정 ===== */
-$('#tr-toggle').onclick = () => { const e = $('#tr-panel'); e.style.display = e.style.display === 'none' ? '' : 'none'; if (e.style.display !== 'none') renderTrafficPanel(); };
+// 트래픽 슬롯 칸은 접힘이 기본. 펼친 상태는 기억한다
+try { $('#tr-details').open = localStorage.getItem('cc-tr-open') === '1'; } catch { /* 무시 */ }
+$('#tr-details').addEventListener('toggle', () => { try { localStorage.setItem('cc-tr-open', $('#tr-details').open ? '1' : '0'); } catch { /* 무시 */ } if ($('#tr-details').open) renderTrafficPanel(); });
 $('#tr-add').onclick = async () => {
   const camp = $('#tr-camp').value.trim(), start = $('#tr-start').value, end = $('#tr-end').value, slots = Number($('#tr-slots').value);
   if (!camp || !start || !slots) { msg('#tr-msg', '캠페인 · 시작일 · 슬롯 수를 넣어 주세요', 'err'); return; }

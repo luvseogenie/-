@@ -149,12 +149,9 @@
           <button class="btn sm" id="lg-camp-prev">◀</button><button class="btn sm" id="lg-camp-next">▶</button>
           <span class="sub">한 캠페인만 골라 보면 스크롤 없이 바로 볼 수 있습니다.</span>
         </div>
-        <div class="row" style="margin-top:6px">
-          <b>트래픽 슬롯</b><span class="sub" id="tr-summary"></span>
-          <button class="btn sm" id="tr-toggle">트래픽 슬롯 설정</button>
-          <span class="sub">캠페인별로 어느 날부터 몇 슬롯을 쓰는지 적어 두면 장부에 표시됩니다.</span>
-        </div>
-        <div id="tr-panel" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:10px">
+        <details id="tr-details" style="margin-top:6px">
+          <summary><b>트래픽 슬롯</b> <span class="sub" id="tr-summary"></span> <span class="sub">— 캠페인별로 어느 날부터 몇 슬롯을 쓰는지 적어 두면 장부에 표시됩니다. 눌러서 펼치기/접기</span></summary>
+        <div id="tr-panel" style="margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:10px">
           <div class="row">
             <label class="sub">캠페인</label><input type="text" id="tr-camp" list="camp-list-tr" style="width:240px" placeholder="캠페인 이름"><datalist id="camp-list-tr"></datalist>
             <label class="sub">시작일</label><input type="date" id="tr-start"><label class="sub">종료일</label><input type="date" id="tr-end"><span class="sub">(비우면 진행 중)</span>
@@ -163,6 +160,7 @@
           </div>
           <div class="tablewrap" style="max-height:300px;margin-top:8px"><table id="tr-table"><thead><tr><th class="l">캠페인</th><th class="l">시작일</th><th class="l">종료일</th><th>슬롯</th><th class="l">메모</th><th></th></tr></thead><tbody></tbody></table></div>
         </div>
+        </details>
         <div class="row" style="margin-top:6px">
           <b>캠페인 표시</b><span class="sub" id="vis-summary"></span>
           <button class="btn sm" id="vis-toggle">캠페인 표시 설정</button>
