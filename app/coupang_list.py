@@ -916,6 +916,62 @@ def fetch_review_velocity(page, product_id: int, days: int = 28, size: int = 30,
             "note": f"최근 {days}일 리뷰 {count}개 (전체 {total or '?'}개, {reqs}번 조회)"}
 
 
+def fetch_review_windows(page, product_id: int, days_list=(7, 14, 28, 56), size: int = 30, max_requests: int = 16) -> dict:
+    """최근 7·14·28·56일 안에 달린 리뷰 수를 한 번에 센다 (급증 판단용).
+    가장 긴 기간의 경계 쪽을 먼저 이분 탐색으로 찾고, 짧은 기간은 그 안쪽에서만 찾는다. 받은 쪽은 재사용."""
+    from datetime import date, timedelta
+    today = date.today()
+    referrer = config.PRODUCT_URL.format(pid=product_id)
+    cache = {}
+    reqs = [0]
+
+    def load(pg):
+        if pg in cache:
+            return cache[pg]
+        reqs[0] += 1
+        r = _review_page(page, product_id, pg, size, referrer)
+        if isinstance(r, str):
+            raise RuntimeError(r)
+        cache[pg] = r
+        return r
+
+    total, dates, n = load(1)
+    out = {"total": total or 0, "requests": 0}
+    if n == 0:
+        for d in days_list:
+            out[str(d)] = 0
+        return out
+    pages = max(1, -(-(total or n) // size))
+
+    def count_within(days, hi_limit):
+        """days 일 안 리뷰 수. hi_limit: 이 쪽 번호 이후는 전부 바깥이라고 알려진 값."""
+        cutoff = today - timedelta(days=days)
+        _, d1, n1 = load(1)
+        w1 = sum(1 for d in d1 if d >= cutoff)
+        if w1 < n1 or pages == 1:
+            return w1
+        lo, hi = 1, min(hi_limit, pages + 1)
+        while hi - lo > 1 and reqs[0] < max_requests:
+            mid = (lo + hi) // 2
+            _, dm, nm = load(mid)
+            wm = sum(1 for d in dm if d >= cutoff)
+            if nm == 0 or wm == 0:
+                hi = mid
+            elif wm >= nm:
+                lo = mid
+            else:
+                return (mid - 1) * size + wm
+        return min(total or lo * size, lo * size)
+
+    hi_limit = pages + 1
+    for d in sorted(days_list, reverse=True):          # 긴 기간부터: 짧은 기간의 경계는 그 안쪽에 있다
+        c = count_within(d, hi_limit)
+        out[str(d)] = c
+        hi_limit = min(hi_limit, max(2, -(-c // size) + 1))
+    out["requests"] = reqs[0]
+    return out
+
+
 def fetch_quick_price(page, product_id: int, item_id=None, vendor_item_id=None) -> dict:
     """상품 페이지를 새로 열지 않고 가격 API 만 호출해 쿠폰 적용 최종가를 얻는다.
     (탭이 상품 페이지가 아니면 처음 한 번만 연다)"""

@@ -147,6 +147,37 @@ def enrich(p: dict, cond: dict) -> dict:
         if cond.get("views_max") and (views or 0) > cond["views_max"]:
             pre = False
     out["pre_pass"] = pre
+    # 급증: 최근 W일 리뷰 vs 직전 W일 리뷰 (W = surge_days). 56일치가 있으면 28일 기준도 계산
+    rv = {}
+    if p.get("rv_json"):
+        try:
+            import json as _json
+            rv = _json.loads(p["rv_json"]) or {}
+        except Exception:  # noqa: BLE001
+            rv = {}
+    out["rv"] = rv
+    W = int(cond.get("surge_days") or 14)
+    recent = rv.get(str(W))
+    prior = None
+    if recent is not None and rv.get(str(2 * W)) is not None:
+        prior = max(0, rv[str(2 * W)] - recent)
+    out["surge_recent"] = recent
+    out["surge_prior"] = prior
+    out["surge_ratio"] = (round(recent / prior, 1) if prior else (99.0 if recent else None)) if recent is not None else None
+    out["surge"] = bool(recent is not None and recent >= int(cond.get("surge_min") or 10)
+                        and (out["surge_ratio"] or 0) >= float(cond.get("surge_ratio") or 2))
+    # 이전 수집 대비 리뷰 증가 (수집 결과만으로, 요청 없이): 하루당 늘어난 리뷰 수
+    pr = p.get("prev_review")
+    if pr and p.get("review_count") is not None:
+        cnt, when = pr
+        try:
+            from datetime import datetime as _dt
+            days = max(1, (_dt.now() - _dt.strptime(when[:19], "%Y-%m-%d %H:%M:%S")).days)
+            out["review_growth"] = p["review_count"] - cnt
+            out["review_growth_per_day"] = round((p["review_count"] - cnt) / days, 1)
+            out["review_growth_days"] = days
+        except Exception:  # noqa: BLE001
+            pass
     # 상세 확인(페이지 열기)을 거쳤는지: 확인 후에는 최종가·배송이 확정되고 '월 N명 이상' 문구도 읽는다
     out["verified"] = bool(p.get("verified_at"))
     out["needs_verify"] = bool(pre) and not out["verified"]
@@ -172,6 +203,7 @@ def summarize(rows: list[dict], run_cats: list, seen_total: int) -> dict:
             "unmatched": sum(1 for r in rows if r["verdict"] == "unmatched"),
             "pending": sum(1 for r in rows if r["verdict"] == "pending"),
             "unverified": sum(1 for r in rows if r.get("needs_verify") and not r.get("hidden")),
+            "surge": sum(1 for r in rows if r.get("surge") and not r.get("hidden")),
             "coupon": sum(1 for r in rows if r.get("coupon_flag")),
             "restricted": sum(1 for r in rows if r.get("restricted")),
             "hidden": sum(1 for r in rows if r.get("hidden")),

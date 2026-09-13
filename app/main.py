@@ -111,7 +111,7 @@ async def set_conditions(req: Request):
                 cond[k] = [str(x) for x in (v or []) if x]
             elif k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify", "auto_archive"):
                 cond[k] = bool(v)
-            elif k == "conv_min":
+            elif k in ("conv_min", "surge_ratio"):
                 cond[k] = float(v or 0)
             else:
                 cond[k] = int(v or 0)
@@ -222,6 +222,33 @@ def run_review_estimate():
         return _err(e)
 
 
+@app.post("/api/run/surge")
+async def run_surge(req: Request):
+    """급증 상품 찾기: 조건 통과 후보(또는 체크한 상품)의 최근 7·14·28·56일 리뷰 수를 센다."""
+    body = await req.json() if req.headers.get("content-length") not in (None, "0") else {}
+    ids = [int(x) for x in (body.get("product_ids") or [])]
+    try:
+        run_id = _current_run_id()
+        with job.lock:
+            if job.is_running():
+                return _err("이미 작업이 진행 중입니다.")
+            cond = db.get_conditions()
+            job.run_id = run_id
+            job._set("analyzing", "급증 상품 확인 준비")
+
+            def task(bt):
+                try:
+                    job._surge_scan(bt, run_id, cond, ids or None)
+                except Stopped:
+                    job.message = "완전중단됨"
+                finally:
+                    job._finish()
+            job.future = browser.submit(task, "급증 상품 확인")
+        return {"ok": True}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
 @app.post("/api/run/pause")
 def run_pause():
     job.pause()
@@ -293,7 +320,16 @@ def _rows(run_id, cond):
         if _rows_cache["rows"] is not None and (_rows_cache["key"] == key or
                                                 (_rows_cache["key"] and _rows_cache["key"][0] == run_id and now - _rows_cache["at"] < 2.0)):
             return _rows_cache["rows"]
-        rows = [enrich(p, cond) for p in db.products(run_id)]
+        prods = db.products(run_id)
+        try:
+            prev = db.previous_review_counts(run_id)
+        except Exception:  # noqa: BLE001
+            prev = {}
+        for p in prods:
+            pr = prev.get(p["product_id"])
+            if pr and pr[0] is not None:
+                p["prev_review"] = pr
+        rows = [enrich(p, cond) for p in prods]
         _rows_cache.update({"key": key, "rows": rows, "at": time.time()})
         return rows
 
@@ -341,6 +377,8 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
             rows = [r for r in rows if r["verdict"] == flt]
         elif flt == "unverified":
             rows = [r for r in rows if r.get("needs_verify")]
+        elif flt == "surge":
+            rows = [r for r in rows if r.get("surge")]
         elif flt == "coupon":
             rows = [r for r in rows if r.get("coupon_flag")]
         elif flt == "restricted":
@@ -358,6 +396,7 @@ def _apply_filters(rows, cond, flt, q, leaf, sort, direction):
         "price": lambda r: r.get("effective_price") or 0,
         "views": lambda r: r.get("views_28") or -1,
         "revenue": lambda r: r.get("revenue_28") or -1,
+        "surge": lambda r: (r.get("surge_ratio") or -1, r.get("surge_recent") or -1),
         "rankpv": lambda r: -(r.get("pv_rank") or 9999),
         "rank": lambda r: (r.get("category_path") or "", r.get("rank") or 0),
     }

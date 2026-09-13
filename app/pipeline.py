@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay, clear_bot_cookies
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, ensure_product_context, reset_debug_budget
+from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, fetch_review_windows, ensure_product_context, reset_debug_budget
 from .metrics import restricted_reason, needs_option_sum
 
 
@@ -427,6 +427,65 @@ class JobController:
             else:
                 human_delay(1.5, 3.0)
         log.info("리뷰 기반 판매량 추정 완료")
+
+    def _surge_scan(self, bt, run_id, cond, product_ids=None):
+        """급증 상품 찾기: 조건 통과 후보(가격·리뷰·조회수 통과)의 최근 7·14·28·56일 리뷰 수를 리뷰 API 로 센다 (페이지 안 열음)."""
+        from .metrics import enrich
+        rows = [enrich(p, cond) for p in db.products(run_id)]
+        want = set(product_ids or [])
+        targets = [r for r in rows if (r["product_id"] in want if want else r.get("pre_pass")) and not r.get("hidden")]
+        targets = [r for r in targets if not r.get("rv_at") or want]        # 이미 센 것은 건너뜀 (직접 고른 것은 다시)
+        targets.sort(key=lambda r: -(r.get("views_28") or 0))
+        if not targets:
+            log.info("급증 확인 대상 없음 (조건 통과 후보가 없거나 이미 확인함)")
+            return
+        self._set("analyzing", "급증 상품 확인 중 (리뷰 API)", len(targets))
+        log.info(f"급증 확인: {len(targets)}개 (최근 7·14·28·56일 리뷰 수, 페이지 안 열음)")
+        page = bt.page()
+        try:
+            t0 = targets[0]
+            ensure_product_context(page, t0["product_id"], t0.get("item_id"), t0.get("vendor_item_id"))
+        except BlockedError:
+            log.warn("상품 페이지가 막혀 급증 확인을 건너뜁니다")
+            return
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"상품 페이지 열기 실패(계속 진행): {e}")
+        blocks = 0
+        done_n = 0
+        for p in targets:
+            self._check()
+            self.progress["label"] = (p.get("name") or "")[:38]
+            try:
+                w = fetch_review_windows(page, p["product_id"])
+                db.save_review_windows(run_id, p["product_id"], w)
+                blocks = 0
+            except BlockedError as e:
+                blocks += 1
+                if blocks > len(config.BLOCK_COOLDOWNS) + 1:
+                    log.warn(f"{e} · 쉬어도 계속 막혀 급증 확인을 중단합니다 (다시 누르면 남은 상품만 이어서 합니다)")
+                    break
+                if blocks == 1:
+                    self._fresh_start(str(e))
+                else:
+                    self._cooldown(blocks - 1, str(e))
+                    self._fresh_start(None)
+                try:
+                    ensure_product_context(page, p["product_id"], p.get("item_id"), p.get("vendor_item_id"))
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
+            except Exception as e:  # noqa: BLE001
+                log.warn(f"급증 확인 실패 {p['product_id']}: {e}")
+            self.progress["done"] += 1
+            done_n += 1
+            if config.REST_EVERY and done_n % config.REST_EVERY == 0:
+                import random as _r
+                pause = _r.uniform(*config.REST_SECONDS)
+                log.info(f"급증 확인 {done_n}개째 · {pause:.0f}초 쉽니다")
+                self._sleep_checked(pause)
+            else:
+                human_delay(2.0, 4.0)
+        log.info("급증 확인 완료")
 
     def _auto_verify(self, bt, run_id, cond):
         """손 놓으면 자동: 조건에 맞는(가격·리뷰·조회수 통과) 상품의 실제가격·구매자수·배송을 이어서 확인한다."""

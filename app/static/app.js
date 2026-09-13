@@ -180,7 +180,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'buyers_max', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify', 'auto_archive'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'buyers_max', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify', 'auto_archive', 'surge_days', 'surge_ratio', 'surge_min'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;
@@ -302,6 +302,12 @@
         salesCell = `<b class="green">≈ ${fmt(r.sales_28)}</b><div class="sub">리뷰 ${fmt(r.reviews_28)}×${r.review_multiplier} 추정 · 일 ${fmt(Math.round(r.sales_28 / 28))}</div>`;
       } else {
         salesCell = `<span class="muted">-</span><div class="sub">${r.reviews_28_note ? esc(r.reviews_28_note) : '미확인'}</div>`;
+      }
+      if (r.surge_recent !== null && r.surge_recent !== undefined) {
+        const W = state.conditions.surge_days || 14;
+        salesCell += `<div class="sub ${r.surge ? 'green' : ''}">${r.surge ? '🔥 급증 ' : ''}최근${W}일 리뷰 ${fmt(r.surge_recent)} · 직전 ${fmt(r.surge_prior ?? 0)}${r.surge_ratio ? ` · ×${r.surge_ratio}` : ''}</div>`;
+      } else if (r.review_growth_per_day !== undefined && r.review_growth_per_day !== null) {
+        salesCell += `<div class="sub">전 수집 대비 리뷰 ${r.review_growth >= 0 ? '+' : ''}${fmt(r.review_growth)} (${r.review_growth_days}일, 일 ${r.review_growth_per_day})</div>`;
       }
       const convVal = (r.conversion !== null && r.conversion !== undefined) ? r.conversion : null;
       const convCell = convVal !== null
@@ -465,6 +471,11 @@
   $('#c-review_estimate') && $('#c-review_estimate').addEventListener('change', saveConditions);
   $('#c-auto_verify') && $('#c-auto_verify').addEventListener('change', saveConditions);
   $('#btn-review').addEventListener('click', guard(async () => { await api('/api/run/review_estimate', {}); toast('리뷰로 판매량을 추정합니다 (페이지는 열지 않습니다).'); await refreshAll(); }));
+  $('#btn-surge').addEventListener('click', guard(async () => {
+    const ids = Array.from(state.selected);
+    await api('/api/run/surge', { product_ids: ids });
+    toast(ids.length ? `${ids.length}개의 급증 여부를 확인합니다.` : '조건 통과 후보의 급증 여부를 확인합니다 (리뷰 API).'); await refreshAll();
+  }));
       $('#c-hide_ads').addEventListener('change', saveConditions);
 
   $('#btn-start').addEventListener('click', guard(async () => {

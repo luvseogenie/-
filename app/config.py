@@ -162,7 +162,10 @@ DEFAULT_CONDITIONS = {
     "exclude_restricted": True,   # 못 파는 물건(전기용품·화장품·어린이제품) 빼기
     "hide_ads": False,
     "auto_continue": True,        # 손 놓으면 자동
-    "auto_archive": True,         # 작업이 끝나면 조건 통과 상품을 보관함에 자동 저장
+    "auto_archive": True,
+    "surge_days": 14,             # 급증 판단 기간(일): 7 / 14 / 28
+    "surge_ratio": 2.0,           # 최근 기간 리뷰가 직전 같은 기간의 몇 배 이상이면 급증
+    "surge_min": 10,              # 최근 기간 리뷰 최소 개수 (너무 적은 수의 배수 놀이 방지)         # 작업이 끝나면 조건 통과 상품을 보관함에 자동 저장
 }
 
 # 1차 카테고리 (쿠팡 대분류). 번호는 2026-09 홈 메뉴에서 확인한 값.

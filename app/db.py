@@ -125,7 +125,8 @@ def init_db():
              ("option_total", "INTEGER"), ("buyers_min", "INTEGER"), ("badge_key", "TEXT"),
              ("delivery_sure", "INTEGER"), ("price_sale", "INTEGER"), ("price_origin", "INTEGER"),
              ("buyers_options", "INTEGER"), ("buyers_detail", "TEXT"),
-             ("reviews_28", "INTEGER"), ("reviews_28_days", "REAL"), ("reviews_28_at", "TEXT"), ("reviews_28_note", "TEXT")]
+             ("reviews_28", "INTEGER"), ("reviews_28_days", "REAL"), ("reviews_28_at", "TEXT"), ("reviews_28_note", "TEXT"),
+             ("rv_json", "TEXT"), ("rv_at", "TEXT")]
     have = {r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()}
     for col, typ in extra:
         if col not in have:
@@ -464,6 +465,25 @@ def save_review_velocity(run_id, product_id, count: int | None, days: float | No
     c.execute("UPDATE products SET reviews_28=?, reviews_28_days=?, reviews_28_at=?, reviews_28_note=? WHERE run_id=? AND product_id=?",
               (count, days, now(), note, run_id, product_id))
     c.commit()
+
+
+def save_review_windows(run_id, product_id, windows: dict | None):
+    c = conn()
+    c.execute("UPDATE products SET rv_json=?, rv_at=? WHERE run_id=? AND product_id=?",
+              (json.dumps(windows, ensure_ascii=False) if windows else None, now(), run_id, product_id))
+    c.commit()
+
+
+def previous_review_counts(run_id) -> dict:
+    """이전 실행들에서 같은 상품의 리뷰 수와 그때 날짜 (가장 최근 것 하나). {product_id: (review_count, created_at)}"""
+    rows = conn().execute(
+        """SELECT p.product_id, p.review_count, r.created_at FROM products p JOIN runs r ON r.id = p.run_id
+           WHERE p.run_id < ? AND p.review_count IS NOT NULL ORDER BY p.run_id DESC""", (run_id,)).fetchall()
+    out = {}
+    for r in rows:
+        if r["product_id"] not in out:
+            out[r["product_id"]] = (r["review_count"], r["created_at"])
+    return out
 
 
 def save_buyers_sum(run_id, product_id, total: int | None, n_options: int, detail: list):
