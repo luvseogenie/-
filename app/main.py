@@ -109,7 +109,7 @@ async def set_conditions(req: Request):
             v = body[k]
             if k == "delivery_types":
                 cond[k] = [str(x) for x in (v or []) if x]
-            elif k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify"):
+            elif k in ("exclude_restricted", "hide_ads", "auto_continue", "sum_options", "quick_price", "review_estimate", "auto_verify", "auto_archive"):
                 cond[k] = bool(v)
             elif k == "conv_min":
                 cond[k] = float(v or 0)
@@ -433,6 +433,25 @@ async def archive_add(req: Request):
 @app.get("/api/archive")
 def archive_list():
     return db.archive_list()
+
+
+@app.post("/api/archive/reanalyze")
+async def archive_reanalyze(req: Request):
+    """보관함 상품들을 새 실행으로 다시 분석한다 (윙 조회수 → 상세 확인). 결과는 보관함에 최신 값으로 갱신된다."""
+    body = await req.json()
+    ids = [int(x) for x in body.get("product_ids") or []]
+    if not ids:
+        return _err("다시 분석할 상품을 선택하세요.")
+    items = db.archive_products(ids)
+    if not items:
+        return _err("보관함에서 상품을 찾지 못했습니다.")
+    scope = [{"type": "product", "id": int(p["product_id"]), "name": p.get("name"), "data": p} for p in items]
+    try:
+        cond = db.get_conditions()
+        run_id = job.start_sourcing(scope, cond)
+        return {"ok": True, "run_id": run_id, "count": len(scope)}
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
 
 
 @app.post("/api/archive/delete")

@@ -55,6 +55,22 @@ class JobController:
         self.paused = False
         self._stop = False
 
+    def _auto_archive(self, run_id):
+        """조건 통과 상품을 보관함에 넣는다 (있는 것은 최신 값으로 갱신)."""
+        try:
+            cond = db.get_conditions()
+            if not cond.get("auto_archive", True):
+                return
+            from .metrics import enrich
+            rows = [enrich(p, cond) for p in db.products(run_id)]
+            passed = [r for r in rows if r["verdict"] == "pass" and not r.get("hidden")]
+            if not passed:
+                return
+            n = db.archive_add(run_id, passed)
+            log.info(f"조건 통과 {len(passed)}개를 보관함에 저장했습니다 (새로 {n}개, 나머지는 최신 값으로 갱신)")
+        except Exception as e:  # noqa: BLE001
+            log.warn(f"보관함 자동 저장 실패: {e}")
+
     def _sleep_checked(self, seconds):
         end = time.time() + seconds
         while time.time() < end:
@@ -112,9 +128,13 @@ class JobController:
                 elif item["type"] == "keyword":
                     targets.append(("keyword", item["q"], item["q"], f"검색: {item['q']}"))
                 elif item["type"] == "product":
-                    db.upsert_product(run_id, {"product_id": int(item["id"]), "name": item.get("name") or f"상품 {item['id']}",
-                                               "url": config.PRODUCT_URL.format(pid=item["id"]), "category_path": "링크 상품",
-                                               "delivery": "WING"}, None)
+                    seed = dict(item.get("data") or {})       # 보관함에서 다시 분석할 때는 저장된 값(가격·리뷰·카테고리 등)으로 시작
+                    seed.update({"product_id": int(item["id"]), "name": item.get("name") or seed.get("name") or f"상품 {item['id']}",
+                                 "url": seed.get("url") or config.PRODUCT_URL.format(pid=item["id"]),
+                                 "category_path": seed.get("category_path") or "링크 상품", "delivery": seed.get("delivery") or "WING"})
+                    for k in ("verified_price", "verified_at", "buyers_min", "buyers_options", "buyers_detail", "views_28", "analyzed", "matched", "reviews_28"):
+                        seed.pop(k, None)                        # 새로 확인할 값은 비운다
+                    db.upsert_product(run_id, seed, restricted_reason(seed.get("name"), seed.get("category_path")))
             # 중복 제거
             uniq = {}
             for t in targets:
@@ -168,6 +188,7 @@ class JobController:
                 self._review_estimate(bt, run_id, cond)
                 if cond.get("auto_verify"):
                     self._auto_verify(bt, run_id, cond)
+                self._auto_archive(run_id)
             elif cond.get("auto_continue"):
                 self.message = "수집 완료. [28일 판매량 분석]을 누르면 윙 조회수 분석을 시작합니다."
             self._finish()
@@ -429,6 +450,7 @@ class JobController:
             self._review_estimate(bt, run_id, cond)
             if cond.get("auto_continue") and cond.get("auto_verify"):
                 self._auto_verify(bt, run_id, cond)
+            self._auto_archive(run_id)
             self._finish()
         except Stopped:
             db.set_run_status(run_id, "stopped")
@@ -592,6 +614,7 @@ class JobController:
     def _verify(self, bt, run_id, product_ids):
         try:
             self._verify_loop(bt, run_id, product_ids)
+            self._auto_archive(run_id)
             self._finish()
         except Stopped:
             self.message = "완전중단됨"

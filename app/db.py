@@ -130,6 +130,9 @@ def init_db():
     for col, typ in extra:
         if col not in have:
             c.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
+    have_a = {r[1] for r in c.execute("PRAGMA table_info(archive)").fetchall()}
+    if "updated_at" not in have_a:
+        c.execute("ALTER TABLE archive ADD COLUMN updated_at TEXT")
     c.commit()
     _fix_global_badges()
     _reverify_missing_buyers()
@@ -494,14 +497,27 @@ def set_hidden(run_id, product_ids, hidden: bool):
 
 # ---------- archive ----------
 def archive_add(run_id, items: list[dict]) -> int:
+    """보관함에 넣는다. 이미 있는 상품은 최신 값으로 갱신하고(저장일은 유지, 최근 확인일 갱신) 새 상품만 개수로 센다."""
     c = conn()
     have = {r[0] for r in c.execute("SELECT product_id FROM archive").fetchall()}
     ts = now()
-    rows = [(ts, run_id, p["product_id"], json.dumps(p, ensure_ascii=False)) for p in items if p["product_id"] not in have]
-    if rows:
-        c.executemany("INSERT INTO archive(saved_at, run_id, product_id, data) VALUES (?,?,?,?)", rows)
+    new_rows = [(ts, run_id, p["product_id"], json.dumps(p, ensure_ascii=False)) for p in items if p["product_id"] not in have]
+    upd_rows = [(json.dumps(p, ensure_ascii=False), ts, run_id, p["product_id"]) for p in items if p["product_id"] in have]
+    if new_rows:
+        c.executemany("INSERT INTO archive(saved_at, run_id, product_id, data) VALUES (?,?,?,?)", new_rows)
+    if upd_rows:
+        c.executemany("UPDATE archive SET data=?, updated_at=?, run_id=? WHERE product_id=?", upd_rows)
     c.commit()
-    return len(rows)
+    return len(new_rows)
+
+
+def archive_products(ids: list[int]) -> list[dict]:
+    """보관함에서 상품 원본 값(다시 분석용)."""
+    if not ids:
+        return []
+    q = ",".join("?" * len(ids))
+    rows = conn().execute(f"SELECT product_id, data FROM archive WHERE product_id IN ({q})", list(ids)).fetchall()
+    return [json.loads(r["data"]) for r in rows]
 
 
 def archive_list():
@@ -511,6 +527,7 @@ def archive_list():
         d = json.loads(r["data"])
         d["archive_id"] = r["id"]
         d["saved_at"] = r["saved_at"]
+        d["updated_at"] = r["updated_at"] if "updated_at" in r.keys() else None
         out.append(d)
     return out
 
