@@ -121,8 +121,8 @@ BLOCK_COOLDOWN = 120
 BLOCK_COOLDOWNS = [180, 600, 1200, 1800, 1800]
 DETAIL_DELAY = (6.0, 12.0)         # 상품 상세 페이지 사이 대기(초)
 DETAIL_BATCH = 30                  # 상세 페이지 N개마다
-DETAIL_CAP_HOUR = int(os.environ.get("CS_CAP_HOUR", "40"))    # 시간당 상품 페이지 상한 (0 = 없음)
-DETAIL_CAP_DAY = int(os.environ.get("CS_CAP_DAY", "150"))     # 하루(24시간) 상품 페이지 상한 (0 = 없음)
+DETAIL_CAP_HOUR = int(os.environ.get("CS_CAP_HOUR", "30"))    # 시간당 상품 페이지 상한 (0 = 없음)
+DETAIL_CAP_DAY = int(os.environ.get("CS_CAP_DAY", "100"))     # 하루(24시간) 상품 페이지 상한 (0 = 없음)
 DETAIL_BATCH_REST = (180, 300)     # 3~5분 길게 쉼 (시간당 70개 안팎으로 눌러 차단을 피함)
 BROWSER = os.environ.get("CS_BROWSER", "auto")   # auto | whale | msedge | chrome
 BROWSER_PREF_FILE = DATA_DIR / "browser.txt"      # 도구에서 고른 브라우저 (msedge/chrome/whale)
@@ -168,8 +168,8 @@ DEFAULT_CONDITIONS = {
     "surge_days": 14,             # 급증 판단 기간(일): 7 / 14 / 28
     "surge_ratio": 2.0,           # 최근 기간 리뷰가 직전 같은 기간의 몇 배 이상이면 급증
     "surge_min": 10,              # 최근 기간 리뷰 최소 개수 (너무 적은 수의 배수 놀이 방지)
-    "cap_hour": 40,               # 상품 페이지 시간당 상한 (0 = 없음)
-    "cap_day": 150,               # 상품 페이지 하루 상한 (0 = 없음)         # 작업이 끝나면 조건 통과 상품을 보관함에 자동 저장
+    "cap_hour": 30,               # 상품 페이지 시간당 상한 (0 = 없음)
+    "cap_day": 100,               # 상품 페이지 하루 상한 (0 = 없음). 하루 150~200쪽에서 몇 시간짜리 차단이 관찰됨         # 작업이 끝나면 조건 통과 상품을 보관함에 자동 저장
 }
 
 # 1차 카테고리 (쿠팡 대분류). 번호는 2026-09 홈 메뉴에서 확인한 값.
