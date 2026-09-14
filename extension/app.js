@@ -607,12 +607,18 @@ function renderOptions() {
   const since = addDays(localIso(yday), -29); const soldRecently = new Set(); const soldQty = {};
   for (const [date, day] of Object.entries(d.sales)) for (const r of Object.values(day)) { if (date >= since && r.quantity > 0) { soldRecently.add(r.option_id); soldQty[r.option_id] = (soldQty[r.option_id] || 0) + r.quantity; } }
   const q = $('#opt-search').value.trim().toLowerCase(); const f = $('#opt-filter').value; const grouped = $('#opt-group').checked;
+  // 캠페인 선택 상자 (번호순). 선택돼 있으면 그 캠페인 옵션만
+  const campSel = $('#opt-camp'); const curCamp = campSel.value;
+  campSel.innerHTML = '<option value="">모든 캠페인</option>' + S.sortCampaigns([...new Set(d.options.map((o) => o.campaign).filter(Boolean))]).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '<option value="__none">(캠페인 없음)</option>';
+  campSel.value = [...campSel.options].some((o) => o.value === curCamp) ? curCamp : '';
+  const onlyCamp = campSel.value;
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
     const hist = S.marginHistory(d, o.option_id);
     if (f === 'mapped' && !o.campaign) return false; if (f === 'unmapped' && o.campaign) return false;
     if (f === 'nomargin' && hist.length) return false; if (f === 'sold30' && !soldRecently.has(o.option_id)) return false;
     if (f === 'suggest' && !sug[o.option_id]) return false;
+    if (onlyCamp === '__none' ? !!o.campaign : (onlyCamp && o.campaign !== onlyCamp)) return false;
     return !q || `${o.option_id} ${o.product_name} ${o.campaign} ${prod[o.option_id] || ''}`.toLowerCase().includes(q);
   };
   const sortMode = $('#opt-sort').value;
@@ -620,6 +626,8 @@ function renderOptions() {
   const list = (sortMode === 'campaign' ? [...d.options].sort(byCamp) : S.sortedOptions(d)).filter(pass);
   renderNewCampaigns(d);
   const nSug = Object.keys(sug).length;
+  $('#opt-bulk-n').textContent = `— ${list.length}개`; optBulkList = list.map((o) => o.option_id);
+  if (!$('#opt-bulk-from').value) $('#opt-bulk-from').value = todayIso;
   $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개`;
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
   if (!document.getElementById('camp-list')) $('#options-table').insertAdjacentHTML('beforebegin', `<datalist id="camp-list"></datalist>`);
@@ -655,7 +663,15 @@ function renderOptions() {
       const g = groups[pn]; const members = list.filter((o) => (prod[o.option_id] || '') === pn);
       const hdr = document.createElement('tr'); hdr.className = 'grp';
       hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}</span><span class="grow"></span>
-        <input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">이 상품의 캠페인 없는 옵션 모두에 적용</button></div></td>`;
+        <input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">이 상품의 캠페인 없는 옵션 모두에 적용</button>
+        <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">이 상품 전체에 새 마진 적용</button></div></td>`;
+      hdr.querySelector('[data-gmargin]').onclick = async () => {
+        const mg = parseNumber(hdr.querySelector('[data-gk=newmargin]').value); const from = hdr.querySelector('[data-gk=from]').value || '';
+        if (mg == null || hdr.querySelector('[data-gk=newmargin]').value === '') { msg('#opt-msg', '새 마진을 넣어 주세요', 'err'); return; }
+        if (!confirm(`${pn || '(상품명 없음)'} 옵션 ${g.options.length}개에 마진 ${fmtInt(mg)}원을 ${from ? from + ' 부터' : '처음부터'} 적용할까요?`)) return;
+        const dd = await reload(); for (const o of g.options) S.setMargin(dd, o.option_id, mg, from, ''); await S.save(dd); await reload();
+        msg('#opt-msg', `${g.options.length}개 옵션에 마진 ${fmtInt(mg)}원 (${from || '처음부터'}) 저장`, 'ok'); renderOptions(); renderFoot();
+      };
       hdr.querySelector('[data-gapply]').onclick = async () => {
         const camp = hdr.querySelector('[data-gk=campaign]').value.trim(); const mg = parseNumber(hdr.querySelector('[data-gk=margin]').value);
         if (!camp) { msg('#opt-msg', '캠페인 이름을 넣어 주세요', 'err'); return; }
@@ -672,7 +688,16 @@ function renderOptions() {
   }
   if (list.length > 400) tb.insertAdjacentHTML('beforeend', `<tr><td colspan="7" class="sub">400개까지만 표시합니다. 검색이나 필터로 줄여 주세요.</td></tr>`);
 }
-$('#opt-group').onchange = () => renderOptions(); $('#opt-sort').onchange = () => renderOptions();
+$('#opt-group').onchange = () => renderOptions(); $('#opt-sort').onchange = () => renderOptions(); $('#opt-camp').onchange = () => renderOptions();
+let optBulkList = [];
+$('#opt-bulk-save').onclick = async () => {
+  const margin = parseNumber($('#opt-bulk-margin').value); const from = $('#opt-bulk-from').value || ''; const note = $('#opt-bulk-note').value.trim();
+  if (margin == null || $('#opt-bulk-margin').value === '') { msg('#opt-msg', '새 마진을 넣어 주세요', 'err'); return; }
+  if (!optBulkList.length) { msg('#opt-msg', '표시된 옵션이 없습니다', 'err'); return; }
+  if (!confirm(`표시된 옵션 ${optBulkList.length}개에 마진 ${fmtInt(margin)}원을 ${from ? from + ' 부터' : '처음부터'} 적용할까요?`)) return;
+  const dd = await reload(); for (const id of optBulkList) S.setMargin(dd, id, margin, from, note); await S.save(dd); await reload();
+  msg('#opt-msg', `${optBulkList.length}개 옵션에 마진 ${fmtInt(margin)}원 (${from || '처음부터'}) 저장`, 'ok'); $('#opt-bulk-margin').value = ''; renderOptions(); renderFoot();
+};
 async function fetchCampOpts(camps) {
   msg('#newcamp-msg', `광고센터에서 ${camps.length}개 캠페인의 옵션을 읽는 중… (창이 떴다 닫힙니다)`); msg('#opt-msg', '');
   const r = await chrome.runtime.sendMessage({ type: 'campaignOptions', campaigns: camps });
