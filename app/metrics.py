@@ -173,9 +173,10 @@ def enrich(p: dict, cond: dict) -> dict:
         try:
             from datetime import datetime as _dt
             days = max(1, (_dt.now() - _dt.strptime(when[:19], "%Y-%m-%d %H:%M:%S")).days)
-            out["review_growth"] = p["review_count"] - cnt
-            out["review_growth_per_day"] = round((p["review_count"] - cnt) / days, 1)
-            out["review_growth_days"] = days
+            if p["review_count"] >= cnt:            # 줄어든 값은 옛 데이터가 섞인 것 → 표시하지 않음
+                out["review_growth"] = p["review_count"] - cnt
+                out["review_growth_per_day"] = round((p["review_count"] - cnt) / days, 1)
+                out["review_growth_days"] = days
         except Exception:  # noqa: BLE001
             pass
     # 상세 확인(페이지 열기)을 거쳤는지: 확인 후에는 최종가·배송이 확정되고 '월 N명 이상' 문구도 읽는다

@@ -321,8 +321,12 @@ def _rows(run_id, cond):
                                                 (_rows_cache["key"] and _rows_cache["key"][0] == run_id and now - _rows_cache["at"] < 2.0)):
             return _rows_cache["rows"]
         prods = db.products(run_id)
+        prev = {}
         try:
-            prev = db.previous_review_counts(run_id)
+            run = db.get_run(run_id)
+            is_archive = bool(run and '"archive"' in (run["scope"] or ""))   # 보관함에서 불러온 실행은 값이 옛것이라 비교하지 않는다
+            if not is_archive:
+                prev = db.previous_review_counts(run_id)
         except Exception:  # noqa: BLE001
             prev = {}
         for p in prods:
