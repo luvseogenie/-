@@ -898,6 +898,16 @@ $('#range-since').onclick = () => {
   const start = last ? (last < end ? addDays(last, 1) : end) : addDays(end, -6);
   $('#range-start').value = start > end ? end : start; $('#range-end').value = end; $('#range-check').click();
 };
+$('#range-report').onclick = async () => {
+  const from = $('#range-start').value, to = $('#range-end').value; if (!from || !to || from > to) { msg('#range-report-msg', '시작~끝 날짜를 확인해 주세요', 'err'); return; }
+  const y = localIso(yday); const end = to > y ? y : to;
+  $('#range-report').disabled = true; msg('#range-report-msg', `${from} ~ ${end} 광고 보고서 받는 중… (창이 떠서 광고센터 보고서 화면을 엽니다)`);
+  const r = await chrome.runtime.sendMessage({ type: 'collectReportRange', from, to: end });
+  $('#range-report').disabled = false;
+  if (!r) { msg('#range-report-msg', '응답 없음', 'err'); return; }
+  const lines = (r.parts || []).map((p) => `${p.from}~${p.to}: ${p.ok ? `${fmtInt(p.saved)}행` : '실패 — ' + p.error.slice(0, 120)}`);
+  msg('#range-report-msg', lines.join(' / ') || r.error || '실패', r.ok ? 'ok' : 'err'); loadSettings(); refreshAll();
+};
 $('#range-check').onclick = () => { const d = DATA; const ds = rangeDates(); const ms = ds.filter((x) => !d.sales[x]), ma = ds.filter((x) => !d.ads[x]); $('#range-missing-list').innerHTML = `판매 없는 날 ${ms.length}일: ${ms.map((x) => x.slice(5)).join(', ') || '없음'}<br>광고 없는 날 ${ma.length}일: ${ma.map((x) => x.slice(5)).join(', ') || '없음'}`; };
 $('#range-go').onclick = async () => {
   const kinds = [$('#range-sales').checked && 'sales', $('#range-ads').checked && 'ads'].filter(Boolean); if (!kinds.length) return;

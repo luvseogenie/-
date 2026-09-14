@@ -343,9 +343,10 @@ async function collectKind(kind, dateOverride, opts = {}) {
 // ---- 광고 보고서(키워드·옵션별) 자동 받기: 보고서 화면 → 어제 → 키워드 → 다운로드. 화면 구조를 글자로 찾는다. ----
 const click = (tabId, texts, opts = {}) => chrome.tabs.sendMessage(tabId, { type: 'clickText', texts, ...opts }).catch(() => ({ ok: false }));
 const diag = async (tabId) => { const d = await chrome.tabs.sendMessage(tabId, { type: 'buttonsDiag' }).catch(() => null); return d ? `주소 ${d.url.slice(0, 90)} · 버튼: ${d.buttons.join(' | ').slice(0, 600)} · 입력칸: ${d.inputs.join(', ')}` : '화면 정보 없음'; };
-async function collectReport(dateOverride) {
+async function collectReport(dateOverride, span = null) {
   const s = await getSettings();
   const target = dateOverride || yesterdayIso();
+  const from = span?.from || target, to = span?.to || target;   // 기간 보고서면 from~to, 아니면 어제 하루
   const url = (s.adsReportUrl || s.adsUrl).replace(/\{date\}/g, target);
   const { tab, close } = await openWorkTab(url, s);
   const steps = [];
@@ -405,11 +406,13 @@ async function collectReport(dateOverride) {
     // 쿠팡 광고보고서 화면(marketing-reporting/billboard/reports/pa): 위에서 조건을 정해 '보고서 만들기' → 아래 '요청한 보고서' 목록에 생김 → 줄의 '다운로드'(blob)
     await installHook(tab.id);
     expectUntil = Date.now() + 240000; expectDate = target; lastHookedUrl = null;
-    const compact = target.replace(/-/g, '');
-    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: [compact, target, target.replace(/-/g, '.')], mustHave: ['키워드', 'keyword', '일별', 'daily'] }).catch(() => ({ ok: false }));
+    const fromC = from.replace(/-/g, ''), toC = to.replace(/-/g, '');
+    const rowTexts = from === to ? [fromC, from, from.replace(/-/g, '.')] : [`${fromC}_${toC}`, `${from} ~ ${to}`, `${from}~${to}`, `${from.replace(/-/g, '.')} ~ ${to.replace(/-/g, '.')}`];
+    expectDate = to;
+    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: rowTexts, mustHave: ['키워드', 'keyword', '일별', 'daily'] }).catch(() => ({ ok: false }));
     const tryDownloadRow = async (label) => {
-      const waiting = waitForReport(45000);
-      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: [compact, target, target.replace(/-/g, '.')], button: ['다운로드'] }).catch(() => ({ ok: false }));
+      const waiting = waitForReport(60000);
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: rowTexts, button: ['다운로드'] }).catch(() => ({ ok: false }));
       steps.push(`${label}: 어제 날짜 줄의 다운로드 ${c?.ok ? `누름(${(c.rowText || '').slice(0, 40)})` : '못 찾음'}`);
       if (!c?.ok) { settle(null); return null; }
       return waiting;
@@ -421,7 +424,7 @@ async function collectReport(dateOverride) {
     // 3) 없으면 만든다: 기간 설정 → 시작일·종료일 = 어제 → 일별 → 키워드 포함 체크 → 보고서 만들기 → 목록 새로 고침하며 기다림
     if (!res?.ok) {
       const c1 = await click(tab.id, ['기간 설정', '직접 설정', '기간설정']); steps.push(`기간 설정 ${c1.ok ? '누름' : '못 찾음'}`); await sleep(800);
-      const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target }).catch(() => ({ ok: false }));
+      const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target, values: [from, to] }).catch(() => ({ ok: false }));
       steps.push(`날짜 입력 ${f?.ok ? `됨(${f.how})` : '못 함'}`); await sleep(800);
       const c2 = await click(tab.id, ['일별'], { exactOnly: true }); steps.push(`일별 ${c2.ok ? '누름' : '못 찾음'}`); await sleep(500);
       const lv = await chrome.tabs.sendMessage(tab.id, { type: 'clickRadio', values: ['keyword'], texts: ['캠페인 > 광고그룹 > 상품 > 키워드', '키워드'] }).catch(() => ({ ok: false }));
@@ -444,8 +447,8 @@ async function collectReport(dateOverride) {
     }
     if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). 보고서 화면: ${await diag(tab.id)}`);
     if (res.kind && res.kind !== 'adreport') await log(`[보고서] 받은 파일이 광고 보고서가 아니라 ${res.kind} 로 저장됐습니다`);
-    await log(`[자동] 광고 보고서 ${res.date} ${res.saved}행 저장 (${steps.join(' → ')})`);
-    return { ok: true, saved: res.saved, date: res.date };
+    await log(`[자동] 광고 보고서 ${from === to ? res.date : `${from}~${to}`} ${res.saved}행 저장 (${steps.join(' → ')})`);
+    return { ok: true, saved: res.saved, date: res.date, from, to };
   } finally { await close(); }
 }
 
@@ -482,6 +485,19 @@ async function fetchCampaignOptions(campaigns) {
     }
     return { ok: true, results };
   } finally { await close(); }
+}
+
+// 지난 기간 광고 보고서: 31일씩 나눠 차례로 받는다 (예전 1달치 등)
+async function collectReportRange(from, to) {
+  const out = []; let cur = from;
+  const add = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  while (cur <= to) {
+    const end = add(cur, 30) < to ? add(cur, 30) : to;
+    try { const r = await collectReport(null, { from: cur, to: end }); out.push({ from: cur, to: end, ok: true, saved: r.saved }); }
+    catch (e) { out.push({ from: cur, to: end, ok: false, error: e.message }); await log(`[보고서] ${cur}~${end} 실패: ${e.message}`); }
+    cur = add(end, 1);
+  }
+  return { ok: out.every((x) => x.ok), parts: out };
 }
 
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
@@ -739,6 +755,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
+    else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {

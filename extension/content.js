@@ -587,22 +587,22 @@
     return { ok: true, rowText: r.rowText };
   }
   // 라벨/자리표시 글자로 입력칸을 찾아 날짜를 넣는다 (여러 표기 시도)
-  function fillDates(labels, iso) {
+  function fillDates(labels, iso, values = null) {
     const inputs = deepAll('input').filter((i) => visible(i) && ['text', 'date', ''].includes(i.type || ''));
     const byLabel = (l) => inputs.find((i) => (i.placeholder || '').includes(l) || (i.getAttribute('aria-label') || '').includes(l) || (i.name || '').toLowerCase().includes(l.toLowerCase()) || (i.id && document.querySelector(`label[for="${i.id}"]`)?.innerText.includes(l)));
-    const targets = labels.map(byLabel).filter(Boolean);
-    if (!targets.length) return { ok: false, inputs: inputs.map((i) => `${i.type}:${i.placeholder || i.name || i.id || ''}`).slice(0, 10) };
-    const formats = [iso, iso.replace(/-/g, '.'), iso.replace(/-/g, '/'), iso.replace(/-/g, '')];
+    const pairs = labels.map((l, idx) => [byLabel(l), (values && values[idx]) || iso]).filter(([i]) => i);
+    if (!pairs.length) return { ok: false, inputs: inputs.map((i) => `${i.type}:${i.placeholder || i.name || i.id || ''}`).slice(0, 10) };
     let how = '';
-    for (const inp of targets) {
+    for (const [inp, want] of pairs) {
+      const formats = [want, want.replace(/-/g, '.'), want.replace(/-/g, '/'), want.replace(/-/g, '')];
       for (const v of formats) {
         inp.focus(); setNativeValue(inp, v);
         for (const t of ['keydown', 'keypress', 'keyup']) inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         inp.dispatchEvent(new Event('blur', { bubbles: true }));
-        if (inp.value && inp.value.replace(/[^\d]/g, '') === iso.replace(/-/g, '')) { how = v; break; }
+        if (inp.value && inp.value.replace(/[^\d]/g, '') === want.replace(/-/g, '')) { how = v; break; }
       }
     }
-    return { ok: !!how, how: how || '값이 유지되지 않음', values: targets.map((i) => i.value) };
+    return { ok: !!how, how: how || '값이 유지되지 않음', values: pairs.map(([i]) => i.value) };
   }
   // 글자 옆 체크박스를 원하는 상태로
   function setCheckbox(texts, checked) {
@@ -667,7 +667,7 @@
     } else if (msg?.type === 'clickInRow') {
       sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || []));
     } else if (msg?.type === 'fillDates') {
-      sendResponse(fillDates(msg.labels || [], msg.value || ''));
+      sendResponse(fillDates(msg.labels || [], msg.value || '', msg.values || null));
     } else if (msg?.type === 'clickRadio') {
       sendResponse(clickRadio(msg.values || [], msg.texts || []));
     } else if (msg?.type === 'setCheckbox') {
