@@ -485,8 +485,18 @@ async def archive_reanalyze(req: Request):
     if not items:
         return _err("보관함에서 상품을 찾지 못했습니다.")
     scope = [{"type": "product", "id": int(p["product_id"]), "name": p.get("name"), "data": p} for p in items]
+    cond = db.get_conditions()
+    if (body.get("mode") or "refresh") == "load":
+        # 요청 없이 불러오기: 저장된 값 그대로 새 실행에 넣고 지금 조건으로 판정만 다시 한다
+        if job.is_running():
+            return _err("작업이 진행 중입니다. 완전중단한 뒤 눌러주세요.")
+        run_id = db.create_run([{"type": "archive", "count": len(items)}], cond)
+        n = db.seed_products_full(run_id, items)
+        db.set_run_status(run_id, "analyzed")
+        db.set_setting(f"seen_total_{run_id}", n)
+        log.info(f"보관함 {n}개를 대시보드로 불러왔습니다 (요청 없음, 지금 조건으로 판정)")
+        return {"ok": True, "run_id": run_id, "count": n, "mode": "load"}
     try:
-        cond = db.get_conditions()
         run_id = job.start_sourcing(scope, cond)
         return {"ok": True, "run_id": run_id, "count": len(scope)}
     except Exception as e:  # noqa: BLE001

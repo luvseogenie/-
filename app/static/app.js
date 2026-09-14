@@ -389,13 +389,21 @@
         <select id="arc-day" class="input" style="max-width:220px"><option value="">모든 날짜 (${all.length}개)</option>${days.map((d) => `<option value="${d}" ${arcView.day === d ? 'selected' : ''}>${d} (${cnt(d)}개)</option>`).join('')}</select>
         <select id="arc-cat" class="input" style="max-width:320px"><option value="">모든 카테고리 (${byDay.length}개)</option>${cats.map((c) => `<option value="${esc(c)}" ${arcView.cat === c ? 'selected' : ''}>${esc(c.split(' > ').join(' › '))} (${byDay.filter((r) => r.category_path === c).length})</option>`).join('')}</select>
         <select id="arc-age" class="input" style="max-width:170px"><option value="0" ${!arcView.age ? 'selected' : ''}>확인 시점 전체</option><option value="7" ${arcView.age === 7 ? 'selected' : ''}>7일 이상 지난 것</option><option value="14" ${arcView.age === 14 ? 'selected' : ''}>14일 이상 지난 것</option><option value="30" ${arcView.age === 30 ? 'selected' : ''}>30일 이상 지난 것</option></select>
-        <a href="/api/export?source=archive${qs}" class="btn">이 목록 엑셀 내려받기</a><button class="btn" id="arc-re">선택 다시 분석</button><button class="btn" id="arc-del">선택 삭제</button><span class="muted small">${list.length}개 표시</span></div>
-      <p class="muted small" style="margin:0 0 6px">다시 분석: 선택한 상품만으로 새 실행을 만들어 윙 조회수와 상세 확인을 새로 합니다(수집 없음). 끝나면 보관함 값이 최신으로 갱신되고, 지금 조건에 안 맞으면 결과 화면에서 '조건 미달'로 보입니다.</p>
+        <a href="/api/export?source=archive${qs}" class="btn">이 목록 엑셀 내려받기</a><button class="btn" id="arc-load" title="선택한 상품을 저장된 값 그대로 결과 화면에 올리고 지금 조건으로 판정만 다시 합니다 (쿠팡·윙 요청 없음)">선택 대시보드로 불러오기</button><button class="btn" id="arc-re">선택 다시 분석</button><button class="btn" id="arc-del">선택 삭제</button><span class="muted small">${list.length}개 표시</span></div>
+      <p class="muted small" style="margin:0 0 6px">대시보드로 불러오기: 저장된 값 그대로 결과 화면에 올려 지금 조건으로 판정만 다시 합니다(요청 없음, 바로 끝남). 거기서 원하는 상품만 골라 상세 확인·급증 확인을 돌릴 수 있습니다. · 다시 분석: 선택한 상품의 윙 조회수와 상세 확인을 새로 합니다(수집 없음).</p>
       <table class="grid"><thead><tr><th class="chk"><input type="checkbox" id="arc-all" title="표시된 목록 전체 선택"></th><th class="left">상품</th><th class="left">카테고리</th><th>28일 판매</th><th>전환율</th><th>리뷰</th><th>가격</th><th>28일 매출</th><th>배송</th><th>확인</th></tr></thead><tbody>
       ${groups.map((g) => `<tr class="group-row"><td colspan="10"><b>${g.day}</b> <span class="muted small">저장 ${g.rows.length}개</span></td></tr>${g.rows.map(row).join('')}`).join('') || '<tr><td colspan="10" class="empty">보관한 상품이 없습니다.</td></tr>'}
       </tbody></table>`);
     $('#arc-day').addEventListener('change', (e) => { arcView.day = e.target.value; arcView.cat = ''; showArchive(); });
     $('#arc-age').addEventListener('change', (e) => { arcView.age = Number(e.target.value) || 0; showArchive(); });
+    $('#arc-load').addEventListener('click', guard(async () => {
+      const ids = $$('.arc:checked').map((e) => Number(e.dataset.id));
+      const pids = list.filter((r) => ids.includes(r.archive_id)).map((r) => r.product_id);
+      if (!pids.length) return toast('불러올 상품을 선택하세요 (맨 위 체크 = 표시된 전체).', true);
+      const r = await api('/api/archive/reanalyze', { product_ids: pids, mode: 'load' });
+      $('#modal').hidden = true; state.selected.clear();
+      toast(`${r.count}개를 대시보드로 불러왔습니다. 지금 조건으로 판정했습니다.`); await refreshAll();
+    }));
     $('#arc-re').addEventListener('click', guard(async () => {
       const ids = $$('.arc:checked').map((e) => Number(e.dataset.id));
       const pids = list.filter((r) => ids.includes(r.archive_id)).map((r) => r.product_id);

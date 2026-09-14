@@ -531,6 +531,28 @@ def archive_add(run_id, items: list[dict]) -> int:
     return len(new_rows)
 
 
+def seed_products_full(run_id, items: list[dict]) -> int:
+    """보관함에 저장된 상품을 그때 확인한 값(조회수·구매자·최종가·배송 등)째로 새 실행에 넣는다 (쿠팡·윙 요청 없음)."""
+    c = conn()
+    cols = [r[1] for r in c.execute("PRAGMA table_info(products)").fetchall()]
+    skip = {"id", "run_id", "first_seen"}
+    n = 0
+    for d in items:
+        if not d.get("product_id"):
+            continue
+        row = {k: d.get(k) for k in cols if k in d and k not in skip}
+        row["run_id"] = run_id
+        row["first_seen"] = now()
+        if row.get("views_28") is not None:
+            row.setdefault("analyzed", 1)
+            row.setdefault("matched", 1)
+        keys = list(row.keys())
+        c.execute(f"INSERT OR REPLACE INTO products({','.join(keys)}) VALUES ({','.join('?' * len(keys))})", [row[k] for k in keys])
+        n += 1
+    c.commit()
+    return n
+
+
 def archive_products(ids: list[int]) -> list[dict]:
     """보관함에서 상품 원본 값(다시 분석용)."""
     if not ids:
