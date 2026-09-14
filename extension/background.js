@@ -488,20 +488,34 @@ async function fetchCampaignOptions(campaigns) {
 }
 
 // 지난 기간 광고 보고서: 31일씩 나눠 차례로 받는다 (예전 1달치 등)
+const job = { running: false, total: 0, done: 0, log: [], cancel: false };
 async function collectReportRange(from, to) {
-  const out = []; let cur = from;
+  // 최근 구간부터 거꾸로 31일씩. 쿠팡이 더 이상 주지 않는 옛날 구간(빈 보고서·실패)이 2번 이어지면 멈춘다.
+  if (job.running) return { ok: false, error: '이미 수집 중입니다' };
   const add = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  while (cur <= to) {
-    const end = add(cur, 30) < to ? add(cur, 30) : to;
-    try { const r = await collectReport(null, { from: cur, to: end }); out.push({ from: cur, to: end, ok: true, saved: r.saved }); }
-    catch (e) { out.push({ from: cur, to: end, ok: false, error: e.message }); await log(`[보고서] ${cur}~${end} 실패: ${e.message}`); }
-    cur = add(end, 1);
+  const spans = []; for (let cur = from; cur <= to; cur = add(cur, 31)) spans.push({ from: cur, to: add(cur, 30) < to ? add(cur, 30) : to });
+  spans.reverse();
+  Object.assign(job, { running: true, total: spans.length, done: 0, log: [], cancel: false });
+  const out = []; let emptyRun = 0;
+  for (const sp of spans) {
+    if (job.cancel) { job.log.push('중단됨'); break; }
+    try {
+      const r = await collectReport(null, sp); out.push({ ...sp, ok: true, saved: r.saved });
+      job.log.push(`${sp.from}~${sp.to} 광고 보고서: ${r.saved}행 저장`);
+      emptyRun = r.saved ? 0 : emptyRun + 1;
+    } catch (e) {
+      out.push({ ...sp, ok: false, error: e.message }); job.log.push(`${sp.from}~${sp.to} 광고 보고서: 실패 — ${e.message}`); await log(`[보고서] ${sp.from}~${sp.to} 실패: ${e.message}`); emptyRun++;
+    }
+    job.done++;
+    if (emptyRun >= 2 && job.done < job.total) { job.log.push(`${sp.from} 이전은 쿠팡 광고센터가 보고서를 주지 않는 것 같아 여기서 멈춥니다 (빈 보고서·실패가 2번 연속)`); break; }
   }
+  job.running = false;
+  const okN = out.filter((x) => x.ok && x.saved).length, failN = out.filter((x) => !x.ok).length;
+  await log(`[보고서 기간] ${from}~${to}: ${okN}구간 저장${failN ? `, ${failN}구간 실패` : ''}`);
   return { ok: out.every((x) => x.ok), parts: out };
 }
 
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
-const job = { running: false, total: 0, done: 0, log: [], cancel: false };
 function isoRange(start, end) { const out = []; const d = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
 async function missingDates(dates, kinds) {
   const d = await S.load();

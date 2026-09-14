@@ -84,15 +84,20 @@ export function comboChart(container, dates, { bars = [], lines = [], leftFmt = 
   let yr = null;
   const rights = lines.filter((l) => l.axis === 'right');
   if (rights.length) {
-    const rv = rights.flatMap((l) => l.values); const rmax = Math.max(0.01, ...rv); const ticks = niceTicks(0, rmax);
-    yr = (v) => f.m.t + f.ih - (v / (ticks[ticks.length - 1] || rmax)) * f.ih;
+    const rv = rights.flatMap((l) => l.values).filter(Number.isFinite); const rmax = Math.max(0.01, ...rv); const ticks = niceTicks(0, rmax);
+    if (ticks.length >= 2 && ticks[ticks.length - 1] < rmax) ticks.push(ticks[ticks.length - 1] + (ticks[1] - ticks[0])); // 맨 위 눈금이 최댓값보다 커야 선이 차트 밖으로 안 나감
+    const rtop = ticks[ticks.length - 1] || rmax;
+    yr = (v) => f.m.t + f.ih - (Math.min(v, rtop) / rtop) * f.ih;
     const ax = el('g', { class: 'axis' }, f.svg);
     for (const t of ticks) { const tx = el('text', { x: f.m.l + f.iw + 6, y: yr(t) + 4, 'text-anchor': 'start' }, ax); tx.textContent = rightFmt(t); }
   }
+  const clipId = 'clip' + Math.random().toString(36).slice(2, 8);
+  el('rect', { x: f.m.l, y: f.m.t - 2, width: f.iw, height: f.ih + 4 }, el('clipPath', { id: clipId }, el('defs', {}, f.svg)));
+  const lg = el('g', { 'clip-path': `url(#${clipId})` }, f.svg);
   for (const l of lines) {
     const fy = l.axis === 'right' ? yr : y;
-    const d = l.values.map((v, i) => `${i ? 'L' : 'M'}${(f.m.l + (i + 0.5) * bw).toFixed(1)},${fy(v || 0).toFixed(1)}`).join(' ');
-    el('path', { class: 'ln', d, stroke: l.color, 'stroke-dasharray': l.dash ? '6 4' : '' }, f.svg);
+    const d = l.values.map((v, i) => `${i ? 'L' : 'M'}${(f.m.l + (i + 0.5) * bw).toFixed(1)},${fy(Number.isFinite(v) ? v : 0).toFixed(1)}`).join(' ');
+    el('path', { class: 'ln', d, stroke: l.color, 'stroke-dasharray': l.dash ? '6 4' : '' }, lg);
   }
   hover(f, dates, (i) => `<b>${dates[i]}</b>` + bars.map((b) => `<div class="r"><span><i style="background:${b.color}"></i>${b.label}</span><span>${leftFmt(b.values[i] || 0)}</span></div>`).join('')
     + lines.map((l) => `<div class="r"><span><i style="background:${l.color}"></i>${l.label}</span><span>${(l.fmt || (l.axis === 'right' ? rightFmt : leftFmt))(l.values[i] || 0)}</span></div>`).join(''));

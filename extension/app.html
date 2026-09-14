@@ -332,7 +332,7 @@
             <h2 style="margin-bottom:4px">📅 날짜를 정해 가져오기 <span class="sub">휴가 등으로 며칠 못 켰을 때. 하루만 받으려면 시작과 끝을 같은 날로 두세요.</span></h2>
             <div class="row" style="margin-bottom:6px">
               <span class="sub" style="width:70px">빠른 선택</span>
-              <button class="btn sm" data-fill="1">어제</button><button class="btn sm" data-fill="3">최근 3일</button><button class="btn sm" data-fill="7">최근 7일</button><button class="btn sm" data-fill="14">최근 14일</button><button class="btn sm" data-fill="30">최근 30일</button>
+              <button class="btn sm" data-fill="1">어제</button><button class="btn sm" data-fill="3">최근 3일</button><button class="btn sm" data-fill="7">최근 7일</button><button class="btn sm" data-fill="14">최근 14일</button><button class="btn sm" data-fill="30">최근 30일</button><button class="btn sm" data-fill="90">최근 90일</button><button class="btn sm" data-fill="365">최근 1년</button>
               <button class="btn sm" id="range-since">마지막 저장 다음 날 ~ 어제</button>
             </div>
             <div class="row">
@@ -340,7 +340,7 @@
               <label class="chk"><input type="checkbox" id="range-sales" checked> 판매</label><label class="chk"><input type="checkbox" id="range-ads" checked> 광고</label><label class="chk"><input type="checkbox" id="range-missing" checked> 이미 있는 날은 건너뛰기</label>
               <button class="btn sm" id="range-check">빠진 날 확인</button><button class="btn primary sm" id="range-go">가져오기</button><button class="btn sm" id="range-stop" style="display:none">중단</button>
             </div>
-            <div class="row" style="margin-top:6px"><button class="btn sm" id="range-report">📢 이 기간 광고 보고서 받기 (키워드·옵션별)</button><span class="sub">위 시작~끝 날짜의 광고 보고서를 광고센터에서 만들어 받아 캠페인 분석에 넣습니다. 31일씩 나눠 받으며 한 구간에 1~3분쯤 걸립니다. 프로그램을 쓰기 전 기간도 됩니다.</span><span id="range-report-msg" class="msg"></span></div>
+            <div class="row" style="margin-top:6px"><button class="btn sm" id="range-report">📢 이 기간 광고 보고서 받기 (키워드·옵션별)</button><span class="sub">위 시작~끝 날짜의 광고 보고서를 광고센터에서 만들어 받아 캠페인 분석에 넣습니다. 최근 구간부터 31일씩 나눠 받으며 한 구간에 1~3분쯤 걸립니다. 프로그램을 쓰기 전 기간도 되고, "최근 1년"으로 두면 쿠팡이 주는 데까지 전부 받다가 더 없으면 스스로 멈춥니다.</span><span id="range-report-msg" class="msg"></span></div>
             <div id="range-missing-list" class="sub" style="margin-top:6px"></div>
             <pre class="log" id="range-log" style="display:none;margin-top:8px"></pre>
             <p class="sub" style="margin:6px 0 0">날짜마다 판매분석을 열어 리포트를 받습니다. 하루에 10~20초쯤 걸립니다. 광고는 <b>광고 관리 주소에 <code>{date}</code> 가 있어야</b> 날짜별로 열 수 있고, 없으면 건너뜁니다. 그럴 때는 광고센터에서 <b>기간을 정해 보고서</b>를 받아 <b>📂 파일 올리기</b> 의 '광고 CSV/XLSX' 로 올리면 날짜별로 한 번에 저장됩니다.</p>

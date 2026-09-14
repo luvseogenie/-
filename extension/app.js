@@ -901,12 +901,9 @@ $('#range-since').onclick = () => {
 $('#range-report').onclick = async () => {
   const from = $('#range-start').value, to = $('#range-end').value; if (!from || !to || from > to) { msg('#range-report-msg', '시작~끝 날짜를 확인해 주세요', 'err'); return; }
   const y = localIso(yday); const end = to > y ? y : to;
-  $('#range-report').disabled = true; msg('#range-report-msg', `${from} ~ ${end} 광고 보고서 받는 중… (창이 떠서 광고센터 보고서 화면을 엽니다)`);
-  const r = await chrome.runtime.sendMessage({ type: 'collectReportRange', from, to: end });
-  $('#range-report').disabled = false;
-  if (!r) { msg('#range-report-msg', '응답 없음', 'err'); return; }
-  const lines = (r.parts || []).map((p) => `${p.from}~${p.to}: ${p.ok ? `${fmtInt(p.saved)}행` : '실패 — ' + p.error.slice(0, 120)}`);
-  msg('#range-report-msg', lines.join(' / ') || r.error || '실패', r.ok ? 'ok' : 'err'); loadSettings(); refreshAll();
+  msg('#range-report-msg', `${from} ~ ${end} 광고 보고서 받는 중… (창이 떠서 광고센터 보고서 화면을 엽니다. 진행은 아래 기록에)`);
+  chrome.runtime.sendMessage({ type: 'collectReportRange', from, to: end }).then((r) => { if (r && r.error) msg('#range-report-msg', r.error, 'err'); else msg('#range-report-msg', r && r.ok ? '광고 보고서 받기 끝' : '일부 구간 실패 — 아래 기록 참고', r && r.ok ? 'ok' : 'err'); loadSettings(); refreshAll(); });
+  $('#range-log').style.display = 'block'; $('#range-stop').style.display = ''; $('#range-go').disabled = true; $('#range-report').disabled = true; setTimeout(pollJob, 800);
 };
 $('#range-check').onclick = () => { const d = DATA; const ds = rangeDates(); const ms = ds.filter((x) => !d.sales[x]), ma = ds.filter((x) => !d.ads[x]); $('#range-missing-list').innerHTML = `판매 없는 날 ${ms.length}일: ${ms.map((x) => x.slice(5)).join(', ') || '없음'}<br>광고 없는 날 ${ma.length}일: ${ma.map((x) => x.slice(5)).join(', ') || '없음'}`; };
 $('#range-go').onclick = async () => {
@@ -915,7 +912,7 @@ $('#range-go').onclick = async () => {
   $('#range-log').style.display = 'block'; $('#range-stop').style.display = ''; $('#range-go').disabled = true; pollJob();
 };
 $('#range-stop').onclick = () => chrome.runtime.sendMessage({ type: 'cancelJob' });
-async function pollJob() { const j = await chrome.runtime.sendMessage({ type: 'jobStatus' }); $('#range-log').textContent = `${j.done}/${j.total} 진행\n` + j.log.join('\n'); if (j.running) setTimeout(pollJob, 1500); else { $('#range-stop').style.display = 'none'; $('#range-go').disabled = false; refreshAll(); } }
+async function pollJob() { const j = await chrome.runtime.sendMessage({ type: 'jobStatus' }); $('#range-log').textContent = `${j.done}/${j.total} 진행\n` + j.log.join('\n'); if (j.running) setTimeout(pollJob, 1500); else { $('#range-stop').style.display = 'none'; $('#range-go').disabled = false; $('#range-report').disabled = false; refreshAll(); } }
 $('#backup').onclick = async () => { const d = await reload(); download(`쿠팡광고계산기_백업_${localIso(today)}.json`, JSON.stringify(d), 'application/json'); };
 $('#restore').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
