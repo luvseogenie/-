@@ -539,6 +539,17 @@ class DailyCapReached(Exception):
 
 
 _page_log = {"loaded": False, "ts": []}
+stop_check = {"fn": None}     # pipeline 이 넣어 주는 '완전중단 확인' 함수 (긴 대기 중에도 멈출 수 있게)
+
+
+def _tick(seconds: float):
+    """긴 대기를 1초씩 쪼개서 완전중단 요청을 확인한다."""
+    end = time.time() + seconds
+    while time.time() < end:
+        fn = stop_check["fn"]
+        if fn:
+            fn()
+        time.sleep(min(1.0, max(0.05, end - time.time())))
 
 
 def _page_log_file():
@@ -590,9 +601,7 @@ def _rate_gate():
         if len(hour) >= cap_h:
             wait = int(hour[0] + 3600 - now) + 5
             log.info(f"시간당 상품 페이지 상한({cap_h}) 도달 · {wait // 60}분 쉬었다가 이어갑니다 (차단 예방)")
-            end = time.time() + wait
-            while time.time() < end:
-                time.sleep(1)
+            _tick(wait)
     _page_log["ts"].append(time.time())
     _page_log_save()
 
@@ -605,7 +614,7 @@ def _goto(page, url: str, wait_selector: str | None = None):
         import random as _r
         pause = _r.uniform(*config.REST_SECONDS)
         log.info(f"페이지 {_page_counter['n']}개째 · {pause:.0f}초 쉽니다")
-        time.sleep(pause)
+        _tick(pause)
     _human_before_nav(page)
     cur = page.url or ""
     on_coupang = "www.coupang.com" in cur
