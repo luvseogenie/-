@@ -165,3 +165,11 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 #cp-panel table th.sort { cursor: pointer; } #cp-panel table th.sort.asc::after { content: ' ↑'; } #cp-panel table th.sort.desc::after { content: ' ↓'; }
 #cp-panel td.kw { text-align: left; } .pill.sold { background: #e8f5ee; color: #0a7a0a; }
 @media (max-width: 1000px) { .cp-layout { grid-template-columns: 1fr; } .cp-side { position: static; max-height: 200px; } }
+
+.cp-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.cp-charts .chart { height: 200px; }
+.cp-compare .kpi .d { margin-top: 2px; } .cp-compare .kpi .spark { margin-top: 6px; } .cp-compare .kpi .d .up { color: var(--good); } .cp-compare .kpi .d .down { color: var(--bad); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 5px 12px; font-size: 12.5px; cursor: pointer; color: var(--text-2); } .seg button.active { background: var(--accent-soft); color: #1c4f8f; font-weight: 700; }
+.grand-row td { font-weight: 700; background: var(--surface-2); }
+@media (max-width: 1100px) { .cp-charts { grid-template-columns: 1fr; } }

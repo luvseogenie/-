@@ -71,3 +71,29 @@ export function sparkline(values, w = 90, h = 24, color = '#2a78d6') {
   const pts = values.map((v, i) => `${(i / Math.max(1, n - 1)) * w},${h - ((v - min) / (max - min)) * (h - 2) - 1}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${color}" stroke-width="1.5" points="${pts}"/></svg>`;
 }
+
+// 누적 막대 + 선 (선은 왼쪽 축 또는 오른쪽 축). bars:[{label,color,values}] lines:[{label,color,values,axis:'left'|'right',fmt,dash}]
+export function comboChart(container, dates, { bars = [], lines = [], leftFmt = (v) => fmtWon(v) + '원', rightFmt = (v) => Math.round(v * 100) + '%' } = {}) {
+  const f = frame(container); if (!dates.length) return;
+  f.m.r = lines.some((l) => l.axis === 'right') ? 48 : 12; f.iw = f.W - f.m.l - f.m.r;
+  const totals = dates.map((_, i) => bars.reduce((s2, b) => s2 + (b.values[i] || 0), 0));
+  const leftVals = [...totals, ...lines.filter((l) => l.axis !== 'right').flatMap((l) => l.values)];
+  const y = axes(f, Math.min(0, ...leftVals), Math.max(1, ...leftVals), dates);
+  const n = dates.length; const bw = f.iw / n; const gap = Math.min(6, bw * 0.3);
+  dates.forEach((_, i) => { let acc = 0; for (const b of bars) { const v = b.values[i] || 0; if (!v) continue; const y1 = y(acc + v), y0 = y(acc); el('rect', { class: 'bar', fill: b.color, x: f.m.l + i * bw + gap / 2, y: y1, width: Math.max(1, bw - gap), height: Math.max(0, y0 - y1 - 1) }, f.svg); acc += v; } });
+  let yr = null;
+  const rights = lines.filter((l) => l.axis === 'right');
+  if (rights.length) {
+    const rv = rights.flatMap((l) => l.values); const rmax = Math.max(0.01, ...rv); const ticks = niceTicks(0, rmax);
+    yr = (v) => f.m.t + f.ih - (v / (ticks[ticks.length - 1] || rmax)) * f.ih;
+    const ax = el('g', { class: 'axis' }, f.svg);
+    for (const t of ticks) { const tx = el('text', { x: f.m.l + f.iw + 6, y: yr(t) + 4, 'text-anchor': 'start' }, ax); tx.textContent = rightFmt(t); }
+  }
+  for (const l of lines) {
+    const fy = l.axis === 'right' ? yr : y;
+    const d = l.values.map((v, i) => `${i ? 'L' : 'M'}${(f.m.l + (i + 0.5) * bw).toFixed(1)},${fy(v || 0).toFixed(1)}`).join(' ');
+    el('path', { class: 'ln', d, stroke: l.color, 'stroke-dasharray': l.dash ? '6 4' : '' }, f.svg);
+  }
+  hover(f, dates, (i) => `<b>${dates[i]}</b>` + bars.map((b) => `<div class="r"><span><i style="background:${b.color}"></i>${b.label}</span><span>${leftFmt(b.values[i] || 0)}</span></div>`).join('')
+    + lines.map((l) => `<div class="r"><span><i style="background:${l.color}"></i>${l.label}</span><span>${(l.fmt || (l.axis === 'right' ? rightFmt : leftFmt))(l.values[i] || 0)}</span></div>`).join(''));
+}

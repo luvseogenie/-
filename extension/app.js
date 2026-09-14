@@ -3,7 +3,7 @@ import { computeLedger, METRICS } from './lib/ledger.js';
 import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse.js';
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
-import { barChart, stackedChart, lineChart, sparkline } from './lib/charts.js';
+import { barChart, stackedChart, lineChart, sparkline, comboChart } from './lib/charts.js';
 import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
@@ -246,10 +246,61 @@ function cpTable(list, firstCol, tabKey, opts = {}) {
 function bindSort(panel, tabKey) {
   panel.querySelectorAll('th.sort').forEach((th) => th.onclick = () => { const k = th.dataset.sk; const [ck, cd] = cp.sort[tabKey]; cp.sort[tabKey] = [k, ck === k && cd === 'desc' ? 'asc' : 'desc']; renderCampaign(); });
 }
+const AREA_COLOR = { 검색: '#2a78d6', 비검색: '#1baf7a', 합계: '#4a3aa7', ROAS: '#3b5bdb' };
 function renderCpStats(panel, rows) {
-  const t = AR.total(rows); const days = AR.byDate(rows).map((x) => ({ ...x, label: x.key }));
-  panel.innerHTML = cpKpis(t) + `<h2>일별 성과 <span class="sub">주문·매출은 클릭 후 14일 전환 기준</span></h2>` + cpTable(days, '날짜', 'stats', { total: t });
-  bindSort(panel, 'stats');
+  const marginFn = S.marginLookup(DATA);
+  const dates = AR.dateList(range.start, range.end);
+  const byDay = AR.byDateArea(rows, dates);
+  const area = cp.area || '합계';
+  const pick = (list) => (area === '합계' ? list : list.filter((r) => AR.areaOf(r) === area));
+  const cur = AR.total(pick(rows));
+  // 이전 기간 (같은 길이)
+  const [ps, pe] = prevRange(); const prevRows = pick(AR.selectRows(DATA, { from: ps, to: pe, campaign: cp.campaign })); const prev = AR.total(prevRows);
+  const seriesOf = (k) => byDay.map((d) => d[area][k] || 0);
+  const vs = (a, b, f, pct) => { if (!b) return '<span class="sub">vs 이전 데이터 없음</span>'; const diff = a - b; const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : ''; return `<span class="${cls}">${diff > 0 ? '+' : ''}${pct ? ((diff) * 100).toFixed(2) + '%p' : f(diff)}</span> <span class="sub">vs ${f(b)}</span>`; };
+  const cards = [
+    ['광고비', F.won(cur.spend), vs(cur.spend, prev.spend, F.won), 'spend', '#eb6834'],
+    ['광고매출', F.won(cur.revenue), vs(cur.revenue, prev.revenue, F.won), 'revenue', '#2a78d6'],
+    ['ROAS', F.ratio(cur.roas), vs(cur.roas, prev.roas, F.ratio, true), 'roas', '#3b5bdb'],
+    ['클릭률', F.pct2(cur.ctr), vs(cur.ctr, prev.ctr, F.pct2, true), 'ctr', '#1baf7a'],
+    ['전환율', F.pct2(cur.conversion), vs(cur.conversion, prev.conversion, F.pct2, true), 'conversion', '#1baf7a'],
+    ['CPC', F.won(cur.cpc), vs(cur.cpc, prev.cpc, F.won), 'cpc', '#eb6834'],
+  ];
+  // 노출 영역 표
+  const areas = AR.byArea(rows); const tot = AR.total(rows);
+  const rowsArea = [...areas.map((a) => ({ ...a, margin: AR.marginOf(rows.filter((r) => AR.areaOf(r) === a.key), marginFn) })), { ...tot, key: '합계', label: '합계', margin: AR.marginOf(rows, marginFn) }];
+  const pctOf = (v, t) => (t ? ` <span class="sub">(${Math.round(v / t * 100)}%)</span>` : '');
+  const cols = [['impressions', '노출수', (r) => fmtInt(r.impressions)], ['clicks', '클릭', (r) => fmtInt(r.clicks)], ['orders', '주문', (r) => fmtInt(r.orders)], ['ctr', '클릭률', (r) => F.pct2(r.ctr)], ['conversion', '전환율', (r) => F.pct2(r.conversion)], ['cpm', 'CPM', (r) => F.won(r.cpm)], ['cpc', 'CPC', (r) => F.won(r.cpc)],
+    ['spend', '광고비', (r) => `<span style="color:#eb6834">${F.won(r.spend)}</span>${r.key !== '합계' ? pctOf(r.spend, tot.spend) : ''}`], ['revenue', '광고매출', (r) => `<span style="color:#2a78d6">${F.won(r.revenue)}</span>${r.key !== '합계' ? pctOf(r.revenue, tot.revenue) : ''}`],
+    ['roas', 'ROAS', (r) => `<b class="${r.roas >= 1 ? 'pos' : r.spend ? 'neg' : ''}">${F.ratio(r.roas)}</b>`], ['cpa', '전환당비용', (r) => F.won(r.cpa)], ['aov', '객단가', (r) => F.won(r.aov)], ['margin', '마진', (r) => `<b class="${r.margin < 0 ? 'neg' : 'pos'}">${F.won(r.margin)}</b>`]];
+  let h = `<div class="cp-panel-head"><h2 style="margin:0">기간 비교 <span class="sub">${range.start} ~ ${range.end} vs ${ps} ~ ${pe}</span></h2><span class="grow"></span><div class="seg" id="cp-area">${['합계', '검색', '비검색'].map((a) => `<button data-area="${a}" class="${a === area ? 'active' : ''}">${a === '합계' ? '전체' : a}</button>`).join('')}</div></div>
+    <div class="cp-kpis cp-compare">${cards.map(([l, v, d, k, c]) => `<div class="kpi"><div class="k"><span class="dot" style="background:${c}"></span>${l}</div><div class="v num">${v}</div><div class="d">${d}</div><div class="spark">${sparkline(seriesOf(k), 160, 30, c)}</div></div>`).join('')}</div>
+    <h2 style="margin-top:14px">노출 영역별 <span class="sub">주문·매출은 클릭 후 14일 전환 기준 · 마진 = 판매수량 × 개당 마진 − 광고비</span></h2>
+    <div class="tablewrap"><table><thead><tr><th class="l">노출 영역</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rowsArea.map((r) => `<tr class="${r.key === '합계' ? 'grand-row' : ''}"><td class="l" style="color:${AREA_COLOR[r.key] || 'inherit'};font-weight:600">${r.key}</td>${cols.map(([, , f]) => `<td class="num">${f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  // 차트들
+  const charts = [
+    ['통합 지표', 'cc-all', '광고비(막대) · 광고매출(선) · ROAS(오른쪽)'],
+    ['매출 차트', 'cc-rev', `일 평균 ${F.won(tot.revenue / Math.max(1, dates.length))}`],
+    ['광고비 차트', 'cc-spend', `일 평균 ${F.won(tot.spend / Math.max(1, dates.length))}`],
+    ['노출수 차트', 'cc-imp', ''], ['클릭률 차트', 'cc-ctr', ''], ['전환율 차트', 'cc-cvr', ''], ['CPC 차트', 'cc-cpc', ''],
+  ];
+  h += `<div class="cp-charts">${charts.map(([t, id, sub]) => `<div class="card chart-card"><h2>${t} <span class="sub">${sub}</span></h2><div class="legend"><span><i style="background:${AREA_COLOR.검색}"></i>검색</span><span><i style="background:${AREA_COLOR.비검색}"></i>비검색</span><span><i style="background:${AREA_COLOR.ROAS}"></i>총ROAS (오른쪽)</span></div><div class="chart" id="${id}"></div></div>`).join('')}</div>`;
+  h += `<details style="margin-top:12px"><summary>일별 표</summary><div id="cc-daily"></div></details>`;
+  panel.innerHTML = h;
+  $$('#cp-area button').forEach((b) => b.onclick = () => { cp.area = b.dataset.area; renderCampaign(); });
+  const S1 = (a, k) => byDay.map((d) => d[a][k] || 0);
+  const roas = byDay.map((d) => d.합계.roas || 0);
+  const roasLine = { label: '총ROAS', color: AREA_COLOR.ROAS, values: roas, axis: 'right', dash: true };
+  comboChart($('#cc-all'), dates, { bars: [{ label: '검색 광고비', color: AREA_COLOR.검색, values: S1('검색', 'spend') }, { label: '비검색 광고비', color: AREA_COLOR.비검색, values: S1('비검색', 'spend') }], lines: [{ label: '광고매출', color: '#eb6834', values: byDay.map((d) => d.합계.revenue || 0) }, roasLine] });
+  comboChart($('#cc-rev'), dates, { bars: [{ label: '검색 매출', color: AREA_COLOR.검색, values: S1('검색', 'revenue') }, { label: '비검색 매출', color: AREA_COLOR.비검색, values: S1('비검색', 'revenue') }], lines: [roasLine] });
+  comboChart($('#cc-spend'), dates, { bars: [{ label: '검색 광고비', color: AREA_COLOR.검색, values: S1('검색', 'spend') }, { label: '비검색 광고비', color: AREA_COLOR.비검색, values: S1('비검색', 'spend') }], lines: [roasLine] });
+  const lineOf = (k, fmt) => ({ lines: [{ label: '검색', color: AREA_COLOR.검색, values: S1('검색', k), fmt }, { label: '비검색', color: AREA_COLOR.비검색, values: S1('비검색', k), fmt }, roasLine], leftFmt: fmt });
+  comboChart($('#cc-imp'), dates, lineOf('impressions', (v) => fmtInt(v)));
+  comboChart($('#cc-ctr'), dates, lineOf('ctr', F.pct2));
+  comboChart($('#cc-cvr'), dates, lineOf('conversion', F.pct2));
+  comboChart($('#cc-cpc'), dates, lineOf('cpc', F.won));
+  const days = AR.byDate(rows).map((x) => ({ ...x, label: x.key }));
+  $('#cc-daily').innerHTML = cpTable(days, '날짜', 'stats', { total: tot }); bindSort(panel, 'stats');
 }
 function renderCpOptions(panel, rows, soldOnly) {
   let list = AR.byOption(rows);

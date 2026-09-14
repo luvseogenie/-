@@ -390,3 +390,23 @@ console.log('extension logic: all checks passed');
   const d2 = await S.load(); assert.equal(d2.adrows['2026-09-03'][0].keyword, '마우스패드'); approx(d2.adrows['2026-09-03'][0].roas14, 6.67, 0.01);
   console.log('ad report: all checks passed');
 }
+
+// 노출 영역(검색/비검색) 집계, CPM·전환당비용·객단가, 마진
+{
+  const AR = await import('../../extension/lib/adreport.js');
+  const mk = (date, area, kw, opt, imp, clk, spend, o, rev) => ({ date, campaign: 'C', group: '', option_id: opt, product_name: '', placement: area, keyword: kw, impressions: imp, clicks: clk, spend, ctr: 0, orders1: o, qty1: o, revenue1: rev, roas1: 0, orders14: o, qty14: o, revenue14: rev, roas14: 0 });
+  const rows = [mk('2026-09-12', '검색 영역', '크로스백', '1', 4, 1, 206, 0, 0), mk('2026-09-12', '비검색 영역', '', '1', 30000, 100, 11000, 0, 0), mk('2026-09-13', '비검색 영역', '', '1', 46227, 188, 40002, 2, 53800), mk('2026-09-13', '', '', '2', 10, 1, 100, 0, 0)];
+  assert.equal(AR.areaOf(rows[0]), '검색'); assert.equal(AR.areaOf(rows[1]), '비검색'); assert.equal(AR.areaOf(rows[3]), '비검색');   // 지면 없고 키워드 없음 → 비검색
+  assert.equal(AR.areaOf({ placement: '', keyword: '가방' }), '검색');
+  const areas = AR.byArea(rows); assert.deepEqual(areas.map((a) => a.key), ['검색', '비검색']);
+  const ns = areas[1]; assert.equal(ns.impressions, 76237); assert.equal(ns.spend, 51102); assert.equal(ns.orders, 2); assert.equal(ns.revenue, 53800);
+  approx(ns.cpm, 51102 / 76237 * 1000, 1e-6); approx(ns.cpa, 25551, 1e-6); approx(ns.aov, 26900, 1e-6); approx(ns.roas, 53800 / 51102, 1e-9);
+  const t = AR.total(rows); assert.equal(t.spend, 51308); approx(t.cpa, 25654, 1e-6);
+  const days = AR.byDateArea(rows, AR.dateList('2026-09-11', '2026-09-13'));
+  assert.equal(days.length, 3); assert.equal(days[0].합계.spend, 0); assert.equal(days[1].검색.spend, 206); assert.equal(days[2].비검색.revenue, 53800); approx(days[2].합계.roas, 53800 / 40102, 1e-9);
+  const marginFn = (id) => (id === '1' ? 10000 : 0);
+  assert.equal(AR.marginOf(rows, marginFn), 2 * 10000 - 51308);            // 판매 2개 × 1만 − 광고비
+  assert.equal(AR.marginOf(rows.filter((r) => AR.areaOf(r) === '검색'), marginFn), -206);
+  assert.deepEqual(AR.dateList('2026-08-30', '2026-09-01'), ['2026-08-30', '2026-08-31', '2026-09-01']);
+  console.log('area stats: all checks passed');
+}

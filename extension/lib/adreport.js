@@ -68,11 +68,31 @@ const blank = () => ({ impressions: 0, clicks: 0, spend: 0, orders1: 0, qty1: 0,
 export function finish(a) {
   a.ctr = a.impressions ? a.clicks / a.impressions : 0;
   a.cpc = a.clicks ? a.spend / a.clicks : 0;
+  a.cpm = a.impressions ? a.spend / a.impressions * 1000 : 0;
   a.conversion = a.clicks ? a.orders14 / a.clicks : 0;
   a.roas = a.spend ? a.revenue14 / a.spend : 0;
   a.orders = a.orders14; a.qty = a.qty14; a.revenue = a.revenue14;
+  a.cpa = a.orders ? a.spend / a.orders : 0;          // 전환당 비용
+  a.aov = a.orders ? a.revenue / a.orders : 0;         // 객단가
   return a;
 }
+// 노출 영역: 보고서의 '광고 노출 지면' 열이 있으면 그것으로, 없으면 키워드가 있으면 검색·없으면 비검색
+export const AREAS = ['검색', '비검색'];
+export function areaOf(r) {
+  const p = String(r.placement || '');
+  if (/비검색|non/i.test(p)) return '비검색';
+  if (/검색|search/i.test(p)) return '검색';
+  return r.keyword ? '검색' : '비검색';
+}
+export const byArea = (rows) => { const g = groupBy(rows, areaOf); for (const a of AREAS) if (!g.some((x) => x.key === a)) g.push(finish({ key: a, label: a, ...blank() })); return g.sort((x, y) => AREAS.indexOf(x.key) - AREAS.indexOf(y.key)); };
+// 날짜별 × 영역별 (차트용). dates 순서대로 [{date, 검색, 비검색, 합계}]
+export function byDateArea(rows, dates) {
+  const map = {}; for (const r of rows) { const d = (map[r.date] ||= { 검색: [], 비검색: [] }); d[areaOf(r)].push(r); }
+  return dates.map((date) => { const d = map[date] || { 검색: [], 비검색: [] }; return { date, 검색: total(d.검색), 비검색: total(d.비검색), 합계: total([...d.검색, ...d.비검색]) }; });
+}
+// 마진 = Σ 판매수량(14일) × 옵션 개당 마진 − 광고비. marginFn(option_id, date) 는 store.marginLookup
+export function marginOf(rows, marginFn) { let m = 0, spend = 0; for (const r of rows) { m += (r.qty14 || 0) * (marginFn(r.option_id, r.date) || 0); spend += r.spend || 0; } return m - spend; }
+export function dateList(from, to) { const out = []; const d = new Date(from + 'T00:00:00'); const e = new Date(to + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
 // d.adrows 에서 기간·캠페인으로 골라낸 행 목록
 export function selectRows(d, { from, to, campaign = null } = {}) {
   const out = [];
