@@ -46,7 +46,12 @@ class JobController:
                 return
             time.sleep(0.3)
 
+    def _install_stop_hook(self):
+        from . import coupang_list as _cl
+        _cl.stop_check["fn"] = self._check
+
     def _set(self, state, label="", total=0):
+        self._install_stop_hook()
         self.state = state
         self.progress = {"done": 0, "total": total, "label": label}
 

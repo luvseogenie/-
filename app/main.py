@@ -60,7 +60,8 @@ def _err(e):
     if not msg:
         name = type(e).__name__
         msg = {"WingLoginRequired": "윙 로그인이 필요합니다. 도구 › 윙 로그인 창 열기 로 로그인한 뒤 다시 눌러주세요.",
-               "BlockedError": "쿠팡이 접근을 막았습니다. 잠시 뒤 다시 시도해 주세요."}.get(name, f"오류 ({name})")
+               "BlockedError": "쿠팡이 접근을 막았습니다. 잠시 뒤 다시 시도해 주세요.",
+               "TimeoutError": "브라우저가 아직 다른 일을 끝내는 중이라 응답이 늦습니다. [완전중단]을 누르고 1분 뒤 다시 시도하세요. 계속 그러면 검은 실행 창을 닫고 2_run.bat 으로 다시 켜 주세요."}.get(name, f"오류 ({name})")
     return JSONResponse({"ok": False, "error": msg}, status_code=400)
 
 
