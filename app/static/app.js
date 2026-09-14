@@ -180,7 +180,7 @@
   function renderAll() { renderTop(); renderSubTree(); renderScope(); }
 
   // ---------- 조건 ----------
-  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'buyers_max', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify', 'auto_archive', 'surge_days', 'surge_ratio', 'surge_min'];
+  const COND_KEYS = ['price_min', 'price_max', 'review_min', 'review_max', 'views_min', 'conv_min', 'buyers_min', 'buyers_max', 'review_multiplier', 'pages', 'exclude_restricted', 'hide_ads', 'auto_continue', 'sum_options', 'quick_price', 'review_estimate', 'auto_verify', 'auto_archive', 'surge_days', 'surge_ratio', 'surge_min', 'cap_hour', 'cap_day'];
   function fillConditions() {
     for (const k of COND_KEYS) {
       const el = $(`#c-${k}`); if (!el) continue;

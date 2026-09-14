@@ -534,7 +534,72 @@ def _click_navigate(page, url: str):
     return nav.value
 
 
+class DailyCapReached(Exception):
+    """오늘 상품 페이지 예산을 다 썼을 때."""
+
+
+_page_log = {"loaded": False, "ts": []}
+
+
+def _page_log_file():
+    return config.DATA_DIR / "product-page-log.json"
+
+
+def _page_log_load():
+    if _page_log["loaded"]:
+        return
+    _page_log["loaded"] = True
+    try:
+        _page_log["ts"] = [float(x) for x in json.loads(_page_log_file().read_text(encoding="utf-8"))]
+    except Exception:  # noqa: BLE001
+        _page_log["ts"] = []
+
+
+def _page_log_save():
+    try:
+        _page_log_file().write_text(json.dumps(_page_log["ts"][-2000:]), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def product_pages_today() -> tuple[int, int]:
+    """(최근 1시간, 최근 24시간) 상품 페이지 열람 수."""
+    _page_log_load()
+    now = time.time()
+    return (sum(1 for t in _page_log["ts"] if now - t < 3600), sum(1 for t in _page_log["ts"] if now - t < 86400))
+
+
+def _rate_gate():
+    """상품 페이지를 열기 전: 시간당 상한이면 상한이 풀릴 때까지 쉬고, 하루 상한이면 멈춘다.
+    (관찰: 상품 페이지 150~200개를 2~3시간에 열면 몇 시간짜리 차단이 온다 → 그 전에 스스로 속도를 줄인다)"""
+    _page_log_load()
+    now = time.time()
+    _page_log["ts"] = [t for t in _page_log["ts"] if now - t < 86400]
+    try:
+        from . import db as _db
+        _c = _db.get_conditions()
+        cap_h = int(_c.get("cap_hour") if _c.get("cap_hour") is not None else config.DETAIL_CAP_HOUR)
+        cap_d = int(_c.get("cap_day") if _c.get("cap_day") is not None else config.DETAIL_CAP_DAY)
+    except Exception:  # noqa: BLE001
+        cap_h, cap_d = int(config.DETAIL_CAP_HOUR or 0), int(config.DETAIL_CAP_DAY or 0)
+    day = len(_page_log["ts"])
+    if cap_d and day >= cap_d:
+        raise DailyCapReached(f"최근 24시간에 상품 페이지 {day}개를 열어 하루 상한({cap_d})에 닿았습니다")
+    if cap_h:
+        hour = [t for t in _page_log["ts"] if now - t < 3600]
+        if len(hour) >= cap_h:
+            wait = int(hour[0] + 3600 - now) + 5
+            log.info(f"시간당 상품 페이지 상한({cap_h}) 도달 · {wait // 60}분 쉬었다가 이어갑니다 (차단 예방)")
+            end = time.time() + wait
+            while time.time() < end:
+                time.sleep(1)
+    _page_log["ts"].append(time.time())
+    _page_log_save()
+
+
 def _goto(page, url: str, wait_selector: str | None = None):
+    if "/vp/products/" in url:
+        _rate_gate()
     _page_counter["n"] += 1
     if config.REST_EVERY and _page_counter["n"] % config.REST_EVERY == 0:
         import random as _r
@@ -1076,6 +1141,8 @@ def fetch_detail_price(page, product_id: int, item_id=None, vendor_item_id=None)
     if mode == "www" and not out.get("btf_ok"):
         try:
             seller = _fetch_seller(page, product_id, item_id, vendor_item_id, out)
+        except BlockedError:
+            raise
         except Exception as e:  # noqa: BLE001
             log.warn(f"판매자 정보 조회 실패 {product_id}: {e}")
     d = out.get("delivery") or "WING"

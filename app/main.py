@@ -546,6 +546,12 @@ def tools(name: str):
             ip = _lan_ip() or "(컴퓨터 IP)"
             return {"ok": True, "message": f"휴대폰에서 보기를 켰습니다. 프로그램을 껐다 켜면(2_run.bat) 같은 와이파이의 휴대폰에서 http://{ip}:{config.PORT}/ 로 열 수 있습니다. "
                                            "처음 실행 때 Windows 방화벽 창이 뜨면 '액세스 허용'을 눌러주세요. 집·사무실 와이파이에서만 쓰세요."}
+        if name == "page_budget":
+            from .coupang_list import product_pages_today
+            h, d = product_pages_today()
+            c = db.get_conditions()
+            return {"ok": True, "message": f"상품 페이지: 최근 1시간 {h}개 (상한 {c.get('cap_hour')}), 최근 24시간 {d}개 (상한 {c.get('cap_day')}). "
+                                           "상한은 상품 조건의 '상품 페이지 상한'에서 바꿀 수 있습니다 (0 = 제한 없음)."}
         if name == "open_plain":
             # 프로그램이 붙지 않은(원격 디버깅 없음) 상태로 같은 프로필의 엣지를 연다 → 여기서 상품이 열리면 프로필 문제가 아니라 자동화 연결 문제
             if job.is_running():

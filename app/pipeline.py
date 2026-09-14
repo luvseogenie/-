@@ -5,7 +5,7 @@ import time
 from . import config, db, log, wing
 from .browser import browser, human_delay, clear_bot_cookies
 from .categories import expand_to_leaves
-from .coupang_list import BlockedError, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, fetch_review_windows, ensure_product_context, reset_debug_budget
+from .coupang_list import BlockedError, DailyCapReached, product_pages_today, fetch_listing, fetch_detail_price, fetch_option_buyers, fetch_quick_price, fetch_review_velocity, fetch_review_windows, ensure_product_context, reset_debug_budget
 from .metrics import restricted_reason, needs_option_sum
 
 
@@ -312,6 +312,12 @@ class JobController:
                 result = fn()
                 self.blocked_streak = 0
                 return result
+            except DailyCapReached as e:
+                self.paused = True
+                self.message = f"{e}. 오늘은 여기까지 하고 내일 [재개]를 누르거나, 상한을 늘리려면 상품 조건의 '상품 페이지 상한'에서 바꾸세요."
+                log.warn(self.message)
+                self._check()
+                return None
             except BlockedError as e:
                 if attempt == 1:
                     self._fresh_start(str(e))     # 먼저 봇 방어 쿠키를 지우고 잠깐 쉰 뒤 바로 재시도
