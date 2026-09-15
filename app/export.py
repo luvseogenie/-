@@ -37,7 +37,13 @@ def build_xlsx(rows: list[dict], title="소싱 결과") -> str:
                 v = "예" if v else ""
             if key in ("is_ad", "sold_out") and v in (0, 1):
                 v = "예" if v else ""
-            ws.cell(row=r, column=i, value=v)
+            cell = ws.cell(row=r, column=i, value=v)
+            if key == "url" and v:
+                cell.hyperlink = str(v)              # 클릭하면 바로 열리는 링크
+                cell.style = "Hyperlink"
+            elif key == "name" and row.get("url"):
+                cell.hyperlink = str(row["url"])     # 상품명도 링크로
+                cell.style = "Hyperlink"
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{max(len(rows) + 1, 1)}"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
