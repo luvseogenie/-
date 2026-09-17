@@ -668,24 +668,38 @@
     return { ok: true, how: `선택(${r.value})` };
   }
   // '캠페인을 선택하세요' 같은 다중 선택: 열어서 전체 선택 항목을 누른다
-  // 기간을 바꾸면 캠페인 목록을 다시 불러오느라 비어 있을 수 있어, 항목이 생길 때까지(최대 8초) 기다린 뒤 전체 선택하고 실제로 체크됐는지 센다
+  // 캠페인 다중 선택 상자: 열고 → 목록이 채워질 때까지 기다리고(최대 8초) → '전체선택' 체크박스 입력칸 자체를 클릭 →
+  // 새로 나타난 체크박스 중 체크된 개수를 세고, 0개면 항목 체크박스를 하나씩, 그래도 0개면 항목 줄(글자)을 하나씩 클릭한다
   async function selectAllCampaigns() {
     const placeholder = () => !!findClickable(['캠페인을 선택하세요'], { exactOnly: true });
     const opener = findClickable(['캠페인을 선택하세요', '캠페인 선택', '전체 캠페인']);
     if (!opener) return { ok: false, how: '선택 상자 못 찾음', selected: 0 };
     const boxesNow = () => deepAll('input[type="checkbox"]').filter(visible);
-    const base = boxesNow().length;
+    const baseSet = new Set(boxesNow());
     fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ }
-    let boxes = []; const t0 = Date.now();
-    while (Date.now() - t0 < 8000) { await wait(400); boxes = boxesNow(); if (boxes.length > base + 1) break; }
-    const all = findClickable(['전체 선택', '모두 선택', '전체선택', '모두', '전체']);
-    let how = '';
-    if (all) { fire(all, [...HOVER, ...CLICK]); try { all.click(); } catch { /* 무시 */ } await wait(500); how = `전체 선택(${clean(all.innerText).slice(0, 12)})`; }
-    let checked = boxesNow().filter((b) => b.checked).length;
-    if (!checked) { let n = 0; for (const b of boxesNow()) if (!b.checked) { b.click(); n++; } await wait(300); checked = boxesNow().filter((b) => b.checked).length; how = `체크박스 ${n}개 직접 체크`; }
-    document.body.click(); await wait(400);
+    let items = []; const t0 = Date.now();
+    while (Date.now() - t0 < 8000) { await wait(400); items = boxesNow().filter((b) => !baseSet.has(b)); if (items.length > 1) break; }
+    const checkedN = () => items.filter((b) => b.checked).length;
+    const log = [`새 체크박스 ${items.length}개`];
+    const clickBox = (b) => { try { b.click(); } catch { /* 무시 */ } };   // 체크박스는 click() 한 번만 (합성 click 이벤트를 따로 보내면 두 번 눌린 셈이 되어 도로 풀린다)
+    // 1) '전체선택' 글자 옆의 체크박스 입력칸
+    const allText = findClickable(['전체 선택', '모두 선택', '전체선택'], { exactOnly: true }) || findClickable(['전체 선택', '모두 선택', '전체선택']);
+    let allBox = null;
+    if (allText) { let w = allText; for (let i = 0; i < 5 && w && !allBox; i++) { allBox = [...w.querySelectorAll('input[type="checkbox"]')].find((b) => items.includes(b)) || null; w = w.parentElement; } }
+    if (!allBox && items.length) allBox = items[0];
+    if (allBox) { clickBox(allBox); await wait(600); log.push(`전체선택 칸 클릭 → 체크 ${checkedN()}개`); }
+    else if (allText) { fire(allText, HOVER); try { allText.click(); } catch { /* 무시 */ } await wait(600); log.push(`전체선택 글자 클릭 → 체크 ${checkedN()}개`); }
+    // 2) 항목 체크박스를 하나씩
+    if (checkedN() <= 1 && items.length > 1) { for (const b of items) { if (b !== allBox && !b.checked) { clickBox(b); await wait(60); } } await wait(400); log.push(`항목 칸 하나씩 클릭 → 체크 ${checkedN()}개`); }
+    // 3) 항목 줄(글자)을 하나씩
+    if (checkedN() <= 1 && items.length > 1) {
+      for (const b of items) { if (b === allBox || b.checked) continue; const row = b.closest('li, label, [role="option"], [role="menuitem"], div'); if (row && row !== b) { fire(row, HOVER); try { row.click(); } catch { /* 무시 */ } await wait(60); } }
+      await wait(400); log.push(`항목 줄 하나씩 클릭 → 체크 ${checkedN()}개`);
+    }
+    const checked = checkedN();
+    document.body.click(); try { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch { /* 무시 */ } await wait(400);
     const stillPlaceholder = placeholder();
-    return { ok: checked > 0 && !stillPlaceholder, how: `${how} · 항목 ${boxes.length - base}개, 체크 ${checked}개${stillPlaceholder ? ', 아직 "캠페인을 선택하세요"' : ''}`, selected: checked };
+    return { ok: checked > 1 || (checked === 1 && !stillPlaceholder), how: `${log.join(' → ')}${stillPlaceholder ? ' · 아직 "캠페인을 선택하세요"' : ' · 선택됨'}`, selected: checked };
   }
 
   window.__ccReadTables = allTables;
