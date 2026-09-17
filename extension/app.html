@@ -172,6 +172,10 @@
         </div>
         <div id="lg-warn"></div>
         <div class="pivot"><div class="topscroll" id="lg-topscroll"><div id="lg-topscroll-inner"></div></div><div class="tablewrap" id="lg-wrap"><table id="lg-table"></table></div></div>
+        <details id="noad-details" style="margin-top:10px" open><summary>🛒 광고 없이 팔린 옵션 <span class="sub" id="noad-count"></span></summary>
+          <p class="sub" style="margin:4px 0 6px">이 기간에 '(광고 없는 판매)'·'(캠페인 없음)' 줄로 들어간 판매입니다. 윙에서 광고 없이 팔린 것, 캠페인을 끄거나 지운 뒤 팔린 것이 여기 모입니다. <b>마진이 없으면 0원으로 계산되니</b> '마진 입력'을 눌러 넣어 주세요.</p>
+          <div class="tablewrap" style="max-height:340px"><table id="noad-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명 · 옵션명</th><th class="l">왜 광고 없는 판매인가</th><th>판매량</th><th>매출</th><th>개당 마진</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>
+        </details>
         <p class="sub" style="margin:8px 0 0">캠페인 순이익 = 판매 마진(Σ 판매량 × 그 날짜의 옵션 마진) − 집행 광고비 × 1.1. 맨 위 <b>전체 순이익</b> 은 여기서 광고 외 지출까지 뺀 진짜 순이익(지출이 있는 날은 마우스를 올리면 내역). 자연 판매 = 실제 판매 − 광고 전환 판매. 월 합계 열의 비율은 월 누계로 다시 계산. <span style="background:#f1ecfb;padding:0 4px">보라 칸</span> = 트래픽 슬롯 사용 중(숫자 = 슬롯 수), <span style="background:#fff1e6;border:2px solid #f6b26b;padding:0 4px">주황 칸</span> = 전날과 예산·목표효율·슬롯이 달라진 날(마우스를 올리면 전일 값), 📝 = 그날 ACTION 메모(올리면 내용). 붉은 칸은 마진 미등록 옵션의 판매가 섞인 날.</p>
       </div>
     </section>
@@ -306,7 +310,8 @@
       </div>
       <div class="card" id="update-card">
         <h2>🆕 업데이트 <span class="sub" id="upd-sub"></span></h2>
-        <p class="sub" style="margin:0 0 8px">크롬 규정상 확장 프로그램이 자기 파일을 스스로 바꿀 수는 없어서, 저장소 폴더에 있는 <b>업데이트.bat</b>(맥은 업데이트.command)을 더블클릭하면 최신 파일을 받아 교체합니다. 교체가 끝나면 확장 프로그램이 1분 안에 스스로 새로고침됩니다. 데이터는 크롬 안에 있으므로 그대로 유지됩니다.</p>
+        <div class="row" style="margin-bottom:6px"><button class="btn primary" id="upd-apply">🆕 지금 업데이트 (한 번에)</button><span class="sub">다운로드 폴더 안의 프로그램 폴더 이름</span><input type="text" id="upd-folder" style="width:340px" placeholder="예: --claude-coupang-ad-calculator-automation-28o2wh"><span id="upd-progress" class="msg"></span></div>
+        <p class="sub" style="margin:0 0 8px">크롬 확장은 <b>다운로드 폴더 안</b>에만 파일을 쓸 수 있습니다. ZIP 을 다운로드 폴더에서 그대로 풀었다면(보통 그렇습니다) 위 버튼 하나로 최신 파일을 받아 교체하고 스스로 새로고침합니다. 프로그램 폴더가 다른 곳에 있으면 폴더를 다운로드 폴더로 옮긴 뒤 chrome://extensions 에서 다시 로드하거나, 폴더의 <b>업데이트.bat</b>(맥은 업데이트.command)을 더블클릭하세요. 데이터는 크롬 안에 있으므로 어느 쪽이든 그대로 유지됩니다.</p>
         <div class="row"><button class="btn sm" id="upd-check">새 버전 확인</button><button class="btn sm" id="upd-reload">지금 새로고침</button><a class="btn sm" id="upd-zip" target="_blank">ZIP 직접 받기</a><span id="upd-msg" class="msg"></span></div>
       </div>
       <div class="grid2">

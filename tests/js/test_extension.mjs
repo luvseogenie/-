@@ -469,6 +469,10 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(moved.map((m) => [m.option_id, m.from, m.to]), [['A', '3. 담요', '52. 담요']]);
   assert.equal(d.options[0].campaign, '52. 담요'); assert.equal(d.options[1].campaign, '5. 커튼'); assert.equal(d.relinks.length, 1);
   assert.deepEqual(S.relinkOptions(d), []);
+  // 옮긴 뒤에도 예전 캠페인(3번)이 광고비를 쓴 날의 판매는 3번 줄에 남는다
+  const led1 = computeLedger(d, '2026-09-09', '2026-09-11'); const row1 = (n) => led1.campaigns.find((c) => c.campaign === n);
+  assert.equal(row1('3. 담요').days['2026-09-10'].actual_qty, 3); assert.equal(row1('52. 담요').days['2026-09-11'].actual_qty, 4);
+  assert.deepEqual(led1.noad_options.map((n) => [n.option_id, n.qty, n.margin]), [['B', 3, 500], ['C', 1, 0]]);
   // 두 운영 캠페인이 같은 옵션을 광고하면 지금 연결 유지
   d.ads['2026-09-11']['3. 담요'] = ad('3. 담요', 500); d.options[0].campaign = '3. 담요';
   d.adrows['2026-09-11'].push({ date: '2026-09-11', campaign: '3. 담요', option_id: 'A', spend: 500, keyword: 'y' });

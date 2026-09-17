@@ -61,6 +61,8 @@ export function computeLedger(d, start, end) {
     const k = date + '|' + r.option_id; if (!adOpt[k] || (adOpt[k].spend || 0) < (r.spend || 0)) adOpt[k] = r;
     const m = (everAt[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date;
   }
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (everAt[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
+  for (const r of d.relinks || []) if (r.from && r.option_id) { const m = (everAt[r.option_id] ||= {}); m[r.from] ||= '0000'; }   // 예전에 연결돼 있던 캠페인 (옮기기 전 기간의 판매용)
   const ever = Object.fromEntries(Object.entries(everAt).map(([oid, m]) => [oid, Object.entries(m).sort((a, b) => b[1].localeCompare(a[1])).map((x) => x[0])]));
   const spentOn = (c, date) => (d.ads[date]?.[c]?.spend || 0) > 0;
   // 옵션의 판매를 어느 캠페인 줄에 넣을지: 그날 광고 목록이 없으면 연결대로, 보고서에 그날 이 옵션이 있으면 그 캠페인,
@@ -92,12 +94,18 @@ export function computeLedger(d, start, end) {
     }
   }
   const unmapped = new Set();
+  const noad = {};   // 광고 없이 팔린 옵션: { option_id: { qty, revenue, days, reason, linked, name, product } }
   for (const [date, day] of Object.entries(d.sales)) {
     if (date < start || date > end) continue;
     const excel = excelOnly(date);
     for (const s of Object.values(day)) {
       let camp = campaignFor(s.option_id, date);
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
+      if ((camp === UNMAPPED || camp === ORGANIC) && !excel && s.quantity) {
+        const n = (noad[s.option_id] ||= { option_id: s.option_id, qty: 0, revenue: 0, days: 0, reason: camp, linked: campaignOf[s.option_id] || '', name: '', product: '', last: '' });
+        n.qty += s.quantity; n.revenue += s.revenue || 0; n.days++; if (date > n.last) n.last = date;
+        if (s.option_name) n.name = s.option_name; if (s.product_name) n.product = s.product_name;
+      }
       const c = get(camp, date);
       // 엑셀 확정 구간: 판매 수·마진은 4번 시트 값을 쓰고, 판매 리포트에서는 매출(총 매출 → 자연 매출)과 방문·조회만 가져온다
       c.revenue += s.revenue || 0; c.visitors += s.visitors || 0; c.views += s.views || 0; c.has_revenue = true;
@@ -157,5 +165,6 @@ export function computeLedger(d, start, end) {
   const grand = cell(); grand.expense = 0; for (const t of Object.values(daily)) { for (const k of SUM) grand[k] += t[k]; grand.expense += t.expense; } finalizeSum(grand); grand.profit_net = grand.profit - grand.expense;
   const month_profit_net = {}; for (const mk of new Set([...Object.keys(month_profit), ...Object.keys(month_expense)])) month_profit_net[mk] = (month_profit[mk] || 0) - (month_expense[mk] || 0);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
-    total_profit, month_profit, month_expense, month_profit_net, daily, grand, expense_by_day: expDay, unmapped_options: [...unmapped].sort(), legacyCutoff };
+    total_profit, month_profit, month_expense, month_profit_net, daily, grand, expense_by_day: expDay, unmapped_options: [...unmapped].sort(), legacyCutoff,
+    noad_options: Object.values(noad).map((n) => ({ ...n, margin: margin(n.option_id, n.last || end), listed: n.option_id in campaignOf })).sort((a, b) => b.qty - a.qty) };
 }

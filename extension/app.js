@@ -8,7 +8,7 @@ import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
 import { importAdReportFile } from './lib/importer.js';
-import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL } from './lib/update.js';
+import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
 /* ===== 공통 ===== */
@@ -455,7 +455,25 @@ function renderMetricPicker() {
   $('#metric-basic').onclick = () => { shownMetrics = new Set(DEFAULT_METRICS); renderMetricPicker(); renderLedgerTable(); };
 }
 let ledgerCache = null;
-async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); }
+async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); renderNoAd(); }
+// 광고 없이 팔린 옵션 목록 (마진 입력 유도)
+function renderNoAd() {
+  const led = ledgerCache; const list = led?.noad_options || []; const names = S.productNames(DATA);
+  const noMargin = list.filter((n) => !n.margin).length;
+  $('#noad-count').textContent = list.length ? `— ${list.length}개 · 판매 ${fmtInt(list.reduce((a, n) => a + n.qty, 0))}개${noMargin ? ` · 마진 없음 ${noMargin}개` : ''}` : '— 없음';
+  const tb = $('#noad-table tbody'); tb.innerHTML = '';
+  for (const n of list.slice(0, 300)) {
+    const why = n.reason === UNMAPPED ? (n.listed ? '캠페인에 연결되지 않은 옵션' : '옵션 목록에 없는 옵션 (윙 판매 등)') : `연결 캠페인 ${esc(n.linked)} 이(가) 그날 광고비를 안 씀 (중단·삭제)`;
+    const tr = document.createElement('tr'); if (!n.margin) tr.className = 'warnrow';
+    tr.innerHTML = `<td class="l num">${esc(n.option_id)}</td><td class="l">${esc(n.product || names[n.option_id] || '')}${n.name ? `<div class="sub">${esc(n.name)}</div>` : ''}</td><td class="l sub">${why}</td><td class="num">${fmtInt(n.qty)}</td><td class="num">${fmtWon(n.revenue)}</td><td class="num ${n.margin ? '' : 'neg'}">${n.margin ? fmtWon(n.margin) : '마진 없음'}</td><td class="num">${n.last.slice(5).replace('-', '/')}</td><td><button class="btn sm ${n.margin ? '' : 'primary'}" data-go="${esc(n.option_id)}" data-listed="${n.listed ? 1 : 0}">${n.listed ? '마진 입력' : '목록에 추가'}</button></td>`;
+    tr.querySelector('button').onclick = () => {
+      location.hash = '#options'; showPage('options');
+      if (n.listed) { $('#opt-camp').value = ''; $('#opt-filter').value = 'all'; $('#opt-search').value = n.option_id; renderOptions(); $('#options-table').scrollIntoView(); }
+      else { $('#unlisted-details').open = true; $('#unlisted-search').value = n.option_id; renderUnlisted(); $('#unlisted-details').scrollIntoView(); }
+    };
+    tb.appendChild(tr);
+  }
+}
 function renderLedgerTable() {
   const led = ledgerCache; if (!led) return;
   const hideEmpty = $('#lg-hide-empty').checked, showAction = $('#lg-action').checked;
@@ -634,7 +652,7 @@ function renderOptions() {
     if (onlyCamp === '__none') { if (o.campaign) return false; }
     else if (onlyCamp === '__idle') { if (!o.campaign || running(o.campaign)) return false; }
     else if (onlyCamp) { if (o.campaign !== onlyCamp) return false; }
-    else if (o.campaign && !running(o.campaign)) return false;   // 기본: 중단·삭제된 캠페인의 옵션은 숨김
+    else if (o.campaign && !running(o.campaign) && !q) return false;   // 기본: 중단·삭제된 캠페인의 옵션은 숨김 (검색 중에는 보임)
     return !q || `${o.option_id} ${o.product_name} ${o.campaign} ${prod[o.option_id] || ''}`.toLowerCase().includes(q);
   };
   const sortMode = $('#opt-sort').value;
@@ -1126,9 +1144,34 @@ async function renderUpdate(force = false) {
   const u = force ? { latest: await checkRemote(true), current: chrome.runtime.getManifest().version } : await updateStatus();
   u.hasUpdate = !!u.latest && u.latest !== u.current && (await import('./lib/update.js')).cmpVersion(u.latest, u.current) > 0;
   $('#upd-sub').textContent = `지금 v${u.current}` + (u.latest ? ` · 최신 v${u.latest}` : ' · 최신 버전을 확인하지 못함');
-  $('#update-banner').innerHTML = u.hasUpdate ? `<div class="notice">🆕 새 버전 <b>v${u.latest}</b> 이 있습니다 (지금 v${u.current}). 저장소 폴더의 <b>업데이트.bat</b> 을 더블클릭하세요. 끝나면 확장 프로그램이 스스로 새로고침됩니다. <a href="#data">자세히</a></div>` : '';
+  $('#update-banner').innerHTML = u.hasUpdate ? `<div class="notice">🆕 새 버전 <b>v${u.latest}</b> 이 있습니다 (지금 v${u.current}). <button class="btn primary sm" id="upd-apply-banner">지금 업데이트</button> <span class="sub">버튼 하나로 받아서 새로고침합니다. 안 되면 폴더의 업데이트.bat 을 더블클릭하세요.</span> <a href="#update">자세히</a></div>` : '';
+  const b = $('#upd-apply-banner'); if (b) b.onclick = () => { showPage('data'); $('#update-card').scrollIntoView(); $('#upd-apply').click(); };
   return u;
 }
+// 한 번에 업데이트: 폴더 확인 → 파일 내려받아 덮어쓰기 → 버전 확인 → 새로고침
+let updating = false;
+async function runInAppUpdate() {
+  if (updating) return; updating = true; const btn = $('#upd-apply'); btn.disabled = true;
+  const say = (t, cls = '') => msg('#upd-progress', t, cls);
+  try {
+    const folder = $('#upd-folder').value.trim(); await chrome.storage.local.set({ updateFolder: folder });
+    say('폴더 확인 중…');
+    const pr = await probeFolder(folder);
+    if (!pr.ok) { say(`다운로드 폴더 안에 "${folder || '(비어 있음)'}/extension" 이 실행 중인 확장 폴더가 아닙니다 (${pr.path}). 폴더 이름을 확인하거나, 프로그램 폴더를 다운로드 폴더로 옮긴 뒤 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; }
+    const latest = await checkRemote(true); const cur = chrome.runtime.getManifest().version;
+    say(`파일 받는 중… (v${cur} → v${latest || '?'})`);
+    const r = await applyUpdate(folder, (t) => say(`받는 중 ${t}`));
+    if (!r.ok) { say(`일부 파일을 못 받았습니다: ${r.failed.join(' / ')}. 폴더의 업데이트.bat 을 실행해 마무리하세요.`, 'err'); return; }
+    if (r.diskVersion && r.diskVersion !== cur) {
+      say(`완료: v${cur} → v${r.diskVersion}. 3초 뒤 새로고침합니다…`, 'ok');
+      await chrome.storage.local.set({ reopenAppAfterUpdate: location.hash || '#data' });
+      setTimeout(() => chrome.runtime.reload(), 3000);
+    } else say(`파일 ${r.files}개를 받았지만 버전이 그대로입니다 (v${r.diskVersion || cur}). 이미 최신이거나, 폴더가 실행 중인 확장 폴더가 아닐 수 있습니다.`, r.diskVersion === latest ? 'ok' : 'err');
+  } catch (e) { say('업데이트 실패: ' + e.message + ' — 폴더의 업데이트.bat 을 실행하세요.', 'err'); }
+  finally { updating = false; btn.disabled = false; }
+}
+$('#upd-apply').onclick = runInAppUpdate;
+chrome.storage.local.get('updateFolder').then((r) => { $('#upd-folder').value = r.updateFolder ?? DEFAULT_FOLDER; });
 $('#upd-check').onclick = async () => { msg('#upd-msg', '확인 중…'); const u = await renderUpdate(true); msg('#upd-msg', u.hasUpdate ? `새 버전 v${u.latest} 이 있습니다. 업데이트.bat 을 실행하세요.` : '최신 버전입니다.', u.hasUpdate ? 'err' : 'ok'); };
 $('#upd-reload').onclick = async () => { if (!(await reloadIfFilesChanged())) { if (confirm('파일이 아직 바뀌지 않았습니다. 그래도 새로고침할까요?')) chrome.runtime.reload(); } };
 $('#upd-zip').href = ZIP_URL;
