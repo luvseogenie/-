@@ -1,3 +1,4 @@
+import { cleanCampaignName } from './parse.js';
 // 모든 데이터를 chrome.storage.local 에 보관한다. (서버 없음)
 // 구조: { options:[{option_id, product_name, campaign, sort_order}], margins:[{option_id, effective_from('' = 처음부터), margin, note}],
 //         sales:{ 'YYYY-MM-DD': { option_id: row } }, ads:{ 'YYYY-MM-DD': { campaign: row } },
@@ -8,8 +9,24 @@ const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {},
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
-  return { ...EMPTY(), ...(r[KEY] || {}) };
+  const d = { ...EMPTY(), ...(r[KEY] || {}) };
+  if (cleanCampaignNames(d)) await save(d);
+  return d;
 }
+// 배지·버튼 글자가 붙은 채 저장된 캠페인 이름('AI 스마트광고 0. …', '31. 피크닉매트 수정 삭제')을 정리해 같은 캠페인으로 합친다. 바뀐 게 있으면 true
+export function cleanCampaignNames(d) {
+  let changed = false;
+  const fix = (name) => { const c = cleanCampaignName(name); if (c !== name) changed = true; return c; };
+  const merge = (map, mergeRow) => { for (const k of Object.keys(map)) { const c = fix(k); if (c === k) continue; const v = map[k]; delete map[k]; if (mergeRow && map[c]) map[c] = mergeRow(map[c], v); else if (!map[c]) map[c] = v; if (v && typeof v === 'object' && !Array.isArray(v) && 'campaign' in v) v.campaign = c; } };
+  for (const date of Object.keys(d.ads || {})) merge(d.ads[date], (a, b) => (zeroAds(a) && !zeroAds(b) ? b : a));
+  for (const date of Object.keys(d.legacy || {})) merge(d.legacy[date]);
+  merge(d.campaignOptions || {}, (a, b) => (a.at >= b.at ? a : b));
+  merge(d.excludes || {}, (a, b) => [...a, ...b.filter((x) => !a.some((y) => y.keyword === x.keyword))]);
+  for (const o of d.options || []) if (o.campaign) o.campaign = fix(o.campaign);
+  for (const date of Object.keys(d.adrows || {})) for (const r of d.adrows[date]) if (r.campaign) r.campaign = fix(r.campaign);
+  return changed;
+}
+const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
 export async function save(d) { await chrome.storage.local.set({ [KEY]: d }); }
 export async function replaceAll(d) { await chrome.storage.local.set({ [KEY]: { ...EMPTY(), ...d } }); }
 

@@ -224,6 +224,15 @@
     return { ok: all.length > 0, records: all, pages, total: total0, shownTotal: total, notes, date: detectDate(), period: detectPeriod(), url: location.href, tables, errors: [...readErrors] };
   }
 
+  // 칸 글자: 이름 링크(a)가 있으면 그 글자만 (배지 'AI 스마트광고'·'오늘의 Pick', 마우스 올리면 나오는 '수정'·'삭제' 버튼 글자는 뺀다)
+  function cellText(c) {
+    const links = [...c.querySelectorAll('a')].map((a) => clean(a.innerText)).filter(Boolean);
+    if (links.length === 1) return links[0];
+    if (!c.querySelector('button, [role="button"]')) return clean(c.innerText);
+    const cl = c.cloneNode(true);
+    for (const b of cl.querySelectorAll('button, [role="button"], svg, img')) b.remove();
+    return clean([...cl.querySelectorAll('*')].filter((e) => !e.children.length).map((e) => e.textContent).join(' ') || cl.textContent);
+  }
   // 광고센터 캠페인 목록(react-table v6): .rt-table > .rt-thead.-header .rt-th / .rt-tbody .rt-tr-group .rt-tr .rt-td
   function readReactTables() {
     const out = [];
@@ -231,7 +240,7 @@
       const head = t.querySelector('.rt-thead.-header') || t.querySelector('.rt-thead');
       if (!head) continue;
       const headers = [...head.querySelectorAll('.rt-th')].map((h) => clean(h.innerText));
-      const rows = [...t.querySelectorAll('.rt-tbody .rt-tr')].map((r) => [...r.querySelectorAll('.rt-td')].map((c) => clean(c.innerText))).filter((r) => r.length >= 3 && r.some((x) => x));
+      const rows = [...t.querySelectorAll('.rt-tbody .rt-tr')].map((r) => [...r.querySelectorAll('.rt-td')].map(cellText)).filter((r) => r.length >= 3 && r.some((x) => x));
       if (headers.length && rows.length) out.push({ headers, rows, kind: 'react-table' });
     }
     return out;

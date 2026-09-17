@@ -125,6 +125,14 @@ export function normalizeSales(records, date) {
 }
 
 // {헤더: 값} 목록 → 광고 행 목록. percentUnits: 화면 입력처럼 숫자를 % 단위로 볼지.
+// 광고센터 목록의 캠페인 이름 칸에 붙는 배지('AI 스마트광고', '오늘의 Pick', 'NEW')와 마우스를 올리면 나오는 버튼 글자('수정', '삭제')를 뗀다
+const CAMP_BADGE = /^(?:(?:AI\s*스마트\s*광고|오늘의\s*Pick|NEW|추천|HOT|BEST)\s*)+/i;
+const CAMP_BUTTONS = /(?:\s*(?:수정|삭제|복사|편집|더보기|상세|보기|관리))+$/;
+export function cleanCampaignName(name) {
+  let s = String(name ?? '').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 3; i++) { const t = s.replace(CAMP_BADGE, '').replace(CAMP_BUTTONS, '').trim(); if (t === s) break; s = t; }
+  return s;
+}
 export function normalizeAds(records, date, percentUnits = false) {
   const out = [];
   if (records.length) lastHeaders.ads = Object.keys(records[0]);
@@ -146,7 +154,7 @@ export function normalizeAds(records, date, percentUnits = false) {
     const di = firstMatch(normed, DATE_ALIASES, DATE_EXCLUDE); const rowDate = di == null ? null : parseDate(rec[headers[di]]);
     if (rowDate) row.date = rowDate;
     // 캠페인 이름 칸에 'AI 스마트광고' 같은 배지가 붙어 있으면 앞의 배지 제거
-    row.campaign = row.campaign.replace(/^(AI\s*스마트광고|NEW|추천)\s*/i, '').trim();
+    row.campaign = cleanCampaignName(row.campaign);
     if (!row.campaign || ['합계', '총계', '전체'].includes(normHeader(row.campaign))) continue;
     out.push(row);
   }

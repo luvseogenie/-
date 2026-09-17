@@ -410,3 +410,26 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(AR.dateList('2026-08-30', '2026-09-01'), ['2026-08-30', '2026-08-31', '2026-09-01']);
   console.log('area stats: all checks passed');
 }
+
+// ---- 캠페인 이름 정리: 배지('AI 스마트광고', '오늘의 Pick')와 마우스 올리면 나오는 '수정 삭제' 버튼 글자 제거 ----
+{
+  const { cleanCampaignName } = await import('../../extension/lib/parse.js');
+  assert.equal(cleanCampaignName('AI 스마트광고 0. 소량 재고 및 광고 안 도는 것들'), '0. 소량 재고 및 광고 안 도는 것들');
+  assert.equal(cleanCampaignName('AI스마트광고0. 소량 재고'), '0. 소량 재고');
+  assert.equal(cleanCampaignName('오늘의 Pick31. 피크닉매트_260402 수정 삭제'), '31. 피크닉매트_260402');
+  assert.equal(cleanCampaignName('31. 피크닉매트_260402 수정 삭제'), '31. 피크닉매트_260402');
+  assert.equal(cleanCampaignName('52. 똑딱이 담요_300%_260915'), '52. 똑딱이 담요_300%_260915');
+  assert.equal(cleanCampaignName('37. 끈나시 캡브라'), '37. 끈나시 캡브라');   // 이름 끝 글자가 버튼 단어로 끝나지 않으면 그대로
+  const d = { ...S.EMPTY ? S.EMPTY() : {}, options: [{ option_id: '1', campaign: '31. 피크닉매트_260402 수정 삭제' }], margins: [], sales: {}, legacy: {}, imports: [], expenses: [], traffic: [], excludes: { '오늘의 Pick31. 피크닉매트_260402': [{ keyword: 'a' }] }, adrows: {},
+    ads: { '2026-09-16': { '31. 피크닉매트_260402 수정 삭제': { campaign: '31. 피크닉매트_260402 수정 삭제', spend: 100, ad_revenue: 500 }, '31. 피크닉매트_260402': { campaign: '31. 피크닉매트_260402', spend: 0, ad_revenue: 0 }, '37. 끈나시 캡브라': { campaign: '37. 끈나시 캡브라', spend: 5 } } },
+    campaignOptions: { 'AI 스마트광고 0. 소량': { at: '2026-09-01', options: [] }, '0. 소량': { at: '2026-09-10', options: [{ option_id: '9', name: 'x' }] } } };
+  assert.equal(S.cleanCampaignNames(d), true);
+  assert.deepEqual(Object.keys(d.ads['2026-09-16']).sort(), ['31. 피크닉매트_260402', '37. 끈나시 캡브라']);
+  assert.equal(d.ads['2026-09-16']['31. 피크닉매트_260402'].spend, 100);      // 숫자 있는 쪽이 남는다
+  assert.equal(d.ads['2026-09-16']['31. 피크닉매트_260402'].campaign, '31. 피크닉매트_260402');
+  assert.equal(d.options[0].campaign, '31. 피크닉매트_260402');
+  assert.deepEqual(Object.keys(d.campaignOptions), ['0. 소량']); assert.equal(d.campaignOptions['0. 소량'].at, '2026-09-10');
+  assert.deepEqual(Object.keys(d.excludes), ['31. 피크닉매트_260402']);
+  assert.equal(S.cleanCampaignNames(d), false);
+  console.log('campaign name clean: all checks passed');
+}
