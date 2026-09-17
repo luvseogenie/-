@@ -1197,10 +1197,17 @@ async function runInAppUpdate() {
   if (updating) return; updating = true; const btn = $('#upd-apply'); btn.disabled = true;
   const say = (t, cls = '') => msg('#upd-progress', t, cls);
   try {
-    const folder = $('#upd-folder').value.trim(); await chrome.storage.local.set({ updateFolder: folder });
-    say('폴더 확인 중…');
-    const pr = await probeFolder(folder);
-    if (!pr.ok) { say(`다운로드 폴더 안에 "${folder || '(비어 있음)'}/extension" 이 실행 중인 확장 폴더가 아닙니다 (${pr.path}). 폴더 이름을 확인하거나, 프로그램 폴더를 다운로드 폴더로 옮긴 뒤 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; }
+    let folder = $('#upd-folder').value.trim().replace(/[\\/]+$/, '');
+    // chrome://extensions 의 '소스' 전체 경로를 붙여 넣은 경우: 다운로드 폴더 아래 부분만 남긴다 (…\Downloads\폴더\extension → 폴더)
+    const full = folder.match(/^(?:[a-zA-Z]:[\\/]|\/)/) ? folder : null;
+    if (full) { const m = full.match(/[\\/]downloads[\\/](.*)$/i); if (!m) { say(`그 경로는 다운로드 폴더 안이 아닙니다 (${full}). 프로그램 폴더를 다운로드 폴더로 옮긴 뒤 chrome://extensions 에서 지우고 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; } folder = m[1].replace(/[\\/]+extension$/i, '').replace(/\\/g, '/'); $('#upd-folder').value = folder; }
+    // 흔한 경우를 차례로 시험: 적은 폴더 → 윈도우 '압축 풀기'가 만드는 같은 이름 두 겹 → 다운로드 폴더 바로 아래 extension
+    const cands = [...new Set([folder, folder ? `${folder}/${folder.split('/').pop()}` : null, ''].filter((x) => x != null))];
+    let pr = null, hit = null;
+    for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } }
+    if (hit == null) { say(`다운로드 폴더(${pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '')}) 안에서 실행 중인 확장 폴더를 못 찾았습니다. chrome://extensions → 이 확장의 '세부정보' → '소스' 경로를 위 칸에 그대로 붙여 넣고 다시 누르세요. 그 경로가 다운로드 폴더 밖이면 폴더를 다운로드 폴더로 옮긴 뒤 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; }
+    if (hit !== folder) { folder = hit; $('#upd-folder').value = hit; }
+    await chrome.storage.local.set({ updateFolder: folder });
     const latest = await checkRemote(true); const cur = chrome.runtime.getManifest().version;
     say(`파일 받는 중… (v${cur} → v${latest || '?'})`);
     const r = await applyUpdate(folder, (t) => say(`받는 중 ${t}`));
