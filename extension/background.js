@@ -697,7 +697,7 @@ async function fixUrls() {
 
 chrome.runtime.onInstalled.addListener((d) => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
 async function scheduleUpdateAlarms() {
-  await chrome.alarms.create('update-remote', { periodInMinutes: 360 });   // 새 버전 있는지
+  await chrome.alarms.create('update-remote', { periodInMinutes: 60 });    // 새 버전 있는지
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }

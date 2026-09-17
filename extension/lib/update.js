@@ -15,7 +15,7 @@ export const currentVersion = () => chrome.runtime.getManifest().version;
 
 export async function checkRemote(force = false) {
   const { updateCheckedAt = 0, latestVersion = null } = await chrome.storage.local.get(['updateCheckedAt', 'latestVersion']);
-  if (!force && Date.now() - updateCheckedAt < 6 * 3600 * 1000) return latestVersion;
+  if (!force && Date.now() - updateCheckedAt < 10 * 60 * 1000) return latestVersion;   // 10분에 한 번만 GitHub 에 물어본다 (앱을 열 때마다 최신인지 알 수 있게)
   try {
     const r = await fetch(RAW_MANIFEST + '?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
