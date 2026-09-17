@@ -676,6 +676,8 @@
     if (!opener) return { ok: false, how: '선택 상자 못 찾음', selected: 0 };
     const boxesNow = () => deepAll('input[type="checkbox"]').filter(visible);
     const baseSet = new Set(boxesNow());
+    const confirmsNow = () => deepAll(CLICKABLE).filter((e) => visible(e) && ['확인', '적용', '선택 완료', '선택완료'].includes(clean(e.innerText).replace(/\s+/g, '')));
+    const baseConfirms = new Set(confirmsNow());
     fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ }
     let items = []; const t0 = Date.now();
     while (Date.now() - t0 < 8000) { await wait(400); items = boxesNow().filter((b) => !baseSet.has(b)); if (items.length > 1) break; }
@@ -704,7 +706,10 @@
       await wait(400); log.push(`항목 줄 하나씩 클릭 → 체크 ${checkedN()}개`);
     }
     const checked = checkedN();
-    document.body.click(); try { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch { /* 무시 */ } await wait(400);
+    // 4) 선택 상자 안의 '확인' 버튼 (상자를 열면서 새로 나타난 것) — 이걸 눌러야 선택이 적용된다. 바깥을 누르면 취소되어 버린다
+    const confirmBtn = confirmsNow().find((e) => !baseConfirms.has(e)) || confirmsNow().find((e) => e.closest(DIALOG));
+    if (confirmBtn) { fire(confirmBtn, HOVER); try { confirmBtn.click(); } catch { /* 무시 */ } await wait(700); log.push('확인 누름'); }
+    else { log.push('확인 버튼 없음'); document.body.click(); await wait(400); }
     const stillPlaceholder = placeholder();
     return { ok: checked > 1 || (checked === 1 && !stillPlaceholder), how: `${log.join(' → ')}${stillPlaceholder ? ' · 아직 "캠페인을 선택하세요"' : ' · 선택됨'}`, selected: checked };
   }

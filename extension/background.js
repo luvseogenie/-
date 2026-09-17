@@ -454,7 +454,7 @@ async function collectReport(dateOverride, span = null) {
           const c3 = await click(tab.id, ['예약하기', '예약 등록', '등록', '저장', '확인', '보고서 예약'], { exactOnly: true, inDialog: true });
           steps.push(c3.ok ? `창 안 '${c3.text}' 누름` : '창 안 확인 버튼 못 찾음');
         } else steps.push(`확인 창 못 찾음${hadReserve ? " ('보고서 예약' 버튼은 원래부터 있음)" : ''}`);
-        const t0 = Date.now(); let found = false; const limit = from === to ? 120000 : 300000;   // 기간 보고서는 만드는 데 오래 걸릴 수 있어 5분
+        const t0 = Date.now(); let found = false; const limit = from === to ? 120000 : 600000;   // 기간 보고서는 만드는 데 오래 걸릴 수 있어 10분
         while (Date.now() - t0 < limit) {
           await sleep(6000); await inject(tab.id);
           await click(tab.id, ['목록 새로 고침', '새로 고침', '새로고침']);
