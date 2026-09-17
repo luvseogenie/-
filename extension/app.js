@@ -19,6 +19,8 @@ const fmtInt = (v) => Math.round(v || 0).toLocaleString('ko-KR');
 const fmtWon = (v) => (v < 0 ? '-' : '') + fmtInt(Math.abs(v || 0));
 const fmt = { won: fmtWon, int: fmtInt, ratio: (v) => Math.round((v || 0) * 100) + '%', pct0: (v) => Math.round((v || 0) * 100) + '%', pct1: (v) => ((v || 0) * 100).toFixed(1) + '%', pct2: (v) => ((v || 0) * 100).toFixed(2) + '%' };
 const msg = (id, text, cls = '') => { const e = $(id); if (e) { e.textContent = text; e.className = 'msg ' + cls; } };
+// 화면 아래에 잠깐 뜨는 알림 (표 안쪽을 보고 있어도 저장된 것을 알 수 있게)
+function toast(text, cls = 'ok') { let t = $('#toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = text; t.className = 'show ' + cls; clearTimeout(toast._t); toast._t = setTimeout(() => { t.className = ''; }, 2500); }
 const today = new Date(); const yday = new Date(today); yday.setDate(today.getDate() - 1);
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
 const download = (name, text, type = 'text/csv') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type })); a.download = name; a.click(); };
@@ -605,6 +607,8 @@ $('#lg-csv').onclick = () => {
 /* ===== 캠페인 · 옵션 ===== */
 $('#opt-search').oninput = () => renderOptions(); $('#opt-filter').onchange = () => renderOptions();
 $('#opt-new-toggle').onclick = () => { $('#new-option').style.display = 'flex'; $('#no-id').focus(); };
+$('#opt-save-all').onclick = saveAllDirty;
+$('#opt-dirty-cancel').onclick = () => renderOptions();
 $('#opt-help-toggle').onclick = (e) => { e.preventDefault(); const h = $('#opt-help'); h.style.display = h.style.display === 'none' ? '' : 'none'; };
 $('#opt-bulk-toggle').onclick = () => { const b = $('#opt-bulk'); b.style.display = b.style.display === 'none' ? 'flex' : 'none'; b.closest('.card').querySelector('details.inline').open = false; };
 document.addEventListener('click', (e) => { $$('details.inline[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; }); });
@@ -627,6 +631,28 @@ function suggestions() {
     if (best) for (const o of list) if (!o.campaign) sug[o.option_id] = best;
   }
   return { sug, groups, prod };
+}
+// 옵션 줄의 입력값을 데이터에 반영 (저장은 호출한 쪽에서). 무엇을 바꿨는지 글자로 돌려준다
+function applyRow(dd, tr) {
+  const o = tr._opt; const g = (k) => tr.querySelector(`[data-k=${k}]`).value; const parts = [];
+  const cur = dd.options.find((x) => x.option_id === o.option_id);
+  if (!cur || cur.campaign !== g('campaign').trim()) parts.push('캠페인');
+  if (!cur || cur.product_name !== g('product_name').trim()) parts.push('상품명');
+  S.upsertOption(dd, { option_id: o.option_id, product_name: g('product_name'), campaign: g('campaign') });
+  if (g('margin') !== '') { S.setMargin(dd, o.option_id, parseNumber(g('margin')) || 0, g('effective_from') || '', g('note')); parts.push(`마진 ${fmtInt(parseNumber(g('margin')) || 0)}원${g('effective_from') ? ' ' + g('effective_from') + '부터' : ''}`); }
+  return parts.join(' · ');
+}
+function dirtyRows() { return $$('#options-table tbody tr.dirty'); }
+function updateDirtyBar() {
+  const n = dirtyRows().length; const bar = $('#opt-dirtybar'); if (!bar) return;
+  bar.style.display = n ? 'flex' : 'none'; $('#opt-dirty-n').textContent = n; $('#opt-save-all').textContent = `입력한 ${n}개 모두 저장`;
+}
+async function saveAllDirty() {
+  const rows = dirtyRows(); if (!rows.length) { toast('바뀐 줄이 없습니다', ''); return; }
+  const dd = await reload(); const ids = [];
+  for (const tr of rows) { applyRow(dd, tr); ids.push(tr._opt.option_id); }
+  await S.save(dd); await reload(); renderOptions(); renderFoot();
+  toast(`${ids.length}개 저장됨`); msg('#opt-msg', `${ids.length}개 저장됨: ${ids.join(', ')}`, 'ok');
 }
 function renderOptions() {
   const d = DATA;
@@ -681,7 +707,9 @@ function renderOptions() {
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
   if (!document.getElementById('camp-list')) $('#options-table').insertAdjacentHTML('beforebegin', `<datalist id="camp-list"></datalist>`);
   document.getElementById('camp-list').innerHTML = camps.map((c) => `<option value="${esc(c)}">`).join('');
-  const tb = $('#options-table tbody'); tb.innerHTML = '';
+  const tb = $('#options-table tbody'); const wrap = tb.closest('.tablewrap'); const keepScroll = wrap ? wrap.scrollTop : 0; tb.innerHTML = '';
+  if (wrap) requestAnimationFrame(() => { wrap.scrollTop = keepScroll; });
+  updateDirtyBar();
   const rowFor = (o) => {
     const hist = S.marginHistory(d, o.option_id); const sg = sug[o.option_id];
     const tr = document.createElement('tr'); if (o.campaign && !hist.length) tr.className = 'warnrow';
@@ -693,12 +721,9 @@ function renderOptions() {
       <td class="l change"><div class="row"><input type="number" class="tiny" data-k="margin" placeholder="새 마진"><input type="date" data-k="effective_from" value="${hist.length ? todayIso : ''}"><input class="short" data-k="note" placeholder="사유"></div></td>
       <td class="actions"><button class="btn primary sm">저장</button> <button class="btn danger sm">삭제</button></td>`;
     const [save, del] = tr.querySelectorAll('button');
-    save.onclick = async () => {
-      const g = (k) => tr.querySelector(`[data-k=${k}]`).value;
-      const dd = await reload(); S.upsertOption(dd, { option_id: o.option_id, product_name: g('product_name'), campaign: g('campaign') });
-      if (g('margin') !== '') S.setMargin(dd, o.option_id, parseNumber(g('margin')) || 0, g('effective_from') || '', g('note'));
-      await S.save(dd); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); await reload(); renderOptions(); renderFoot();
-    };
+    tr._opt = o;
+    tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', () => { tr.classList.add('dirty'); updateDirtyBar(); }));
+    save.onclick = async () => { const dd = await reload(); const what = applyRow(dd, tr); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${o.option_id} 저장됨${what ? ' (' + what + ')' : ''}`); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); };
     del.onclick = async () => { if (confirm(`옵션 ${o.option_id} 를 목록에서 삭제할까요? (마진 이력도 삭제)`)) { const dd = await reload(); S.deleteOption(dd, o.option_id); await S.save(dd); refreshAll(); } };
     tr.querySelectorAll('a[data-del]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); if (confirm('이 마진 이력을 삭제할까요?')) { const dd = await reload(); S.deleteMargin(dd, o.option_id, a.dataset.del); await S.save(dd); await reload(); renderOptions(); } });
     tr.querySelectorAll('a[data-sug]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const dd = await reload(); const oo = dd.options.find((x) => x.option_id === a.dataset.sug); S.upsertOption(dd, { ...oo, campaign: sug[oo.option_id] }); await S.save(dd); await reload(); renderOptions(); });

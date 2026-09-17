@@ -184,3 +184,10 @@ details.inline .menu .btn { text-align: left; }
 #opt-todo .pill { cursor: pointer; padding: 4px 10px; font-size: 12px; }
 #options-table tr.grp .grp-tools { margin-top: 6px; }
 #options-table tr.grp .grp-tools[hidden] { display: none; }
+
+/* 저장 안 한 줄 표시 + 일괄 저장 막대 + 토스트 */
+#options-table tr.dirty td { background: #fff7e0; }
+#opt-dirtybar { position: sticky; bottom: 0; z-index: 5; margin: 0 0 8px; padding: 8px 12px; background: #fff3c4; border: 1px solid #f0d98a; border-radius: 10px; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 1000; padding: 10px 18px; border-radius: 999px; background: #1f2937; color: #fff; font-size: 13.5px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.ok { background: #0a7a0a; } #toast.err { background: #a52a2a; }

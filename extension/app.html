@@ -228,6 +228,7 @@
           <input type="number" id="opt-bulk-margin" class="tiny" placeholder="새 마진" style="width:110px"><input type="date" id="opt-bulk-from"><input type="text" id="opt-bulk-note" class="short" placeholder="사유 (예: 가격 인하)">
           <button class="btn primary sm" id="opt-bulk-save">일괄 저장</button><span class="sub">위의 검색·캠페인·필터로 걸러진 옵션 전부에 같은 마진을 시작일부터 적용합니다. 시작일을 비우면 처음부터.</span>
         </div>
+        <div class="row" id="opt-dirtybar" style="display:none"><b>입력만 하고 아직 저장 안 한 줄 <span id="opt-dirty-n">0</span>개</b><button class="btn primary sm" id="opt-save-all">입력한 0개 모두 저장</button><button class="btn sm" id="opt-dirty-cancel">입력 취소</button><span class="sub">줄마다 '저장'을 누르지 않아도 한 번에 저장됩니다.</span></div>
         <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l" title="새 마진은 시작일부터 적용되고 이전 날짜는 그대로입니다. 첫 마진은 시작일을 비우면 처음부터 적용됩니다.">마진 변경 (새 마진 · 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <details class="card" id="newcamp-details" style="margin-top:12px"><summary>🆕 옵션이 연결되지 않은 캠페인 <span class="sub" id="newcamp-count"></span></summary>
