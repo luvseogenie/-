@@ -689,6 +689,13 @@
     if (!allBox && items.length) allBox = items[0];
     if (allBox) { clickBox(allBox); await wait(600); log.push(`전체선택 칸 클릭 → 체크 ${checkedN()}개`); }
     else if (allText) { fire(allText, HOVER); try { allText.click(); } catch { /* 무시 */ } await wait(600); log.push(`전체선택 글자 클릭 → 체크 ${checkedN()}개`); }
+    // 1-b) 그래도 안 됐으면 '전체선택' 글자 바로 왼쪽에 그려진 상자(꾸민 체크박스)를 누른다
+    if (checkedN() <= 1 && allText) {
+      const row = allText.closest('li, label, [role="option"], [role="menuitem"], div') || allText.parentElement;
+      const left = allText.previousElementSibling || (row && row.firstElementChild !== allText ? row.firstElementChild : null);
+      for (const el of [left, row].filter(Boolean)) { if (el === allBox) continue; fire(el, HOVER); try { el.click(); } catch { /* 무시 */ } await wait(500); if (checkedN() > 1) break; }
+      log.push(`왼쪽 상자·줄 클릭 → 체크 ${checkedN()}개`);
+    }
     // 2) 항목 체크박스를 하나씩
     if (checkedN() <= 1 && items.length > 1) { for (const b of items) { if (b !== allBox && !b.checked) { clickBox(b); await wait(60); } } await wait(400); log.push(`항목 칸 하나씩 클릭 → 체크 ${checkedN()}개`); }
     // 3) 항목 줄(글자)을 하나씩
