@@ -438,9 +438,11 @@
 
   // 글자로 누를 것 찾기: 정확히 같은 글자 → 그 글자로 시작 → 포함, 순서대로. 보이는 것만.
   const CLICKABLE = 'button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], li, label, span, div, td';
-  function findClickable(texts, { exactOnly = false } = {}) {
+  const DIALOG = '[role="dialog"], [role="alertdialog"], .modal, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="layer" i], [class*="overlay" i]';
+  function findClickable(texts, { exactOnly = false, inDialog = false } = {}) {
     // 같은 글자를 가진 요소가 겹겹이면(li > button > span) 가장 안쪽 것을 고른다 — 클릭 처리기가 보통 거기 붙어 있다
-    const els = deepAll(CLICKABLE).filter((e) => visible(e) && e.children.length <= 3).sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length);
+    // inDialog: 떠 있는 확인 창 안의 것만 (바탕 화면의 같은 글자 버튼을 누르지 않게)
+    const els = deepAll(CLICKABLE).filter((e) => visible(e) && e.children.length <= 3 && (!inDialog || e.closest(DIALOG))).sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length);
     const norm = (t) => clean(t).replace(/\s+/g, '');
     for (const mode of exactOnly ? ['exact'] : ['exact', 'start', 'contain']) {
       for (const t of texts) {
@@ -578,7 +580,12 @@
   // 글자가 든 줄(표의 행) 찾기. mustHave 가 있으면 그 중 하나도 같이 들어 있어야 한다
   // 줄 찾기. texts: 하나라도 들어 있으면 됨 / mustHave: 하나라도 / onlyDates(YYYY-MM-DD 목록): 줄에 적힌 날짜(시각이 붙은 생성일시는 제외)가 모두 이 목록 안이어야 함
   //   → '2026-08-18 ~ 2026-09-16 키워드 일별' 줄은 찾고, 하루짜리를 찾을 때 30일짜리 줄이 잡히는 것을 막는다
-  function rowDates(t) { const out = []; const re = /(\d{4})[-./]?(\d{2})[-./]?(\d{2})(\s*\d{1,2}:\d{2})?/g; let m; while ((m = re.exec(t))) { if (!m[4]) out.push(`${m[1]}-${m[2]}-${m[3]}`); } return out; }
+  // 줄에 적힌 '기간' (시작 ~ 끝) 찾기. 쿠팡 목록: '2026-09-17 2026-09-16 ~ 2026-09-16 [일별] …' (앞의 날짜는 생성일)
+  const D = '(\\d{4})[-./]?(\\d{2})[-./]?(\\d{2})';
+  function rowPeriod(t) {
+    const m = t.match(new RegExp(D + '\\s*[~_\\-–]\\s*' + D)); if (!m) return null;
+    return [`${m[1]}-${m[2]}-${m[3]}`, `${m[4]}-${m[5]}-${m[6]}`];
+  }
   function findRowByText(texts, mustHave = [], onlyDates = null) {
     const rows = deepAll('tr, .rt-tr, [role="row"], li').filter(visible);
     const norm = (t) => clean(t).toLowerCase();
@@ -586,7 +593,11 @@
       const t = norm(r.innerText); if (t.length > 600) continue;
       if (texts.length && !texts.some((x) => t.includes(norm(x)))) continue;
       if (mustHave.length && !mustHave.some((m) => t.includes(norm(m)))) continue;
-      if (onlyDates && onlyDates.length) { const ds = rowDates(t); if (!ds.length || ds.some((d) => !onlyDates.includes(d))) continue; if (!onlyDates.every((d) => ds.includes(d))) continue; }
+      if (onlyDates && onlyDates.length) {
+        const want = [onlyDates[0], onlyDates[onlyDates.length - 1]]; const p = rowPeriod(t);
+        if (p) { if (p[0] !== want[0] || p[1] !== want[1]) continue; }
+        else if (!want.every((d) => [d, d.replace(/-/g, ''), d.replace(/-/g, '.'), d.replace(/-/g, '/')].some((v) => t.includes(v)))) continue;
+      }
       return { ok: true, row: r, rowText: clean(r.innerText).slice(0, 120) };
     }
     return { ok: false };
@@ -687,11 +698,13 @@
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload().then(sendResponse);
     } else if (msg?.type === 'clickText') {
-      sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
+      sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly, inDialog: !!msg.inDialog }));
     } else if (msg?.type === 'findRowByText') {
       const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null); delete r.row; sendResponse(r);
     } else if (msg?.type === 'clickInRow') {
       sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null));
+    } else if (msg?.type === 'hasClickable') {
+      sendResponse({ ok: !!findClickable(msg.texts || [], { exactOnly: true }) });
     } else if (msg?.type === 'listRows') {
       sendResponse({ ok: true, rows: listRows(msg.words || ['다운로드'], msg.n || 6) });
     } else if (msg?.type === 'pageAlerts') {
