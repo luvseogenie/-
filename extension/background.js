@@ -407,12 +407,13 @@ async function collectReport(dateOverride, span = null) {
     await installHook(tab.id);
     expectUntil = Date.now() + 240000; expectDate = target; lastHookedUrl = null;
     const fromC = from.replace(/-/g, ''), toC = to.replace(/-/g, '');
-    const rowTexts = from === to ? [fromC, from, from.replace(/-/g, '.')] : [`${fromC}_${toC}`, `${from} ~ ${to}`, `${from}~${to}`, `${from.replace(/-/g, '.')} ~ ${to.replace(/-/g, '.')}`];
+    // 목록 줄 찾기: 줄에 적힌 날짜들이 정확히 from·to 이고(생성 시각은 제외) '키워드/일별' 글자가 있는 줄
+    const rowTexts = []; const onlyDates = from === to ? [from] : [from, to];
     expectDate = to;
-    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: rowTexts, mustHave: ['키워드', 'keyword', '일별', 'daily'] }).catch(() => ({ ok: false }));
+    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: rowTexts, mustHave: ['키워드', 'keyword', '일별', 'daily'], onlyDates }).catch(() => ({ ok: false }));
     const tryDownloadRow = async (label) => {
       const waiting = waitForReport(60000);
-      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: rowTexts, button: ['다운로드'] }).catch(() => ({ ok: false }));
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: rowTexts, button: ['다운로드'], onlyDates }).catch(() => ({ ok: false }));
       steps.push(`${label}: 어제 날짜 줄의 다운로드 ${c?.ok ? `누름(${(c.rowText || '').slice(0, 40)})` : '못 찾음'}`);
       if (!c?.ok) { settle(null); return null; }
       return waiting;
@@ -425,7 +426,7 @@ async function collectReport(dateOverride, span = null) {
     if (!res?.ok) {
       const c1 = await click(tab.id, ['기간 설정', '직접 설정', '기간설정']); steps.push(`기간 설정 ${c1.ok ? '누름' : '못 찾음'}`); await sleep(800);
       const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target, values: [from, to] }).catch(() => ({ ok: false }));
-      steps.push(`날짜 입력 ${f?.ok ? `됨(${f.how})` : '못 함'}`); await sleep(800);
+      steps.push(`날짜 입력 ${f?.ok ? `됨(${(f.values || [f.how]).join(' ~ ')})` : '못 함'}`); await sleep(800);
       const c2 = await click(tab.id, ['일별'], { exactOnly: true }); steps.push(`일별 ${c2.ok ? '누름' : '못 찾음'}`); await sleep(500);
       const lv = await chrome.tabs.sendMessage(tab.id, { type: 'clickRadio', values: ['keyword'], texts: ['캠페인 > 광고그룹 > 상품 > 키워드', '키워드'] }).catch(() => ({ ok: false }));
       steps.push(`단위=키워드 ${lv?.ok ? lv.how : '못 찾음'}`); await sleep(500);
@@ -434,14 +435,17 @@ async function collectReport(dateOverride, span = null) {
       const cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); steps.push(`캠페인 ${cs?.ok ? cs.how : '선택 못 함'}`); await sleep(800);
       const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : '못 찾음'}`);
       if (mk.ok) {
-        const t0 = Date.now(); let found = false;
-        while (Date.now() - t0 < 120000) {
+        await sleep(1200); await inject(tab.id);
+        const al = await chrome.tabs.sendMessage(tab.id, { type: 'pageAlerts' }).catch(() => null); if (al?.alerts?.length) steps.push(`화면 안내: ${al.alerts.join(' | ')}`);
+        const t0 = Date.now(); let found = false; const limit = from === to ? 120000 : 300000;   // 기간 보고서는 만드는 데 오래 걸릴 수 있어 5분
+        while (Date.now() - t0 < limit) {
           await sleep(6000); await inject(tab.id);
           await click(tab.id, ['목록 새로 고침', '새로 고침', '새로고침']);
           await sleep(2500); await inject(tab.id);
           row = await rowFor(); if (row?.ok && /다운로드/.test(row.rowText || '')) { found = true; break; }
         }
-        steps.push(found ? `목록에 생김 (${Math.round((Date.now() - t0) / 1000)}초)` : '2분 안에 목록에 안 생김');
+        steps.push(found ? `목록에 생김 (${Math.round((Date.now() - t0) / 1000)}초)` : `${Math.round(limit / 60000)}분 안에 목록에 안 생김`);
+        if (!found) { const lr = await chrome.tabs.sendMessage(tab.id, { type: 'listRows', words: ['다운로드', '키워드', 'keyword'], n: 5 }).catch(() => null); if (lr?.rows?.length) steps.push(`목록 위쪽 줄: ${lr.rows.map((r) => `「${r}」`).join(' ')}`); }
         if (found) res = await tryDownloadRow('새 보고서');
       }
     }

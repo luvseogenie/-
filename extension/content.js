@@ -576,19 +576,36 @@
   document.addEventListener('cc-download-blob', (e) => { try { chrome.runtime.sendMessage({ type: 'downloadBlob', name: e.detail?.name, data: e.detail?.data, how: e.detail?.how }); } catch { /* 무시 */ } });
 
   // 글자가 든 줄(표의 행) 찾기. mustHave 가 있으면 그 중 하나도 같이 들어 있어야 한다
-  function findRowByText(texts, mustHave = []) {
+  // 줄 찾기. texts: 하나라도 들어 있으면 됨 / mustHave: 하나라도 / onlyDates(YYYY-MM-DD 목록): 줄에 적힌 날짜(시각이 붙은 생성일시는 제외)가 모두 이 목록 안이어야 함
+  //   → '2026-08-18 ~ 2026-09-16 키워드 일별' 줄은 찾고, 하루짜리를 찾을 때 30일짜리 줄이 잡히는 것을 막는다
+  function rowDates(t) { const out = []; const re = /(\d{4})[-./]?(\d{2})[-./]?(\d{2})(\s*\d{1,2}:\d{2})?/g; let m; while ((m = re.exec(t))) { if (!m[4]) out.push(`${m[1]}-${m[2]}-${m[3]}`); } return out; }
+  function findRowByText(texts, mustHave = [], onlyDates = null) {
     const rows = deepAll('tr, .rt-tr, [role="row"], li').filter(visible);
     const norm = (t) => clean(t).toLowerCase();
     for (const r of rows) {
       const t = norm(r.innerText); if (t.length > 600) continue;
-      if (!texts.some((x) => t.includes(norm(x)))) continue;
+      if (texts.length && !texts.some((x) => t.includes(norm(x)))) continue;
       if (mustHave.length && !mustHave.some((m) => t.includes(norm(m)))) continue;
+      if (onlyDates && onlyDates.length) { const ds = rowDates(t); if (!ds.length || ds.some((d) => !onlyDates.includes(d))) continue; if (!onlyDates.every((d) => ds.includes(d))) continue; }
       return { ok: true, row: r, rowText: clean(r.innerText).slice(0, 120) };
     }
     return { ok: false };
   }
-  function clickInRow(texts, buttonTexts, mustHave = []) {
-    const r = findRowByText(texts, mustHave); if (!r.ok) return { ok: false, reason: '줄 없음' };
+  // 진단: 어떤 글자가 든 줄들의 앞부분 (보고서 목록이 실제로 어떻게 생겼는지 보려고)
+  function listRows(words, n = 6) {
+    const norm = (t) => clean(t).toLowerCase();
+    return deepAll('tr, .rt-tr, [role="row"]').filter(visible).map((r) => clean(r.innerText)).filter((t) => t.length < 600 && words.some((w) => norm(t).includes(norm(w)))).slice(0, n).map((t) => t.slice(0, 140));
+  }
+  // 진단: 화면에 떠 있는 안내·오류 문구 (기간 제한 같은 것)
+  function pageAlerts() {
+    const sel = '[role="alert"], [class*="toast" i], [class*="alert" i], [class*="error" i], [class*="message" i], [class*="notice" i], [class*="warning" i], [class*="tooltip" i]';
+    const out = new Set();
+    for (const e of deepAll(sel)) { if (!visible(e)) continue; const t = clean(e.innerText); if (t && t.length < 200) out.add(t); }
+    for (const e of deepAll('span, p, div, li')) { if (!visible(e) || e.children.length > 2) continue; const t = clean(e.innerText); if (t.length < 120 && /최대|일까지|초과|기간을|선택해 주세요|선택하세요|실패|오류/.test(t) && /\d|기간|선택|실패|오류/.test(t)) out.add(t); }
+    return [...out].slice(0, 8);
+  }
+  function clickInRow(texts, buttonTexts, mustHave = [], onlyDates = null) {
+    const r = findRowByText(texts, mustHave, onlyDates); if (!r.ok) return { ok: false, reason: '줄 없음' };
     const norm = (t) => clean(t).replace(/\s+/g, '');
     const btn = [...r.row.querySelectorAll('button, a, [role="button"], span, div')].filter(visible).find((b) => buttonTexts.some((x) => norm(b.innerText) === norm(x) || (b.getAttribute('aria-label') || '').includes(x)));
     if (!btn) return { ok: false, reason: '줄 안에 버튼 없음', rowText: r.rowText };
@@ -672,9 +689,13 @@
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly }));
     } else if (msg?.type === 'findRowByText') {
-      const r = findRowByText(msg.texts || [], msg.mustHave || []); delete r.row; sendResponse(r);
+      const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null); delete r.row; sendResponse(r);
     } else if (msg?.type === 'clickInRow') {
-      sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || []));
+      sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null));
+    } else if (msg?.type === 'listRows') {
+      sendResponse({ ok: true, rows: listRows(msg.words || ['다운로드'], msg.n || 6) });
+    } else if (msg?.type === 'pageAlerts') {
+      sendResponse({ ok: true, alerts: pageAlerts() });
     } else if (msg?.type === 'fillDates') {
       sendResponse(fillDates(msg.labels || [], msg.value || '', msg.values || null));
     } else if (msg?.type === 'clickRadio') {
