@@ -432,12 +432,15 @@ async function collectReport(dateOverride, span = null) {
       steps.push(`단위=키워드 ${lv?.ok ? lv.how : '못 찾음'}`); await sleep(500);
       const ck = await chrome.tabs.sendMessage(tab.id, { type: 'setCheckbox', texts: ['클릭이 발생한 키워드만 보고서에 포함', '키워드만 보고서에 포함'], checked: true }).catch(() => ({ ok: false }));
       steps.push(`키워드 포함 ${ck?.ok ? (ck.changed ? '체크함' : '이미 체크') : '못 찾음'}`); await sleep(500);
-      const cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); steps.push(`캠페인 ${cs?.ok ? cs.how : '선택 못 함'}`); await sleep(800);
+      // 캠페인 전체 선택: 기간을 바꾼 직후엔 목록이 비어 있을 수 있어 체크된 게 없으면 잠시 뒤 다시 (최대 3번)
+      let cs = null;
+      for (let i = 0; i < 3; i++) { cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); if (cs?.ok) break; await sleep(2500); await inject(tab.id); }
+      steps.push(`캠페인 ${cs?.ok ? cs.how : `선택 못 함(${cs?.how || '응답 없음'})`}`); await sleep(800);
       const hadReserve = (await chrome.tabs.sendMessage(tab.id, { type: 'hasClickable', texts: ['보고서 예약'] }).catch(() => ({ ok: false }))).ok;
       const linesOf = async () => (await chrome.tabs.sendMessage(tab.id, { type: 'textLines' }).catch(() => null))?.lines || [];
       const before = await linesOf();
       const newSince = async (base) => { const now = await linesOf(); const b = new Set(base); return now.filter((x) => !b.has(x)).slice(0, 15); };
-      const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : '못 찾음'}`);
+      const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : (mk.disabled ? '버튼이 비활성(캠페인이 선택되지 않은 듯)' : '못 찾음')}`);
       if (mk.ok) {
         await sleep(1200); await inject(tab.id);
         const al = await chrome.tabs.sendMessage(tab.id, { type: 'pageAlerts' }).catch(() => null); if (al?.alerts?.length) steps.push(`화면 안내: ${al.alerts.join(' | ')}`);

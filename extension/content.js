@@ -457,6 +457,7 @@
     const el = findClickable(texts, opts);
     if (!el) return { ok: false, reason: `'${texts[0]}' 를 찾지 못했습니다` };
     const target = el.closest('button, a, [role="button"], [role="tab"], [role="menuitem"], label') || el;
+    if (target.disabled || target.getAttribute('aria-disabled') === 'true' || /\bdisabled\b/.test(target.className || '')) return { ok: false, reason: `'${texts[0]}' 버튼이 비활성 상태`, disabled: true };
     fire(target, [...HOVER, ...CLICK]); try { if (target !== el) fire(el, CLICK); } catch { /* 무시 */ }
     try { target.click(); } catch { /* 무시 */ } try { if (target !== el) el.click(); } catch { /* 무시 */ }
     return { ok: true, text: clean(el.innerText || el.value || '').slice(0, 30), tag: target.tagName.toLowerCase() };
@@ -667,15 +668,24 @@
     return { ok: true, how: `선택(${r.value})` };
   }
   // '캠페인을 선택하세요' 같은 다중 선택: 열어서 전체 선택 항목을 누른다
+  // 기간을 바꾸면 캠페인 목록을 다시 불러오느라 비어 있을 수 있어, 항목이 생길 때까지(최대 8초) 기다린 뒤 전체 선택하고 실제로 체크됐는지 센다
   async function selectAllCampaigns() {
+    const placeholder = () => !!findClickable(['캠페인을 선택하세요'], { exactOnly: true });
     const opener = findClickable(['캠페인을 선택하세요', '캠페인 선택', '전체 캠페인']);
-    if (!opener) return { ok: false };
-    fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ } await wait(600);
+    if (!opener) return { ok: false, how: '선택 상자 못 찾음', selected: 0 };
+    const boxesNow = () => deepAll('input[type="checkbox"]').filter(visible);
+    const base = boxesNow().length;
+    fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ }
+    let boxes = []; const t0 = Date.now();
+    while (Date.now() - t0 < 8000) { await wait(400); boxes = boxesNow(); if (boxes.length > base + 1) break; }
     const all = findClickable(['전체 선택', '모두 선택', '전체선택', '모두', '전체']);
-    if (all) { fire(all, [...HOVER, ...CLICK]); try { all.click(); } catch { /* 무시 */ } await wait(300); document.body.click(); return { ok: true, how: `전체 선택(${clean(all.innerText).slice(0, 12)})` }; }
-    const boxes = deepAll('input[type="checkbox"]').filter(visible); let n = 0; for (const b of boxes) if (!b.checked) { b.click(); n++; }
-    document.body.click();
-    return { ok: n > 0, how: `체크박스 ${n}개 체크` };
+    let how = '';
+    if (all) { fire(all, [...HOVER, ...CLICK]); try { all.click(); } catch { /* 무시 */ } await wait(500); how = `전체 선택(${clean(all.innerText).slice(0, 12)})`; }
+    let checked = boxesNow().filter((b) => b.checked).length;
+    if (!checked) { let n = 0; for (const b of boxesNow()) if (!b.checked) { b.click(); n++; } await wait(300); checked = boxesNow().filter((b) => b.checked).length; how = `체크박스 ${n}개 직접 체크`; }
+    document.body.click(); await wait(400);
+    const stillPlaceholder = placeholder();
+    return { ok: checked > 0 && !stillPlaceholder, how: `${how} · 항목 ${boxes.length - base}개, 체크 ${checked}개${stillPlaceholder ? ', 아직 "캠페인을 선택하세요"' : ''}`, selected: checked };
   }
 
   window.__ccReadTables = allTables;
