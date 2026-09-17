@@ -433,3 +433,47 @@ console.log('extension logic: all checks passed');
   assert.equal(S.cleanCampaignNames(d), false);
   console.log('campaign name clean: all checks passed');
 }
+
+// ---- 캠페인 상태(운영·중단·삭제), 옵션을 최근 캠페인으로 옮기기, 장부의 '(광고 없는 판매)' 줄 ----
+{
+  const { ORGANIC, UNMAPPED } = await import('../../extension/lib/ledger.js');
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: spend * 3, impressions: 100, clicks: 10, ad_orders: 1, target_roas: 3, budget: 10000, conversion: 0.1, ctr: 0.1 });
+  const d = { ...S.EMPTY ? S.EMPTY() : {}, margins: [{ option_id: 'A', effective_from: '', margin: 1000 }, { option_id: 'B', effective_from: '', margin: 500 }], legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, relinks: [],
+    options: [{ option_id: 'A', product_name: 'a', campaign: '3. 담요', sort_order: 1 }, { option_id: 'B', product_name: 'b', campaign: '5. 커튼', sort_order: 2 }, { option_id: 'C', product_name: 'c', campaign: '', sort_order: 3 }],
+    ads: {
+      '2026-09-01': { '3. 담요': ad('3. 담요', 1000), '5. 커튼': ad('5. 커튼', 800) },
+      '2026-09-10': { '3. 담요': ad('3. 담요', 1000), '5. 커튼': ad('5. 커튼', 0), '52. 담요': ad('52. 담요', 0) },
+      '2026-09-11': { '5. 커튼': ad('5. 커튼', 0), '52. 담요': ad('52. 담요', 2000) },
+    },
+    sales: {
+      '2026-09-09': { A: { option_id: 'A', quantity: 2, revenue: 20000 } },                       // 광고 목록 없는 날 → 연결대로
+      '2026-09-10': { A: { option_id: 'A', quantity: 3, revenue: 30000 }, B: { option_id: 'B', quantity: 1, revenue: 5000 } },
+      '2026-09-11': { A: { option_id: 'A', quantity: 4, revenue: 40000 }, B: { option_id: 'B', quantity: 2, revenue: 9000 }, C: { option_id: 'C', quantity: 1, revenue: 1000 } },
+    },
+    adrows: { '2026-09-11': [{ date: '2026-09-11', campaign: '52. 담요', option_id: 'A', spend: 2000, impressions: 50, clicks: 5, orders14: 1, revenue14: 6000, keyword: 'x' }] },
+    campaignOptions: {} };
+  const st = S.campaignStatus(d);
+  assert.deepEqual(st, { '3. 담요': 'deleted', '5. 커튼': 'paused', '52. 담요': 'running' });
+  assert.equal(S.isRunning({}, '무엇이든'), true);
+  // 장부: 9/10 A 는 3번(그날 광고비 있음), 9/11 A 는 보고서대로 52번, B 는 5번이 광고비 0 → '(광고 없는 판매)', C 는 '(캠페인 없음)'
+  const led0 = computeLedger(d, '2026-09-09', '2026-09-11'); const row = (n) => led0.campaigns.find((c) => c.campaign === n);
+  assert.equal(row('3. 담요').days['2026-09-09'].actual_qty, 2);
+  assert.equal(row('3. 담요').days['2026-09-10'].actual_qty, 3);
+  assert.equal(row('52. 담요').days['2026-09-11'].actual_qty, 4);
+  assert.equal(row(ORGANIC).days['2026-09-10'].actual_qty, 1); assert.equal(row(ORGANIC).days['2026-09-11'].actual_qty, 2);
+  assert.equal(row(ORGANIC).days['2026-09-11'].margin_total, 1000);   // 광고 없이 팔린 마진 = 2 × 500
+  assert.equal(row(UNMAPPED).days['2026-09-11'].actual_qty, 1);
+  assert.deepEqual(led0.campaigns.map((c) => c.campaign).slice(-2), [ORGANIC, UNMAPPED]);
+  // 옮기기: A 는 삭제된 3번 → 운영 중인 52번(보고서 근거). B 는 근거 없음 → 그대로
+  const moved = S.relinkOptions(d);
+  assert.deepEqual(moved.map((m) => [m.option_id, m.from, m.to]), [['A', '3. 담요', '52. 담요']]);
+  assert.equal(d.options[0].campaign, '52. 담요'); assert.equal(d.options[1].campaign, '5. 커튼'); assert.equal(d.relinks.length, 1);
+  assert.deepEqual(S.relinkOptions(d), []);
+  // 두 운영 캠페인이 같은 옵션을 광고하면 지금 연결 유지
+  d.ads['2026-09-11']['3. 담요'] = ad('3. 담요', 500); d.options[0].campaign = '3. 담요';
+  d.adrows['2026-09-11'].push({ date: '2026-09-11', campaign: '3. 담요', option_id: 'A', spend: 500, keyword: 'y' });
+  assert.deepEqual(S.relinkOptions(d), []); assert.equal(d.options[0].campaign, '3. 담요');
+  // 광고 목록을 한 번도 안 읽었으면 아무것도 안 옮김
+  assert.deepEqual(S.relinkOptions({ ...d, ads: {} }), []);
+  console.log('campaign status/relink/organic: all checks passed');
+}

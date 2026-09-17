@@ -3,6 +3,7 @@ import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaig
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
+export const ORGANIC = '(광고 없는 판매)';   // 연결된 캠페인이 그날 광고비를 안 썼거나(중단) 사라진(삭제) 날의 판매 — 광고 없이 팔린 마진
 export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['budget', '광고예산', 'won'], ['traffic_slots', '트래픽 슬롯', 'int'], ['roas', '광고수익률', 'ratio'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
@@ -53,6 +54,25 @@ export function computeLedger(d, start, end) {
   start = start || (ds.length ? monthStart(ds[0]) : monthStart(todayIso));
   end = end || (ds.length ? monthEnd(ds[ds.length - 1]) : todayIso);
   const campaignOf = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  // 그날 실제로 이 옵션을 광고한 캠페인 (광고 보고서 행), 그리고 옵션별로 광고한 적 있는 캠페인들(최근순)
+  const adOpt = {}; const everAt = {};
+  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) {
+    if (!r.option_id || !r.campaign) continue;
+    const k = date + '|' + r.option_id; if (!adOpt[k] || (adOpt[k].spend || 0) < (r.spend || 0)) adOpt[k] = r;
+    const m = (everAt[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date;
+  }
+  const ever = Object.fromEntries(Object.entries(everAt).map(([oid, m]) => [oid, Object.entries(m).sort((a, b) => b[1].localeCompare(a[1])).map((x) => x[0])]));
+  const spentOn = (c, date) => (d.ads[date]?.[c]?.spend || 0) > 0;
+  // 옵션의 판매를 어느 캠페인 줄에 넣을지: 그날 광고 목록이 없으면 연결대로, 보고서에 그날 이 옵션이 있으면 그 캠페인,
+  // 연결 캠페인이 그날 광고비를 썼으면 연결 캠페인, 아니면 이 옵션을 광고한 적 있는 다른 캠페인 중 그날 광고비를 쓴 것, 그것도 없으면 '(광고 없는 판매)'
+  const campaignFor = (oid, date) => {
+    const linked = campaignOf[oid]; if (!linked) return null;
+    const day = d.ads[date]; if (!day || !Object.keys(day).length) return linked;
+    const a = adOpt[date + '|' + oid]; if (a) return a.campaign;
+    if (spentOn(linked, date)) return linked;
+    for (const c of ever[oid] || []) if (spentOn(c, date)) return c;
+    return ORGANIC;
+  };
   const margin = marginLookup(d);
   const order = campaignList(d);
   const cells = Object.fromEntries(order.map((c) => [c, {}]));
@@ -76,7 +96,7 @@ export function computeLedger(d, start, end) {
     if (date < start || date > end) continue;
     const excel = excelOnly(date);
     for (const s of Object.values(day)) {
-      let camp = campaignOf[s.option_id];
+      let camp = campaignFor(s.option_id, date);
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
       const c = get(camp, date);
       // 엑셀 확정 구간: 판매 수·마진은 4번 시트 값을 쓰고, 판매 리포트에서는 매출(총 매출 → 자연 매출)과 방문·조회만 가져온다
@@ -92,7 +112,7 @@ export function computeLedger(d, start, end) {
   }
   // 예전 엑셀 4번 시트 값: 그 날 옵션별 판매/광고 데이터가 없는 쪽만 채운다 (있으면 새 데이터가 우선)
   const salesTouched = new Set();
-  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end || excelOnly(date)) continue; for (const s of Object.values(day)) { const camp = campaignOf[s.option_id]; if (camp) salesTouched.add(camp + '|' + date); } }
+  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end || excelOnly(date)) continue; for (const s of Object.values(day)) { const camp = campaignFor(s.option_id, date); if (camp) salesTouched.add(camp + '|' + date); } }
   for (const [date, day] of Object.entries(d.legacy || {})) {
     if (date < start || date > end) continue;
     for (const [camp, L] of Object.entries(day)) {

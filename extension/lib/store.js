@@ -10,8 +10,50 @@ const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {},
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
-  if (cleanCampaignNames(d)) await save(d);
+  const changed = cleanCampaignNames(d);
+  const moved = relinkOptions(d);
+  if (changed || moved.length) await save(d);
   return d;
+}
+// ---- 캠페인 상태: 광고센터 목록(ads)을 마지막으로 읽은 날 기준 ----
+// running: 목록에 있고 최근 7일 안에 광고비가 있거나 새로 생긴 캠페인 / paused: 목록엔 있지만 광고비 없음 / deleted: 목록에서 사라짐
+// 옵션·엑셀에만 있고 광고센터 목록에서 본 적 없는 캠페인은 결과에 없다(끝난 캠페인). 광고 목록을 한 번도 안 읽었으면 {} (모두 운영 중으로 취급)
+export function campaignStatus(d) {
+  const dates = Object.keys(d.ads || {}).filter((x) => Object.keys(d.ads[x]).length).sort(); if (!dates.length) return {};
+  const latest = dates[dates.length - 1];
+  const wa = new Date(latest + 'T00:00:00'); wa.setDate(wa.getDate() - 6); const weekAgo = `${wa.getFullYear()}-${String(wa.getMonth() + 1).padStart(2, '0')}-${String(wa.getDate()).padStart(2, '0')}`;
+  const recent = dates.filter((x) => x >= weekAgo);   // 마지막 수집일 기준 최근 7일
+  const first = {}; for (const date of dates) for (const c of Object.keys(d.ads[date])) if (!first[c]) first[c] = date;
+  const out = {};
+  for (const c of Object.keys(first)) {
+    if (!d.ads[latest][c]) { out[c] = 'deleted'; continue; }
+    const spent = recent.some((date) => (d.ads[date][c]?.spend || 0) > 0);
+    out[c] = spent || first[c] >= weekAgo ? 'running' : 'paused';   // 광고비가 있거나 생긴 지 7일 안(아직 광고비가 없어도 새 캠페인)
+  }
+  return out;
+}
+export const isRunning = (status, c) => !Object.keys(status).length || status[c] === 'running';
+// ---- 옵션을 가장 최근 캠페인으로 옮기기 ----
+// 광고 보고서(adrows)·광고센터에서 읽은 캠페인 옵션(campaignOptions)에 '이 옵션을 이 캠페인이 광고했다'는 근거가 있으면,
+// 지금 연결된 캠페인이 중단·삭제됐거나 근거가 없을 때 운영 중인 최신 캠페인으로 옮긴다. 옮긴 내역은 d.relinks 에 남는다.
+export function relinkOptions(d) {
+  const st = campaignStatus(d); if (!Object.keys(st).length) return [];
+  const ev = {};
+  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) { const m = (ev[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date; }
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (ev[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
+  const moved = [];
+  for (const o of d.options) {
+    const m = ev[o.option_id]; if (!m) continue;
+    const running = Object.entries(m).filter(([c]) => st[c] === 'running').sort((a, b) => b[1].localeCompare(a[1]));
+    if (!running.length) continue;
+    const [best, at] = running[0];
+    if (best === o.campaign) continue;
+    if (st[o.campaign] === 'running' && m[o.campaign]) continue;   // 지금 캠페인도 운영 중이고 근거가 있으면 그대로 (한 옵션을 두 캠페인이 광고하는 경우)
+    moved.push({ option_id: o.option_id, from: o.campaign, to: best, at });
+    o.campaign = best;
+  }
+  if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, when }))].slice(-300); }
+  return moved;
 }
 // 배지·버튼 글자가 붙은 채 저장된 캠페인 이름('AI 스마트광고 0. …', '31. 피크닉매트 수정 삭제')을 정리해 같은 캠페인으로 합친다. 바뀐 게 있으면 true
 export function cleanCampaignNames(d) {
@@ -102,9 +144,10 @@ export function campaignKey(name) {
   const m = String(name).match(/^\s*(\d+)/);
   return [m ? Number(m[1]) : Number.MAX_SAFE_INTEGER - 1, String(name)];
 }
+const TAIL = ['(광고 없는 판매)', '(캠페인 없음)'];   // 맨 뒤에 이 순서로
 export function sortCampaigns(list) {
   return [...list].sort((a, b) => {
-    if (a === '(캠페인 없음)') return 1; if (b === '(캠페인 없음)') return -1;
+    const la = TAIL.indexOf(a), lb = TAIL.indexOf(b); if (la >= 0 || lb >= 0) return la - lb;
     const [na, sa] = campaignKey(a), [nb, sb] = campaignKey(b);
     return na - nb || sa.localeCompare(sb, 'ko');
   });

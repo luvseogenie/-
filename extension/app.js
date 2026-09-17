@@ -1,5 +1,5 @@
 import * as S from './lib/store.js';
-import { computeLedger, METRICS } from './lib/ledger.js';
+import { computeLedger, METRICS, UNMAPPED, ORGANIC } from './lib/ledger.js';
 import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse.js';
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
@@ -481,9 +481,16 @@ function renderLedgerTable() {
   const prevOf = (c, date) => { let p = null; for (const d of Object.keys(c.days).sort()) { if (d >= date) break; if (c.days[d].has_ads) p = c.days[d]; } return p; };
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
   const showHidden = $('#lg-show-hidden').checked;
-  const allCamps = S.campaigns(DATA); const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
+  const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
+  const allCamps = S.sortCampaigns([...new Set([...S.campaigns(DATA), ...led.campaigns.map((c) => c.campaign)])]);   // '(캠페인 없음)'·'(광고 없는 판매)' 줄 포함
   // 캠페인 선택 목록 (표시되는 캠페인만)
-  const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; const c = byName[name]; return v === 'always' || (c && Object.keys(c.days).some((d) => dates.includes(d))); });
+  // 자동 표시: 기간 안에 광고비를 쓴(또는 엑셀 확정값이 있는) 캠페인만. 중단·삭제된 캠페인은 숨기고, 그 옵션의 판매는 '(광고 없는 판매)' 줄에 들어간다
+  const ranIn = (c) => !!c && Object.keys(c.days).some((dd) => dates.includes(dd) && (c.days[dd].spend > 0 || c.days[dd].spend_vat > 0 || c.days[dd].legacy));
+  const hasIn = (c) => !!c && Object.keys(c.days).some((dd) => dates.includes(dd));
+  const autoShow = (name) => { const c = byName[name]; return name === UNMAPPED || name === ORGANIC ? hasIn(c) : ranIn(c); };
+  const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; return v === 'always' || (showHidden ? hasIn(byName[name]) : autoShow(name)); });
+  const idleN = allCamps.filter((name) => visOf(name) === 'auto' && !autoShow(name) && hasIn(byName[name])).length;
+  if (idleN && !showHidden) $('#lg-warn').innerHTML += `<div class="notice sub">이 기간에 광고비를 쓰지 않은(중단·삭제된) 캠페인 ${idleN}개는 표시하지 않습니다. 그 옵션의 판매 마진은 '(광고 없는 판매)' 줄과 합계에 들어 있습니다. 보려면 '숨긴 캠페인 보기'를 켜세요.</div>`;
   const sel = $('#lg-camp'); const cur = sel.value;
   sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
   if (cur && !visibleCamps.includes(cur)) sel.value = '';
@@ -493,7 +500,7 @@ function renderLedgerTable() {
     const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
     if (only && name !== only) continue;
     if (v === 'hidden' && !showHidden) continue;
-    const hasData = Object.keys(c.days).some((d) => dates.includes(d));
+    const hasData = showHidden ? hasIn(c) : autoShow(name);
     if (v !== 'always' && !hasData) continue;
     const rowCount = metrics.length + (showAction ? 1 : 0);
     metrics.forEach((mt, i) => {
@@ -609,16 +616,25 @@ function renderOptions() {
   const q = $('#opt-search').value.trim().toLowerCase(); const f = $('#opt-filter').value; const grouped = $('#opt-group').checked;
   // 캠페인 선택 상자 (번호순). 선택돼 있으면 그 캠페인 옵션만
   const campSel = $('#opt-camp'); const curCamp = campSel.value;
-  campSel.innerHTML = '<option value="">모든 캠페인</option>' + S.sortCampaigns([...new Set(d.options.map((o) => o.campaign).filter(Boolean))]).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '<option value="__none">(캠페인 없음)</option>';
+  const status = S.campaignStatus(d); const running = (c) => S.isRunning(status, c);
+  const linkedCamps = S.sortCampaigns([...new Set(d.options.map((o) => o.campaign).filter(Boolean))]);
+  const idleCamps = linkedCamps.filter((c) => !running(c)); const idleOpts = d.options.filter((o) => o.campaign && !running(o.campaign)).length;
+  campSel.innerHTML = '<option value="">운영 중인 캠페인 전체</option>' + linkedCamps.filter(running).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '<option value="__none">(캠페인 없음)</option>' + (idleCamps.length ? `<option value="__idle">⏸ 중단·삭제된 캠페인 (${idleCamps.length}개 · 옵션 ${idleOpts}개)</option>` : '');
   campSel.value = [...campSel.options].some((o) => o.value === curCamp) ? curCamp : '';
   const onlyCamp = campSel.value;
+  // 오늘 최근 캠페인으로 옮긴 옵션 안내
+  const todayRel = (d.relinks || []).filter((r) => r.when === todayIso); const relBox = $('#opt-relink');
+  if (relBox) { if (todayRel.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = ''; relBox.innerHTML = `🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`; } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
     const hist = S.marginHistory(d, o.option_id);
     if (f === 'mapped' && !o.campaign) return false; if (f === 'unmapped' && o.campaign) return false;
     if (f === 'nomargin' && hist.length) return false; if (f === 'sold30' && !soldRecently.has(o.option_id)) return false;
     if (f === 'suggest' && !sug[o.option_id]) return false;
-    if (onlyCamp === '__none' ? !!o.campaign : (onlyCamp && o.campaign !== onlyCamp)) return false;
+    if (onlyCamp === '__none') { if (o.campaign) return false; }
+    else if (onlyCamp === '__idle') { if (!o.campaign || running(o.campaign)) return false; }
+    else if (onlyCamp) { if (o.campaign !== onlyCamp) return false; }
+    else if (o.campaign && !running(o.campaign)) return false;   // 기본: 중단·삭제된 캠페인의 옵션은 숨김
     return !q || `${o.option_id} ${o.product_name} ${o.campaign} ${prod[o.option_id] || ''}`.toLowerCase().includes(q);
   };
   const sortMode = $('#opt-sort').value;
@@ -628,7 +644,7 @@ function renderOptions() {
   const nSug = Object.keys(sug).length;
   $('#opt-bulk-n').textContent = `— ${list.length}개`; optBulkList = list.map((o) => o.option_id);
   if (!$('#opt-bulk-from').value) $('#opt-bulk-from').value = todayIso;
-  $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개`;
+  $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개${idleOpts && onlyCamp !== '__idle' ? ` · 중단·삭제 캠페인 옵션 ${idleOpts}개 숨김` : ''}`;
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
   if (!document.getElementById('camp-list')) $('#options-table').insertAdjacentHTML('beforebegin', `<datalist id="camp-list"></datalist>`);
   document.getElementById('camp-list').innerHTML = camps.map((c) => `<option value="${esc(c)}">`).join('');
