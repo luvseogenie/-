@@ -434,14 +434,23 @@ async function collectReport(dateOverride, span = null) {
       steps.push(`키워드 포함 ${ck?.ok ? (ck.changed ? '체크함' : '이미 체크') : '못 찾음'}`); await sleep(500);
       const cs = await chrome.tabs.sendMessage(tab.id, { type: 'selectAllCampaigns' }).catch(() => ({ ok: false })); steps.push(`캠페인 ${cs?.ok ? cs.how : '선택 못 함'}`); await sleep(800);
       const hadReserve = (await chrome.tabs.sendMessage(tab.id, { type: 'hasClickable', texts: ['보고서 예약'] }).catch(() => ({ ok: false }))).ok;
+      const linesOf = async () => (await chrome.tabs.sendMessage(tab.id, { type: 'textLines' }).catch(() => null))?.lines || [];
+      const before = await linesOf();
+      const newSince = async (base) => { const now = await linesOf(); const b = new Set(base); return now.filter((x) => !b.has(x)).slice(0, 15); };
       const mk = await click(tab.id, ['보고서 만들기', '보고서 생성', '만들기']); steps.push(`보고서 만들기 ${mk.ok ? '누름' : '못 찾음'}`);
       if (mk.ok) {
         await sleep(1200); await inject(tab.id);
         const al = await chrome.tabs.sendMessage(tab.id, { type: 'pageAlerts' }).catch(() => null); if (al?.alerts?.length) steps.push(`화면 안내: ${al.alerts.join(' | ')}`);
         // 기간이 길면 바로 만들지 않고 '보고서 예약' 확인 창이 뜬다 → 예약 버튼(정확히 그 글자)을 누른다
+        const appeared = await newSince(before); if (appeared.length) steps.push(`만들기 뒤 새로 뜬 글자: ${appeared.map((x) => `「${x}」`).join(' ')}`);
         let rv = await click(tab.id, ['보고서 예약', '예약하기', '예약', '확인'], { exactOnly: true, inDialog: true });
         if (!rv.ok && !hadReserve) rv = await click(tab.id, ['보고서 예약'], { exactOnly: true });   // 창 모양을 못 알아봐도, 만들기 뒤에 새로 생긴 '보고서 예약' 버튼이면 누른다
-        if (rv.ok) { steps.push(`확인 창 → '${rv.text}' 누름`); await sleep(1500); await inject(tab.id); const c3 = await click(tab.id, ['확인'], { exactOnly: true, inDialog: true }); if (c3.ok) steps.push('확인 누름'); }
+        if (rv.ok) {
+          steps.push(`'${rv.text}' 누름${hadReserve ? '(원래 있던 버튼)' : '(만들기 뒤 생긴 버튼)'}`); await sleep(1500); await inject(tab.id);
+          const ap2 = await newSince(before); if (ap2.length) steps.push(`그 뒤 화면: ${ap2.map((x) => `「${x}」`).join(' ')}`);
+          const c3 = await click(tab.id, ['예약하기', '예약 등록', '등록', '저장', '확인', '보고서 예약'], { exactOnly: true, inDialog: true });
+          steps.push(c3.ok ? `창 안 '${c3.text}' 누름` : '창 안 확인 버튼 못 찾음');
+        } else steps.push(`확인 창 못 찾음${hadReserve ? " ('보고서 예약' 버튼은 원래부터 있음)" : ''}`);
         const t0 = Date.now(); let found = false; const limit = from === to ? 120000 : 300000;   // 기간 보고서는 만드는 데 오래 걸릴 수 있어 5분
         while (Date.now() - t0 < limit) {
           await sleep(6000); await inject(tab.id);

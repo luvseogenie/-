@@ -703,6 +703,10 @@
       const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null); delete r.row; sendResponse(r);
     } else if (msg?.type === 'clickInRow') {
       sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null));
+    } else if (msg?.type === 'textLines') {
+      // 화면에 보이는 글자 줄 (전후 비교로 새로 뜬 창·문구를 알아내기 위한 진단)
+      const lines = [...new Set((document.body?.innerText || '').split('\n').map((x) => clean(x)).filter((x) => x && x.length < 160))];
+      sendResponse({ ok: true, lines: lines.slice(0, 600) });
     } else if (msg?.type === 'hasClickable') {
       sendResponse({ ok: !!findClickable(msg.texts || [], { exactOnly: true }) });
     } else if (msg?.type === 'listRows') {
