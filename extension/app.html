@@ -199,41 +199,46 @@
     <!-- ===== 캠페인 · 옵션 ===== -->
     <section id="page-options" style="display:none">
       <div class="card">
-        <h2>옵션 · 캠페인 · 마진 <span class="sub">옵션마다 광고 캠페인 이름(광고센터와 똑같이)과 마진을 넣으면 장부가 계산됩니다. 광고를 안 하는 옵션은 캠페인을 비워 두면 '자연 판매'로만 집계됩니다.</span></h2>
-        <div class="row" style="margin-bottom:10px">
-          <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:280px">
+        <h2>캠페인 · 옵션 · 마진 <span class="sub">옵션마다 광고 캠페인과 개당 마진을 넣으면 장부가 계산됩니다.</span> <a href="#" class="sub" id="opt-help-toggle">도움말</a></h2>
+        <div class="notice sub" id="opt-help" style="display:none;margin-bottom:8px">
+          이 목록은 엑셀 1번 시트에서 가져왔거나 직접 추가한 옵션입니다. 캠페인을 비워 두면 그 옵션의 판매는 '자연 판매'로만 집계됩니다.<br>
+          <b>팔렸지만 목록에 없는 옵션</b>: 윙 판매 리포트에는 나오는데 여기 목록에는 없는 옵션입니다(광고 안 하는 상품, 새로 만든 옵션 등). 중고나 이상한 것이 아니라 그냥 마진을 아직 안 넣은 상품이며, 추가하지 않으면 마진 0원으로 계산됩니다.<br>
+          <b>옵션이 연결되지 않은 캠페인</b>: 새로 만든 광고 캠페인인데 어느 옵션이 그 캠페인인지 아직 모르는 것입니다. 광고 보고서가 들어오면 옵션이 자동으로 나오니 마진만 넣으면 됩니다.
+        </div>
+        <div class="row" style="margin-bottom:8px">
+          <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:260px">
           <select id="opt-camp" title="캠페인별로 보기" style="min-width:220px"><option value="">모든 캠페인</option></select>
           <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
           <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
           <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select>
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
-          <button class="btn sm" id="opt-apply-suggest">제안 모두 적용</button>
-          <button class="btn sm" id="opt-cleanup">마진 없는 옵션 정리</button>
           <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>
+          <details class="inline"><summary class="btn sm">더 보기 ▾</summary><div class="menu"><button class="btn sm" id="opt-apply-suggest">제안 모두 적용</button><button class="btn sm" id="opt-bulk-toggle">표시된 옵션에 새 마진 일괄 저장</button><button class="btn sm" id="opt-cleanup">마진 없는 옵션 정리</button></div></details>
         </div>
-        <p class="sub" style="margin:0 0 8px">이 목록은 엑셀 1번 시트에서 가져왔거나 직접 추가한 옵션만 담습니다. 판매 리포트에 나온 다른 옵션은 자동으로 들어오지 않고, 그 판매는 '(캠페인 없음)'으로 집계됩니다. 광고하는 상품의 옵션이 빠져 있으면 아래 <b>목록에 없는 판매 옵션</b>에서 골라 추가하세요.</p>
+        <div class="row" id="opt-todo" style="margin-bottom:8px"></div>
         <div id="new-option" class="row" style="display:none;margin-bottom:10px;padding:10px;background:var(--surface-2);border-radius:10px">
           <input id="no-id" class="short" placeholder="옵션ID"><input id="no-name" style="width:280px" placeholder="상품명 (옵션명 포함)"><input id="no-camp" style="width:180px" placeholder="광고 캠페인 이름"><input id="no-margin" class="tiny" type="number" placeholder="마진">
           <button class="btn primary sm" id="opt-new-save">추가</button>
         </div>
         <div class="msg" id="opt-msg"></div>
         <div class="notice" id="opt-relink" style="display:none"></div>
-        <div class="row" id="opt-bulk" style="margin:0 0 10px;padding:8px 12px;background:var(--surface-2);border-radius:10px">
+        <div class="row" id="opt-bulk" style="display:none;margin:0 0 10px;padding:8px 12px;background:var(--surface-2);border-radius:10px">
           <b>표시된 옵션에 새 마진 일괄 저장</b><span class="sub" id="opt-bulk-n"></span>
           <input type="number" id="opt-bulk-margin" class="tiny" placeholder="새 마진" style="width:110px"><input type="date" id="opt-bulk-from"><input type="text" id="opt-bulk-note" class="short" placeholder="사유 (예: 가격 인하)">
           <button class="btn primary sm" id="opt-bulk-save">일괄 저장</button><span class="sub">위의 검색·캠페인·필터로 걸러진 옵션 전부에 같은 마진을 시작일부터 적용합니다. 시작일을 비우면 처음부터.</span>
         </div>
-        <details id="newcamp-details" style="margin-bottom:10px"><summary>🆕 옵션이 연결되지 않은 캠페인 <span class="sub" id="newcamp-count"></span></summary>
-          <p class="sub" style="margin:6px 0">새로 만든 광고 캠페인은 여기에 뜹니다. 광고 보고서가 있으면 그 캠페인이 광고한 옵션이 자동으로 나오니 마진만 넣고 <b>추가</b>를 누르세요. 보고서가 없으면 옵션ID 를 직접 넣어 추가할 수 있습니다.</p>
-          <div id="newcamp-list"></div>
-        </details>
-        <details id="unlisted-details" style="margin-bottom:10px"><summary>목록에 없는 판매 옵션 <span class="sub" id="unlisted-count"></span></summary>
-          <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순. '추가'를 누르면 위 목록에 들어갑니다 (캠페인·마진은 그 다음에 입력).</span></div>
-          <div class="tablewrap" style="max-height:320px"><table id="unlisted-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>
-        </details>
-        <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l">마진 변경 (새 마진 · 적용 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l" title="새 마진은 시작일부터 적용되고 이전 날짜는 그대로입니다. 첫 마진은 시작일을 비우면 처음부터 적용됩니다.">마진 변경 (새 마진 · 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
+      <details class="card" id="newcamp-details" style="margin-top:12px"><summary>🆕 옵션이 연결되지 않은 캠페인 <span class="sub" id="newcamp-count"></span></summary>
+        <p class="sub" style="margin:6px 0">새로 만든 광고 캠페인은 여기에 뜹니다. 광고 보고서가 있으면 그 캠페인이 광고한 옵션이 자동으로 나오니 마진만 넣고 <b>추가</b>를 누르세요.</p>
+        <div id="newcamp-list"></div>
+      </details>
+      <details class="card" id="unlisted-details" style="margin-top:12px"><summary>🛒 팔렸지만 목록에 없는 옵션 <span class="sub" id="unlisted-count"></span></summary>
+        <p class="sub" style="margin:6px 0">윙 판매 리포트에는 나오는데 이 목록에는 없는 옵션입니다 (광고 안 하는 상품, 새 옵션 등). 추가하지 않으면 마진 0원으로 계산되니, 계속 파는 상품이면 <b>추가</b> 후 마진을 넣어 주세요.</p>
+        <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순</span></div>
+        <div class="tablewrap" style="max-height:320px"><table id="unlisted-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>
+      </details>
     </section>
 
     <!-- ===== 광고 입력 ===== -->

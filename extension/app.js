@@ -605,6 +605,9 @@ $('#lg-csv').onclick = () => {
 /* ===== 캠페인 · 옵션 ===== */
 $('#opt-search').oninput = () => renderOptions(); $('#opt-filter').onchange = () => renderOptions();
 $('#opt-new-toggle').onclick = () => { $('#new-option').style.display = 'flex'; $('#no-id').focus(); };
+$('#opt-help-toggle').onclick = (e) => { e.preventDefault(); const h = $('#opt-help'); h.style.display = h.style.display === 'none' ? '' : 'none'; };
+$('#opt-bulk-toggle').onclick = () => { const b = $('#opt-bulk'); b.style.display = b.style.display === 'none' ? 'flex' : 'none'; b.closest('.card').querySelector('details.inline').open = false; };
+document.addEventListener('click', (e) => { $$('details.inline[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; }); });
 $('#opt-new-save').onclick = async () => {
   const id = $('#no-id').value.trim(); if (!id) { msg('#opt-msg', '옵션ID 를 넣어 주세요', 'err'); return; }
   const d = await reload(); S.upsertOption(d, { option_id: id, product_name: $('#no-name').value, campaign: $('#no-camp').value });
@@ -627,7 +630,7 @@ function suggestions() {
 }
 function renderOptions() {
   const d = DATA;
-  renderUnlisted();
+  const nUnlisted = renderUnlisted();
   const lookup = S.marginLookup(d); const todayIso = localIso(today);
   const since = addDays(localIso(yday), -29); const soldRecently = new Set(); const soldQty = {};
   for (const [date, day] of Object.entries(d.sales)) for (const r of Object.values(day)) { if (date >= since && r.quantity > 0) { soldRecently.add(r.option_id); soldQty[r.option_id] = (soldQty[r.option_id] || 0) + r.quantity; } }
@@ -658,8 +661,20 @@ function renderOptions() {
   const sortMode = $('#opt-sort').value;
   const byCamp = (a, b) => { const ca = a.campaign || '(캠페인 없음)', cb = b.campaign || '(캠페인 없음)'; if (ca !== cb) { if (ca === '(캠페인 없음)') return 1; if (cb === '(캠페인 없음)') return -1; const [na, sa] = S.campaignKey(ca), [nb, sb] = S.campaignKey(cb); return na - nb || sa.localeCompare(sb, 'ko'); } return a.sort_order - b.sort_order; };
   const list = (sortMode === 'campaign' ? [...d.options].sort(byCamp) : S.sortedOptions(d)).filter(pass);
-  renderNewCampaigns(d);
+  const nNew = renderNewCampaigns(d);
   const nSug = Object.keys(sug).length;
+  const nNoMargin = d.options.filter((o) => o.campaign && running(o.campaign) && !S.marginHistory(d, o.option_id).length).length;
+  const todo = [];
+  if (nNew) todo.push(`<span class="pill warn" data-todo="newcamp">🆕 새 캠페인 ${nNew}개 — 옵션 연결 필요</span>`);
+  if (nNoMargin) todo.push(`<span class="pill bad" data-todo="nomargin">마진 없는 옵션 ${nNoMargin}개</span>`);
+  if (nUnlisted) todo.push(`<span class="pill gray" data-todo="unlisted">🛒 팔렸지만 목록에 없는 옵션 ${nUnlisted}개</span>`);
+  if (nSug) todo.push(`<span class="pill good" data-todo="suggest">같은 상품이 연결된 옵션 ${nSug}개 (제안)</span>`);
+  $('#opt-todo').innerHTML = todo.length ? `<span class="sub">할 일</span> ` + todo.join(' ') : '';
+  $$('#opt-todo [data-todo]').forEach((el) => el.onclick = () => {
+    const k = el.dataset.todo;
+    if (k === 'newcamp' || k === 'unlisted') { const det = $(k === 'newcamp' ? '#newcamp-details' : '#unlisted-details'); det.open = true; det.scrollIntoView({ behavior: 'smooth' }); }
+    else { $('#opt-filter').value = k; $('#opt-search').value = ''; $('#opt-camp').value = ''; renderOptions(); }
+  });
   $('#opt-bulk-n').textContent = `— ${list.length}개`; optBulkList = list.map((o) => o.option_id);
   if (!$('#opt-bulk-from').value) $('#opt-bulk-from').value = todayIso;
   $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개${idleOpts && onlyCamp !== '__idle' ? ` · 중단·삭제 캠페인 옵션 ${idleOpts}개 숨김` : ''}`;
@@ -675,7 +690,7 @@ function renderOptions() {
       <td class="l"><input data-k="campaign" list="camp-list" value="${esc(o.campaign)}" placeholder="${sg ? '제안: ' + esc(sg) : '(광고 안 함)'}" ${!o.campaign ? 'style="border-color:' + (sg ? 'var(--accent)' : '#dc2626') + '"' : ''}>${sg ? `<div><a href="#" class="sub" data-sug="${esc(o.option_id)}">같은 상품처럼 ${esc(sg)} 적용</a></div>` : ''}</td>
       <td class="num">${fmtInt(lookup(o.option_id, todayIso))}</td>
       <td class="l"><ul class="hist">${hist.map((m) => `<li><code>${m.effective_from || '처음부터'}</code>${fmtInt(m.margin)}원 ${m.note ? '<span class="sub">' + esc(m.note) + '</span>' : ''}<a href="#" class="sub" data-del="${m.effective_from}">삭제</a></li>`).join('') || '<li class="sub">없음 (0원으로 계산)</li>'}</ul></td>
-      <td class="l change"><div class="row"><input type="number" class="tiny" data-k="margin" placeholder="새 마진"><input type="date" data-k="effective_from" value="${hist.length ? todayIso : ''}"><input class="short" data-k="note" placeholder="사유"></div><div class="sub">${hist.length ? '시작일부터 새 마진 적용 (이전 날짜는 그대로)' : '첫 마진은 시작일을 비우면 처음부터 적용'}</div></td>
+      <td class="l change"><div class="row"><input type="number" class="tiny" data-k="margin" placeholder="새 마진"><input type="date" data-k="effective_from" value="${hist.length ? todayIso : ''}"><input class="short" data-k="note" placeholder="사유"></div></td>
       <td class="actions"><button class="btn primary sm">저장</button> <button class="btn danger sm">삭제</button></td>`;
     const [save, del] = tr.querySelectorAll('button');
     save.onclick = async () => {
@@ -696,9 +711,10 @@ function renderOptions() {
     for (const pn of order) {
       const g = groups[pn]; const members = list.filter((o) => (prod[o.option_id] || '') === pn);
       const hdr = document.createElement('tr'); hdr.className = 'grp';
-      hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}</span><span class="grow"></span>
-        <input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">이 상품의 캠페인 없는 옵션 모두에 적용</button>
-        <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">이 상품 전체에 새 마진 적용</button></div></td>`;
+      hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}${g.margin != null ? ` · 마진 ${fmtInt(g.margin)}원` : ''}</span><span class="grow"></span><button class="btn sm" data-gtools="1">이 상품 전체 바꾸기 ▾</button></div>
+        <div class="row grp-tools" hidden><input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">캠페인 없는 옵션 모두에 적용</button>
+        <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">옵션 ${g.options.length}개 모두 새 마진 적용</button></div></td>`;
+      hdr.querySelector('[data-gtools]').onclick = () => { const t = hdr.querySelector('.grp-tools'); t.hidden = !t.hidden; };
       hdr.querySelector('[data-gmargin]').onclick = async () => {
         const mg = parseNumber(hdr.querySelector('[data-gk=newmargin]').value); const from = hdr.querySelector('[data-gk=from]').value || '';
         if (mg == null || hdr.querySelector('[data-gk=newmargin]').value === '') { msg('#opt-msg', '새 마진을 넣어 주세요', 'err'); return; }
@@ -748,7 +764,7 @@ function renderNewCampaigns(d) {
   for (const [date, day] of Object.entries(d.ads)) if (date >= since) for (const c of Object.keys(day)) recent.add(c);
   for (const [date, rows] of Object.entries(d.adrows || {})) if (date >= since) for (const r of rows) recent.add(r.campaign);
   const camps = S.sortCampaigns([...recent]).filter((c) => c && c !== '(캠페인 없음)' && !mapped[c]);
-  $('#newcamp-count').textContent = camps.length ? `— ${camps.length}개` : '— 없음 (모든 캠페인에 옵션이 연결돼 있습니다)';
+  $('#newcamp-count').textContent = camps.length ? `— ${camps.length}개` : '— 없음';
   // 기본은 닫힘. 사용자가 열어 둔 상태는 다시 그릴 때 유지
   const box = $('#newcamp-list'); box.innerHTML = '';
   if (camps.length) {
@@ -785,11 +801,12 @@ function renderNewCampaigns(d) {
     const all = div.querySelector('[data-add-all]'); if (all) all.onclick = async () => { const margin = parseNumber(div.querySelector('[data-margin-all]').value) || 0; for (const o of opts) await addOne(o.option_id, o.name, margin); await reload(); msg('#opt-msg', `${opts.length}개 옵션을 ${c} 에 연결`, 'ok'); renderOptions(); renderFoot(); };
     box.appendChild(div);
   }
+  return camps.length;
 }
 function renderUnlisted() {
   const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
   const list = S.unlistedSoldOptions(DATA, since); const q = ($('#unlisted-search').value || '').toLowerCase();
-  $('#unlisted-count').textContent = `— 최근 ${days}일에 팔렸지만 목록에 없는 옵션 ${list.length}개`;
+  $('#unlisted-count').textContent = list.length ? `— 최근 ${days}일 ${list.length}개` : `— 없음 (최근 ${days}일)`;
   const tb = $('#unlisted-table tbody'); tb.innerHTML = '';
   for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
     const tr = document.createElement('tr');
@@ -799,6 +816,7 @@ function renderUnlisted() {
     all.onclick = async () => { const dd = await reload(); let k = 0; for (const x of list) if (x.product === u.product) { S.upsertOption(dd, { option_id: x.option_id, product_name: x.option_name, product: x.product, source: 'manual' }); k++; } await S.save(dd); await reload(); renderOptions(); msg('#opt-msg', `${k}개 옵션 추가`, 'ok'); };
     tb.appendChild(tr);
   }
+  return list.length;
 }
 $('#unlisted-days').onchange = renderUnlisted; $('#unlisted-search').oninput = renderUnlisted;
 // 정리: 마진 이력이 없고 직접 추가한 것도 아닌 옵션(= 예전 버전이 판매 리포트에서 자동 등록한 것)을 목록에서 뺀다. 되돌릴 수 있게 보관.

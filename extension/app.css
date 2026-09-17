@@ -173,3 +173,14 @@ pre.log { background: #101828; color: #e5e7eb; padding: 10px 12px; border-radius
 .seg button { background: none; border: 0; padding: 5px 12px; font-size: 12.5px; cursor: pointer; color: var(--text-2); } .seg button.active { background: var(--accent-soft); color: #1c4f8f; font-weight: 700; }
 .grand-row td { font-weight: 700; background: var(--surface-2); }
 @media (max-width: 1100px) { .cp-charts { grid-template-columns: 1fr; } }
+
+/* 캠페인·옵션 탭: 더 보기 메뉴, 할 일 알약, 상품 묶음 도구 */
+details.inline { position: relative; display: inline-block; }
+details.inline > summary { list-style: none; cursor: pointer; }
+details.inline > summary::-webkit-details-marker { display: none; }
+details.inline .menu { position: absolute; right: 0; top: 100%; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+details.inline .menu .btn { text-align: left; }
+#opt-todo:empty { display: none; }
+#opt-todo .pill { cursor: pointer; padding: 4px 10px; font-size: 12px; }
+#options-table tr.grp .grp-tools { margin-top: 6px; }
+#options-table tr.grp .grp-tools[hidden] { display: none; }
