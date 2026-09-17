@@ -57,16 +57,33 @@ export function relinkOptions(d) {
 }
 // 배지·버튼 글자가 붙은 채 저장된 캠페인 이름('AI 스마트광고 0. …', '31. 피크닉매트 수정 삭제')을 정리해 같은 캠페인으로 합친다. 바뀐 게 있으면 true
 export function cleanCampaignNames(d) {
-  let changed = false;
-  const fix = (name) => { const c = cleanCampaignName(name); if (c !== name) changed = true; return c; };
-  const merge = (map, mergeRow) => { for (const k of Object.keys(map)) { const c = fix(k); if (c === k) continue; const v = map[k]; delete map[k]; if (mergeRow && map[c]) map[c] = mergeRow(map[c], v); else if (!map[c]) map[c] = v; if (v && typeof v === 'object' && !Array.isArray(v) && 'campaign' in v) v.campaign = c; } };
+  // 1) 규칙으로 배지·버튼 글자 떼기  2) 그래도 남은 것: 번호로 시작하는 다른 캠페인 이름을 통째로 품고 있으면 그 이름으로 ('오늘의 Pick31. 피크닉매트' ⊃ '31. 피크닉매트')
+  const names = new Set();
+  for (const day of Object.values(d.ads || {})) for (const c of Object.keys(day)) names.add(c);
+  for (const day of Object.values(d.legacy || {})) for (const c of Object.keys(day)) names.add(c);
+  for (const c of Object.keys(d.campaignOptions || {})) names.add(c);
+  for (const c of Object.keys(d.excludes || {})) names.add(c);
+  for (const o of d.options || []) if (o.campaign) names.add(o.campaign);
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign) names.add(r.campaign);
+  const step1 = {}; for (const n of names) step1[n] = cleanCampaignName(n);
+  const known = [...new Set(Object.values(step1))].filter((n) => /^\d{1,4}\.\s*\S/.test(n)).sort((a, b) => a.length - b.length);
+  const map = {};
+  for (const n of names) {
+    let c = step1[n];
+    const inner = known.find((k) => k !== c && c.includes(k) && c.length - k.length <= 30);
+    if (inner) c = inner;
+    if (c !== n) map[n] = c;
+  }
+  const fix = (name) => map[name] || name;
+  const merge = (obj, mergeRow) => { for (const k of Object.keys(obj)) { const c = fix(k); if (c === k) continue; const v = obj[k]; delete obj[k]; if (mergeRow && obj[c]) obj[c] = mergeRow(obj[c], v); else if (!obj[c]) obj[c] = v; if (v && typeof v === 'object' && !Array.isArray(v) && 'campaign' in v) v.campaign = c; } };
   for (const date of Object.keys(d.ads || {})) merge(d.ads[date], (a, b) => (zeroAds(a) && !zeroAds(b) ? b : a));
   for (const date of Object.keys(d.legacy || {})) merge(d.legacy[date]);
   merge(d.campaignOptions || {}, (a, b) => (a.at >= b.at ? a : b));
   merge(d.excludes || {}, (a, b) => [...a, ...b.filter((x) => !a.some((y) => y.keyword === x.keyword))]);
   for (const o of d.options || []) if (o.campaign) o.campaign = fix(o.campaign);
   for (const date of Object.keys(d.adrows || {})) for (const r of d.adrows[date]) if (r.campaign) r.campaign = fix(r.campaign);
-  return changed;
+  cleanCampaignNames.last = map;   // { 원래 이름: 정리된 이름 } (화면 안내용)
+  return Object.keys(map).length > 0;
 }
 const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
 export async function save(d) { await chrome.storage.local.set({ [KEY]: d }); }

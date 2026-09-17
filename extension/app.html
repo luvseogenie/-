@@ -237,7 +237,7 @@
       <div class="card">
         <h2>일별 광고 입력 <span class="sub">확장 프로그램으로 저장한 광고 숫자를 확인·수정하거나 직접 입력합니다. 퍼센트 항목은 화면의 % 단위 숫자 그대로 (예: 400, 7.8, 0.15).</span></h2>
         <div class="row" style="margin-bottom:10px">
-          <label class="sub">날짜</label><input type="date" id="ads-date"><button class="btn sm" id="ads-prev">◀</button><button class="btn sm" id="ads-next">▶</button><button class="btn danger sm" id="ads-delete-day" title="다른 계정의 숫자가 잘못 들어왔을 때 등, 이 날짜의 광고 데이터를 모두 지웁니다">이 날짜 광고 전체 삭제</button>
+          <label class="sub">날짜</label><input type="date" id="ads-date"><button class="btn sm" id="ads-prev">◀</button><button class="btn sm" id="ads-next">▶</button><button class="btn danger sm" id="ads-delete-day" title="다른 계정의 숫자가 잘못 들어왔을 때 등, 이 날짜의 광고 데이터를 모두 지웁니다">이 날짜 광고 전체 삭제</button><button class="btn sm" id="ads-clean-names" title="'오늘의 Pick31. …', '31. … 수정 삭제' 처럼 배지·버튼 글자가 붙은 캠페인 이름을 원래 이름으로 합칩니다">캠페인 이름 정리</button>
           <span class="grow"></span><button class="btn sm" id="ads-add">캠페인 행 추가</button><button class="btn primary sm" id="ads-save">저장</button><span id="ads-msg" class="msg"></span>
         </div>
         <div class="tablewrap"><table class="form-table" id="ads-table"><thead><tr><th class="l">캠페인 이름</th><th>목표효율</th><th>광고예산</th><th>집행 광고비</th><th>광고전환 매출</th><th>전환율</th><th>클릭률</th><th>노출수</th><th>클릭수</th><th>광고전환 판매수</th><th class="l">ACTION 메모</th><th></th></tr></thead><tbody></tbody></table></div>

@@ -129,7 +129,7 @@ export function normalizeSales(records, date) {
 const CAMP_BADGE = /^(?:(?:AI\s*스마트\s*광고|오늘의\s*Pick|NEW|추천|HOT|BEST)\s*)+/i;
 const CAMP_BUTTONS = /(?:\s*(?:수정|삭제|복사|편집|더보기|상세|보기|관리))+$/;
 export function cleanCampaignName(name) {
-  let s = String(name ?? '').replace(/\s+/g, ' ').trim();
+  let s = String(name ?? '').replace(/[\u200b-\u200d\ufeff\u00a0]/g, ' ').replace(/\s+/g, ' ').trim();
   for (let i = 0; i < 3; i++) { const t = s.replace(CAMP_BADGE, '').replace(CAMP_BUTTONS, '').trim(); if (t === s) break; s = t; }
   return s;
 }

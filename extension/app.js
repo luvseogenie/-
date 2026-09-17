@@ -999,6 +999,13 @@ $('#report-now').onclick = async () => {
   $('#report-now').disabled = false;
   msg('#set-msg', r.ok ? `보고서 ${r.date} ${fmtInt(r.saved)}행 저장` : r.error, r.ok ? 'ok' : 'err'); loadSettings(); refreshAll();
 };
+$('#ads-clean-names').onclick = async () => {
+  const dd = await reload(); const changed = S.cleanCampaignNames(dd); const map = S.cleanCampaignNames.last || {};
+  if (changed) { await S.save(dd); await reload(); }
+  const pairs = Object.entries(map).map(([a, b]) => `${a} → ${b}`);
+  msg('#ads-msg', pairs.length ? `${pairs.length}개 이름 정리: ${pairs.join(' / ')}` : '정리할 이름이 없습니다 (배지·버튼 글자가 붙은 캠페인 이름 없음)', pairs.length ? 'ok' : '');
+  loadAds(); renderFoot();
+};
 $('#ads-delete-day').onclick = async () => {
   const date = $('#ads-date').value; const d = await reload(); const n = Object.keys(d.ads[date] || {}).length;
   if (!n) { msg('#ads-msg', '이 날짜에 광고 데이터가 없습니다', 'err'); return; }
