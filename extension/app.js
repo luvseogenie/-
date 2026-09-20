@@ -703,6 +703,13 @@ function renderOptions() {
   });
   $('#opt-bulk-n').textContent = `— ${list.length}개`; optBulkList = list.map((o) => o.option_id);
   if (!$('#opt-bulk-from').value) $('#opt-bulk-from').value = todayIso;
+  const cc = $('#opt-camp-card'); cc.innerHTML = '';
+  if (onlyCamp && !onlyCamp.startsWith('__')) {
+    const card = campCard(d, onlyCamp, { onlyMissing: true }); const nCand = card.querySelectorAll('tbody tr').length - 1;
+    const head = document.createElement('div'); head.className = 'sub'; head.style.margin = '0 0 4px';
+    head.textContent = nCand ? `광고 보고서·광고센터 기준으로 이 캠페인이 광고하지만 아직 목록에 없는 옵션 ${nCand}개 — 마진을 넣고 추가하세요. 옵션이 더 있어야 하면 '쿠팡에서 옵션 가져오기'를 누르세요.` : `이 캠페인이 광고하는 옵션 중 목록에 없는 것은 아직 모릅니다. 옵션이 더 있어야 하면 '쿠팡에서 옵션 가져오기'를 눌러 광고센터의 상품 목록을 읽어 오세요.`;
+    cc.appendChild(head); cc.appendChild(card); cc.style.display = '';
+  } else cc.style.display = 'none';
   $('#opt-count').textContent = `${list.length}개 표시 / 전체 ${d.options.length}개 · 캠페인 없음 ${d.options.filter((o) => !o.campaign).length}개 · 제안 ${nSug}개${idleOpts && onlyCamp !== '__idle' ? ` · 중단·삭제 캠페인 옵션 ${idleOpts}개 숨김` : ''}`;
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
   if (!document.getElementById('camp-list')) $('#options-table').insertAdjacentHTML('beforebegin', `<datalist id="camp-list"></datalist>`);
@@ -782,6 +789,35 @@ async function fetchCampOpts(camps) {
   msg('#opt-msg', lines.join(' / '), Object.values(r.results).every((x) => x.ok) ? 'ok' : 'err');
 }
 // 옵션이 하나도 연결되지 않은 캠페인 (새로 만든 광고). 광고 보고서에 그 캠페인이 광고한 옵션ID 가 있으면 후보로 보여 준다.
+// 캠페인 하나의 옵션 후보 카드 (광고 보고서·광고센터에서 읽은 옵션 + 직접 입력). onlyMissing: 이미 목록에 있는 옵션은 빼고
+function campCard(d, c, { onlyMissing = false } = {}) {
+  const listed = new Set(d.options.map((o) => o.option_id));
+  const names = S.productNames(d);
+  // 보고서에서 이 캠페인이 광고한 옵션 (광고비 순)
+  const cand = {};
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign === c && r.option_id) { const x = (cand[r.option_id] ||= { option_id: r.option_id, name: r.product_name, spend: 0, orders: 0 }); x.spend += r.spend || 0; x.orders += r.orders14 || 0; if (r.product_name) x.name = r.product_name; }
+  // 광고센터에서 읽어 온 옵션도 후보에 합친다
+  const fetched = d.campaignOptions?.[c];
+  for (const o of fetched?.options || []) { const x = (cand[o.option_id] ||= { option_id: o.option_id, name: o.name, spend: 0, orders: 0 }); if (!x.name) x.name = o.name; x.fromAds = true; }
+  const opts = Object.values(cand).filter((o) => !onlyMissing || !listed.has(o.option_id)).sort((a, b) => b.spend - a.spend);
+  const div = document.createElement('div'); div.className = 'card'; div.style.margin = '6px 0'; div.style.padding = '10px 12px';
+  const srcNote = opts.length ? `${fetched ? `광고센터에서 읽음(${fetched.at}) ` : ''}${opts.some((o) => o.spend) ? '보고서 광고비 있음 ' : ''}옵션 ${opts.length}개` : '옵션을 아직 모름';
+  div.innerHTML = `<div class="row"><b>${esc(c)}</b><span class="sub">${srcNote}</span><span class="grow"></span><button class="btn sm" data-fetch="${esc(c)}">쿠팡에서 옵션 가져오기</button></div>
+    <table class="form-table" style="margin-top:6px"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th>광고비</th><th>주문</th><th class="l">개당 마진</th><th></th></tr></thead><tbody>
+    ${opts.map((o) => `<tr><td class="l num">${esc(o.option_id)}${listed.has(o.option_id) ? ' <span class="pill gray">목록에 있음</span>' : ''}</td><td class="l">${esc(o.name || names[o.option_id] || '')}</td><td class="num">${fmtWon(o.spend)}</td><td class="num">${fmtInt(o.orders)}</td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn primary sm" data-add="${esc(o.option_id)}" data-name="${esc(o.name || '')}">${listed.has(o.option_id) ? '연결 + 마진' : '추가'}</button></td></tr>`).join('')}
+    <tr><td class="l"><input type="text" class="short" data-newid placeholder="옵션ID 직접 입력"></td><td class="l"><input class="wide" data-newname placeholder="옵션명(선택)"></td><td></td><td></td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn sm" data-add="" >추가</button></td></tr>
+    </tbody></table>
+    ${opts.length > 1 ? `<div class="row" style="margin-top:6px"><input type="number" class="tiny" data-margin-all placeholder="마진"><button class="btn sm" data-add-all="1">위 옵션 ${opts.length}개 모두 이 마진으로 추가</button></div>` : ''}`;
+  const addOne = async (id, name, margin) => { const dd = await reload(); S.upsertOption(dd, { option_id: id, product_name: name || dd.options.find((x) => x.option_id === id)?.product_name || '', campaign: c, source: 'manual' }); if (margin) S.setMargin(dd, id, margin, ''); await S.save(dd); };
+  div.querySelectorAll('button[data-add]').forEach((b) => b.onclick = async () => {
+    const tr = b.closest('tr'); const id = b.dataset.add || tr.querySelector('[data-newid]')?.value.trim(); if (!id) { msg('#opt-msg', '옵션ID 를 넣어 주세요', 'err'); return; }
+    const name = b.dataset.name || tr.querySelector('[data-newname]')?.value.trim() || ''; const margin = parseNumber(tr.querySelector('[data-margin]').value) || 0;
+    await addOne(id, name, margin); await reload(); msg('#opt-msg', `${id} → ${c}${margin ? ` · 마진 ${fmtInt(margin)}원` : ''}`, 'ok'); renderOptions(); renderFoot();
+  });
+  div.querySelector('[data-fetch]').onclick = () => fetchCampOpts([c]);
+  const all = div.querySelector('[data-add-all]'); if (all) all.onclick = async () => { const margin = parseNumber(div.querySelector('[data-margin-all]').value) || 0; for (const o of opts) await addOne(o.option_id, o.name, margin); await reload(); msg('#opt-msg', `${opts.length}개 옵션을 ${c} 에 연결`, 'ok'); renderOptions(); renderFoot(); };
+  return div;
+}
 function renderNewCampaigns(d) {
   const mapped = {}; for (const o of d.options) if (o.campaign) mapped[o.campaign] = (mapped[o.campaign] || 0) + 1;
   // 최근 60일 광고센터 목록이나 광고 보고서에 있는 캠페인만 (엑셀 시절의 끝난 캠페인은 제외)
@@ -798,34 +834,7 @@ function renderNewCampaigns(d) {
     box.appendChild(top);
     top.querySelector('#newcamp-fetch-all').onclick = () => fetchCampOpts(camps);
   }
-  const listed = new Set(d.options.map((o) => o.option_id));
-  const names = S.productNames(d);
-  for (const c of camps) {
-    // 보고서에서 이 캠페인이 광고한 옵션 (광고비 순)
-    const cand = {};
-    for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign === c && r.option_id) { const x = (cand[r.option_id] ||= { option_id: r.option_id, name: r.product_name, spend: 0, orders: 0 }); x.spend += r.spend || 0; x.orders += r.orders14 || 0; if (r.product_name) x.name = r.product_name; }
-    // 광고센터에서 읽어 온 옵션도 후보에 합친다
-    const fetched = d.campaignOptions?.[c];
-    for (const o of fetched?.options || []) { const x = (cand[o.option_id] ||= { option_id: o.option_id, name: o.name, spend: 0, orders: 0 }); if (!x.name) x.name = o.name; x.fromAds = true; }
-    const opts = Object.values(cand).sort((a, b) => b.spend - a.spend);
-    const div = document.createElement('div'); div.className = 'card'; div.style.margin = '6px 0'; div.style.padding = '10px 12px';
-    const srcNote = opts.length ? `${fetched ? `광고센터에서 읽음(${fetched.at}) ` : ''}${opts.some((o) => o.spend) ? '보고서 광고비 있음 ' : ''}옵션 ${opts.length}개` : '옵션을 아직 모름';
-    div.innerHTML = `<div class="row"><b>${esc(c)}</b><span class="sub">${srcNote}</span><span class="grow"></span><button class="btn sm" data-fetch="${esc(c)}">쿠팡에서 옵션 가져오기</button></div>
-      <table class="form-table" style="margin-top:6px"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th>광고비</th><th>주문</th><th class="l">개당 마진</th><th></th></tr></thead><tbody>
-      ${opts.map((o) => `<tr><td class="l num">${esc(o.option_id)}${listed.has(o.option_id) ? ' <span class="pill gray">목록에 있음</span>' : ''}</td><td class="l">${esc(o.name || names[o.option_id] || '')}</td><td class="num">${fmtWon(o.spend)}</td><td class="num">${fmtInt(o.orders)}</td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn primary sm" data-add="${esc(o.option_id)}" data-name="${esc(o.name || '')}">${listed.has(o.option_id) ? '연결 + 마진' : '추가'}</button></td></tr>`).join('')}
-      <tr><td class="l"><input type="text" class="short" data-newid placeholder="옵션ID 직접 입력"></td><td class="l"><input class="wide" data-newname placeholder="옵션명(선택)"></td><td></td><td></td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn sm" data-add="" >추가</button></td></tr>
-      </tbody></table>
-      ${opts.length > 1 ? `<div class="row" style="margin-top:6px"><input type="number" class="tiny" data-margin-all placeholder="마진"><button class="btn sm" data-add-all="1">위 옵션 ${opts.length}개 모두 이 마진으로 추가</button></div>` : ''}`;
-    const addOne = async (id, name, margin) => { const dd = await reload(); S.upsertOption(dd, { option_id: id, product_name: name || dd.options.find((x) => x.option_id === id)?.product_name || '', campaign: c, source: 'manual' }); if (margin) S.setMargin(dd, id, margin, ''); await S.save(dd); };
-    div.querySelectorAll('button[data-add]').forEach((b) => b.onclick = async () => {
-      const tr = b.closest('tr'); const id = b.dataset.add || tr.querySelector('[data-newid]')?.value.trim(); if (!id) { msg('#opt-msg', '옵션ID 를 넣어 주세요', 'err'); return; }
-      const name = b.dataset.name || tr.querySelector('[data-newname]')?.value.trim() || ''; const margin = parseNumber(tr.querySelector('[data-margin]').value) || 0;
-      await addOne(id, name, margin); await reload(); msg('#opt-msg', `${id} → ${c}${margin ? ` · 마진 ${fmtInt(margin)}원` : ''}`, 'ok'); renderOptions(); renderFoot();
-    });
-    div.querySelector('[data-fetch]').onclick = () => fetchCampOpts([c]);
-    const all = div.querySelector('[data-add-all]'); if (all) all.onclick = async () => { const margin = parseNumber(div.querySelector('[data-margin-all]').value) || 0; for (const o of opts) await addOne(o.option_id, o.name, margin); await reload(); msg('#opt-msg', `${opts.length}개 옵션을 ${c} 에 연결`, 'ok'); renderOptions(); renderFoot(); };
-    box.appendChild(div);
-  }
+  for (const c of camps) box.appendChild(campCard(d, c));
   return camps.length;
 }
 function renderUnlisted() {
