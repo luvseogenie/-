@@ -34,6 +34,7 @@
       </div>
     </div>
     <div id="update-banner"></div>
+    <div id="margin-banner"></div>
     <div id="notice"></div>
 
     <!-- ===== 세후 순마진 ===== -->
@@ -208,7 +209,7 @@
         <div class="row" style="margin-bottom:8px">
           <input type="text" id="opt-search" placeholder="상품명 · 옵션ID · 캠페인 검색" style="width:260px">
           <select id="opt-camp" title="캠페인별로 보기" style="min-width:220px"><option value="">모든 캠페인</option></select>
-          <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">마진 없음</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
+          <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">⚠️ 마진 없음 (광고 캠페인 옵션)</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
           <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
           <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select>
           <span class="sub" id="opt-count"></span>

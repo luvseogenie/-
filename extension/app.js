@@ -70,9 +70,24 @@ function renderCurrent() {
   if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
+// 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
+function renderMarginAlert() {
+  const d = DATA; const st = S.campaignStatus(d); const lookup = S.marginLookup(d); const todayIso = localIso(today);
+  const since = addDays(localIso(yday), -29); const sold = {};
+  for (const [date, day] of Object.entries(d.sales)) if (date >= since) for (const r of Object.values(day)) if (r.quantity > 0) sold[r.option_id] = (sold[r.option_id] || 0) + r.quantity;
+  const missing = d.options.filter((o) => o.campaign && S.isRunning(st, o.campaign) && !lookup(o.option_id, todayIso));
+  const byCamp = {}; for (const o of missing) byCamp[o.campaign] = (byCamp[o.campaign] || 0) + 1;
+  const soldN = missing.filter((o) => sold[o.option_id]).length;
+  const box = $('#margin-banner'); if (!box) return;
+  if (!missing.length) { box.innerHTML = ''; return; }
+  const camps = S.sortCampaigns(Object.keys(byCamp)).slice(0, 6).map((c) => `${esc(c)} ${byCamp[c]}개`).join(' · ') + (Object.keys(byCamp).length > 6 ? ' 외' : '');
+  box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00">⚠️ <b>마진이 없는 광고 옵션 ${missing.length}개</b>${soldN ? ` (최근 30일에 팔린 것 ${soldN}개)` : ''} — 마진 0원으로 계산돼 순이익이 실제보다 낮게 나옵니다. ${camps} <button class="btn primary sm" id="margin-go">마진 입력하러 가기</button></div>`;
+  $('#margin-go').onclick = () => { location.hash = '#options'; showPage('options'); $('#opt-camp').value = ''; $('#opt-search').value = ''; $('#opt-filter').value = 'nomargin'; renderOptions(); $('#options-table').scrollIntoView(); };
+}
 function renderFoot() {
   const ds = S.dates(DATA);
   $('#foot').textContent = ds.length ? `데이터 ${ds[0]} ~ ${ds[ds.length - 1]} · ${ds.length}일 · 캠페인 ${S.campaigns(DATA).length}개` : '아직 데이터가 없습니다';
+  renderMarginAlert();
 }
 
 /* ===== 대시보드 ===== */
