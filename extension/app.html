@@ -238,8 +238,10 @@
       </details>
       <details class="card" id="unlisted-details" style="margin-top:12px"><summary>🛒 팔렸지만 목록에 없는 옵션 <span class="sub" id="unlisted-count"></span></summary>
         <p class="sub" style="margin:6px 0">윙 판매 리포트에는 나오는데 이 목록에는 없는 옵션입니다 (광고 안 하는 상품, 새 옵션 등). 추가하지 않으면 마진 0원으로 계산되니, 계속 파는 상품이면 <b>추가</b> 후 마진을 넣어 주세요.</p>
-        <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순</span></div>
+        <div class="row" style="margin:6px 0"><label class="sub">최근</label><select id="unlisted-days"><option value="30">30일</option><option value="90">90일</option><option value="365">1년</option></select><input type="text" id="unlisted-search" placeholder="검색" style="width:200px"><span class="sub">판매량 순 · 기록할 필요 없는 것(재판매·리퍼 등)은 <b>무시</b>를 누르면 장부와 이 목록에서 빠집니다</span></div>
         <div class="tablewrap" style="max-height:320px"><table id="unlisted-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th>마지막 판매</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><b>🚫 무시 단어</b><input type="text" id="ignore-words" style="width:360px" placeholder="쉼표로 구분 (예: 재판매, 리퍼, 반품)"><button class="btn sm" id="ignore-words-save">저장</button><span class="sub">옵션명·상품명·판매방식에 이 단어가 들어간 판매는 기록하지 않습니다.</span><span id="ignore-msg" class="msg"></span></div>
+        <details style="margin-top:6px"><summary class="sub">무시 중인 판매 옵션 <span id="ignored-count"></span></summary><div class="tablewrap" style="max-height:240px"><table id="ignored-table"><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">상품명</th><th>판매량</th><th>매출</th><th class="l">이유</th><th></th></tr></thead><tbody></tbody></table></div></details>
       </details>
     </section>
 

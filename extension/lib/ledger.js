@@ -1,5 +1,5 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots, ignoreRules, isIgnoredRow } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
@@ -95,10 +95,12 @@ export function computeLedger(d, start, end) {
   }
   const unmapped = new Set();
   const noad = {};   // 광고 없이 팔린 옵션: { option_id: { qty, revenue, days, reason, linked, name, product } }
+  const ign = ignoreRules(d); let ignoredQty = 0;   // 기록하지 않기로 한 판매(재판매·리퍼 등)는 장부에서 뺀다
   for (const [date, day] of Object.entries(d.sales)) {
     if (date < start || date > end) continue;
     const excel = excelOnly(date);
     for (const s of Object.values(day)) {
+      if (isIgnoredRow(ign, s)) { ignoredQty += s.quantity || 0; continue; }
       let camp = campaignFor(s.option_id, date);
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
       if ((camp === UNMAPPED || camp === ORGANIC) && !excel && s.quantity) {
@@ -120,7 +122,7 @@ export function computeLedger(d, start, end) {
   }
   // 예전 엑셀 4번 시트 값: 그 날 옵션별 판매/광고 데이터가 없는 쪽만 채운다 (있으면 새 데이터가 우선)
   const salesTouched = new Set();
-  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end || excelOnly(date)) continue; for (const s of Object.values(day)) { const camp = campaignFor(s.option_id, date); if (camp) salesTouched.add(camp + '|' + date); } }
+  for (const [date, day] of Object.entries(d.sales)) { if (date < start || date > end || excelOnly(date)) continue; for (const s of Object.values(day)) { if (isIgnoredRow(ign, s)) continue; const camp = campaignFor(s.option_id, date); if (camp) salesTouched.add(camp + '|' + date); } }
   for (const [date, day] of Object.entries(d.legacy || {})) {
     if (date < start || date > end) continue;
     for (const [camp, L] of Object.entries(day)) {
@@ -166,5 +168,5 @@ export function computeLedger(d, start, end) {
   const month_profit_net = {}; for (const mk of new Set([...Object.keys(month_profit), ...Object.keys(month_expense)])) month_profit_net[mk] = (month_profit[mk] || 0) - (month_expense[mk] || 0);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
     total_profit, month_profit, month_expense, month_profit_net, daily, grand, expense_by_day: expDay, unmapped_options: [...unmapped].sort(), legacyCutoff,
-    noad_options: Object.values(noad).map((n) => ({ ...n, margin: margin(n.option_id, n.last || end), listed: n.option_id in campaignOf })).sort((a, b) => b.qty - a.qty) };
+    ignored_qty: ignoredQty, noad_options: Object.values(noad).map((n) => ({ ...n, margin: margin(n.option_id, n.last || end), listed: n.option_id in campaignOf })).sort((a, b) => b.qty - a.qty) };
 }

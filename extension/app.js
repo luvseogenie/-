@@ -510,6 +510,7 @@ function renderLedgerTable() {
   const autoShow = (name) => { const c = byName[name]; return name === UNMAPPED || name === ORGANIC ? hasIn(c) : ranIn(c); };
   const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; return v === 'always' || (showHidden ? hasIn(byName[name]) : autoShow(name)); });
   const idleN = allCamps.filter((name) => visOf(name) === 'auto' && !autoShow(name) && hasIn(byName[name])).length;
+  if (led.ignored_qty) $('#lg-warn').innerHTML += `<div class="notice sub">기록하지 않기로 한 판매(재판매·리퍼 등) ${fmtInt(led.ignored_qty)}개는 이 기간 장부에서 뺐습니다. 캠페인·옵션 탭 → 팔렸지만 목록에 없는 옵션 → 무시 중인 판매 옵션에서 되돌릴 수 있습니다.</div>`;
   if (idleN && !showHidden) $('#lg-warn').innerHTML += `<div class="notice sub">이 기간에 광고비를 쓰지 않은(중단·삭제된) 캠페인 ${idleN}개는 표시하지 않습니다. 그 옵션의 판매 마진은 '(광고 없는 판매)' 줄과 합계에 들어 있습니다. 보려면 '숨긴 캠페인 보기'를 켜세요.</div>`;
   const sel = $('#lg-camp'); const cur = sel.value;
   sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
@@ -671,7 +672,12 @@ function renderOptions() {
   const onlyCamp = campSel.value;
   // 오늘 최근 캠페인으로 옮긴 옵션 안내
   const todayRel = (d.relinks || []).filter((r) => r.when === todayIso); const relBox = $('#opt-relink');
-  if (relBox) { if (todayRel.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = ''; relBox.innerHTML = `🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`; } else relBox.style.display = 'none'; }
+  const todayAdd = (d.autoAdded || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+      const parts = [];
+      if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
+      if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
+      relBox.innerHTML = parts.join('<br>'); } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
     const hist = S.marginHistory(d, o.option_id);
@@ -844,14 +850,28 @@ function renderUnlisted() {
   const tb = $('#unlisted-table tbody'); tb.innerHTML = '';
   for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td><td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button></td>`;
-    const [one, all] = tr.querySelectorAll('button');
+    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td><td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button> <button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
+    const [one, all, ign] = tr.querySelectorAll('button');
     one.onclick = async () => { const dd = await reload(); S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name, product: u.product, source: 'manual' }); await S.save(dd); await reload(); renderOptions(); };
     all.onclick = async () => { const dd = await reload(); let k = 0; for (const x of list) if (x.product === u.product) { S.upsertOption(dd, { option_id: x.option_id, product_name: x.option_name, product: x.product, source: 'manual' }); k++; } await S.save(dd); await reload(); renderOptions(); msg('#opt-msg', `${k}개 옵션 추가`, 'ok'); };
+    ign.onclick = async () => { const dd = await reload(); S.ignoreOption(dd, u.option_id, true); await S.save(dd); await reload(); renderOptions(); toast(`${u.option_id} 무시 (기록 안 함)`); };
     tb.appendChild(tr);
   }
+  renderIgnored(since);
   return list.length;
 }
+function renderIgnored(since) {
+  const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
+  const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';
+  const tb = $('#ignored-table tbody'); tb.innerHTML = '';
+  for (const u of list.slice(0, 200)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="l sub">${u.byId ? '무시 버튼' : '무시 단어'}</td><td>${u.byId ? '<button class="btn sm">되돌리기</button>' : ''}</td>`;
+    const b = tr.querySelector('button'); if (b) b.onclick = async () => { const dd = await reload(); S.ignoreOption(dd, u.option_id, false); await S.save(dd); await reload(); renderOptions(); };
+    tb.appendChild(tr);
+  }
+}
+$('#ignore-words-save').onclick = async () => { const dd = await reload(); S.setIgnoreWords(dd, $('#ignore-words').value.split(/[,，\n]/)); await S.save(dd); await reload(); renderOptions(); refreshAll(); msg('#ignore-msg', `무시 단어 ${dd.ignore.words.length}개 저장`, 'ok'); };
 $('#unlisted-days').onchange = renderUnlisted; $('#unlisted-search').oninput = renderUnlisted;
 // 정리: 마진 이력이 없고 직접 추가한 것도 아닌 옵션(= 예전 버전이 판매 리포트에서 자동 등록한 것)을 목록에서 뺀다. 되돌릴 수 있게 보관.
 function autoAddedOptions(d) { return d.options.filter((o) => !S.marginHistory(d, o.option_id).length && o.source !== 'manual' && o.source !== 'excel'); }

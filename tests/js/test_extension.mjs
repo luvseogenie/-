@@ -492,3 +492,30 @@ console.log('extension logic: all checks passed');
   assert.equal(S.cleanCampaignNames(d), false);
   console.log('campaign name merge by containment: all checks passed');
 }
+
+// ---- 기록하지 않을 판매(재판매·리퍼): 옵션ID 무시 + 단어 무시 → 장부·목록에서 빠짐 ----
+{
+  const d = { options: [{ option_id: 'A', product_name: 'a', campaign: '', sort_order: 1 }], margins: [], legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {}, ads: {}, ignore: { ids: ['X1'], words: ['재판매'] },
+    sales: { '2026-09-16': { A: { option_id: 'A', option_name: 'a', quantity: 2, revenue: 2000 }, X1: { option_id: 'X1', option_name: 'x', quantity: 5, revenue: 500 }, X2: { option_id: 'X2', option_name: '담요 (재판매)', product_name: '담요', quantity: 3, revenue: 300 }, Y: { option_id: 'Y', option_name: 'y', product_name: 'yy', quantity: 1, revenue: 100 } } } };
+  const led = computeLedger(d, '2026-09-16', '2026-09-16');
+  assert.equal(led.ignored_qty, 8); assert.equal(led.grand.actual_qty, 3);                       // A 2개 + Y 1개만
+  assert.deepEqual(S.unlistedSoldOptions(d, '2026-09-01').map((x) => x.option_id), ['Y']);
+  assert.deepEqual(S.ignoredSoldOptions(d, '2026-09-01').map((x) => [x.option_id, x.byId]), [['X1', true], ['X2', false]]);
+  S.ignoreOption(d, 'X1', false); assert.deepEqual(d.ignore.ids, []); S.ignoreOption(d, 'Y'); assert.deepEqual(d.ignore.ids, ['Y']);
+  S.setIgnoreWords(d, [' 리퍼 ', '', '재판매', '리퍼']); assert.deepEqual(d.ignore.words, ['리퍼', '재판매']);
+  console.log('ignore rules: all checks passed');
+}
+
+// ---- 광고 보고서·광고센터에 나온 옵션 자동 등록 (운영 중 캠페인만) ----
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const d = { options: [{ option_id: 'A', product_name: 'a', campaign: '52. 담요', sort_order: 1 }], margins: [], sales: {}, legacy: {}, imports: [], expenses: [], traffic: [], excludes: {},
+    ads: { '2026-09-19': { '52. 담요': ad('52. 담요', 100), '3. 옛것': ad('3. 옛것', 0) }, '2026-09-10': { '3. 옛것': ad('3. 옛것', 50) } },
+    adrows: { '2026-09-19': [{ date: '2026-09-19', campaign: '52. 담요', option_id: 'B', product_name: '담요 B', spend: 10 }, { date: '2026-09-19', campaign: '52. 담요', option_id: 'A', spend: 5 }, { date: '2026-09-19', campaign: '3. 옛것', option_id: 'Z', product_name: 'z', spend: 0 }] },
+    campaignOptions: { '52. 담요': { at: '2026-09-19', options: [{ option_id: 'C', name: '담요 C' }, { option_id: 'B', name: '담요 B2' }] } } };
+  const added = S.autoAddOptions(d);
+  assert.deepEqual(added.map((x) => [x.option_id, x.campaign, x.name]).sort(), [['B', '52. 담요', '담요 B'], ['C', '52. 담요', '담요 C']]);   // Z 는 중단된 3번 → 안 넣음
+  assert.equal(d.options.length, 3); assert.equal(d.options.find((o) => o.option_id === 'C').source, 'adreport');
+  assert.deepEqual(S.autoAddOptions(d), []);
+  console.log('auto add options: all checks passed');
+}

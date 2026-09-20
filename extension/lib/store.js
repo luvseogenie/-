@@ -5,15 +5,28 @@ import { cleanCampaignName } from './parse.js';
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {} });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] } });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
-  if (changed || moved.length) await save(d);
+  const added = autoAddOptions(d);
+  if (changed || moved.length || added.length) await save(d);
   return d;
+}
+// ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
+// 운영 중인 캠페인이 광고한 옵션(보고서 adrows, 광고센터에서 읽은 campaignOptions)이 목록에 없으면 그 캠페인에 연결해 넣는다 (마진은 비어 있음 → '마진 없음'으로 표시).
+export function autoAddOptions(d) {
+  const st = campaignStatus(d); if (!Object.keys(st).length) return [];
+  const listed = new Set(d.options.map((o) => o.option_id)); const cand = {};
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign && st[r.campaign] === 'running' && !listed.has(String(r.option_id))) { const x = (cand[r.option_id] ||= { option_id: String(r.option_id), campaign: r.campaign, name: '' }); if (r.product_name) x.name = r.product_name; x.campaign = r.campaign; }
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) if (st[c] === 'running') for (const o of v.options || []) if (!listed.has(String(o.option_id))) { const x = (cand[o.option_id] ||= { option_id: String(o.option_id), campaign: c, name: '' }); if (o.name && !x.name) x.name = o.name; }
+  const names = productNames(d); const added = [];
+  for (const x of Object.values(cand)) { upsertOption(d, { option_id: x.option_id, product_name: x.name || names[x.option_id] || '', campaign: x.campaign, source: 'adreport' }); added.push(x); }
+  if (added.length) { const when = new Date().toISOString().slice(0, 10); d.autoAdded = [...(d.autoAdded || []), ...added.map((x) => ({ ...x, when }))].slice(-500); }
+  return added;
 }
 // ---- 캠페인 상태: 광고센터 목록(ads)을 마지막으로 읽은 날 기준 ----
 // running: 목록에 있고 최근 7일 안에 광고비가 있거나 새로 생긴 캠페인 / paused: 목록엔 있지만 광고비 없음 / deleted: 목록에서 사라짐
@@ -98,9 +111,25 @@ export function upsertOption(d, { option_id, product_name = '', campaign = '', p
   else d.options.push({ option_id, product_name: product_name.trim(), campaign: campaign.trim(), product: (product || '').trim(), source: source || 'manual', sort_order: sort_order ?? (Math.max(0, ...d.options.map((o) => o.sort_order)) + 1) });
 }
 // 목록에 없는데 판매된 옵션 (최근 N일). 목록은 엑셀 1번 시트/직접 추가한 옵션만 유지한다.
+// ---- 기록하지 않을 판매 (재판매·리퍼 등): 옵션ID 목록 + 옵션명/상품명에 든 단어 ----
+export function ignoreRules(d) { const g = d.ignore || {}; return { ids: new Set(g.ids || []), words: (g.words || []).map((w) => String(w).trim().toLowerCase()).filter(Boolean) }; }
+export function isIgnoredRow(rules, r) {
+  if (rules.ids.has(String(r.option_id))) return true;
+  if (!rules.words.length) return false;
+  const t = `${r.option_name || ''} ${r.product_name || ''} ${r.sales_type || ''}`.toLowerCase();
+  return rules.words.some((w) => t.includes(w));
+}
+export function ignoreOption(d, option_id, on = true) { d.ignore ||= { ids: [], words: [] }; const id = String(option_id); d.ignore.ids = (d.ignore.ids || []).filter((x) => x !== id); if (on) d.ignore.ids.push(id); }
+export function setIgnoreWords(d, words) { d.ignore ||= { ids: [], words: [] }; d.ignore.words = [...new Set(words.map((w) => String(w).trim()).filter(Boolean))]; }
+// 무시 규칙에 걸리는 판매 옵션 목록 (되돌리기 화면용)
+export function ignoredSoldOptions(d, sinceIso) {
+  const rules = ignoreRules(d); const out = {};
+  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (!isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '', byId: rules.ids.has(String(r.option_id)) }); o.qty += r.quantity || 0; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
+  return Object.values(out).sort((a, b) => b.qty - a.qty);
+}
 export function unlistedSoldOptions(d, sinceIso) {
-  const listed = new Set(d.options.map((o) => o.option_id)); const out = {};
-  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
+  const listed = new Set(d.options.map((o) => o.option_id)); const out = {}; const rules = ignoreRules(d);
+  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
   return Object.values(out).sort((a, b) => b.qty - a.qty);
 }
 // 옵션ID → 상품명(판매 리포트의 '상품명' 열). 옵션에 저장된 값이 없으면 판매 데이터에서 찾는다.
