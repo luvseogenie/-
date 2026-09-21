@@ -286,6 +286,9 @@ export function trafficStatus(d, campaign, date) {
 // ---- 제로 ROAS(손익분기 광고수익률) ----
 // 광고센터 ROAS = 광고매출 ÷ 광고비(부가세 전). 광고비엔 부가세 10% 가 붙으므로 손익분기는 ROAS = 판매가 × 1.1 ÷ 개당 마진.
 // 캠페인 옵션들의 최근 판매(매출·판매량·마진)로 계산하고, 사용자가 직접 넣은 값(d.zeroRoas)이 있으면 그 값을 쓴다.
+export const DEFAULT_ZERO_ROAS = 2.5;   // 사용자가 따로 안 정하면 250%
+export function zeroRoasDefault(d) { return d.zeroRoasDefault > 0 ? d.zeroRoasDefault : DEFAULT_ZERO_ROAS; }
+export function setZeroRoasDefault(d, ratio) { if (ratio > 0) d.zeroRoasDefault = ratio; else delete d.zeroRoasDefault; }
 export function setZeroRoas(d, campaign, ratio) { d.zeroRoas ||= {}; if (ratio == null || !(ratio > 0)) delete d.zeroRoas[campaign]; else d.zeroRoas[campaign] = ratio; }
 export function computeZeroRoas(d, campaign, sinceIso) {
   const ids = new Set(d.options.filter((o) => o.campaign === campaign).map((o) => o.option_id)); if (!ids.size) return null;
@@ -322,8 +325,9 @@ export function roasCheck(d, days = 3) {
   const pct = (a, b) => (b ? (a - b) / b : null);
   const rows = Object.keys(cur).map((c) => {
     const x = { campaign: c, ...cur[c] }; const p = prev[c] || null;
-    const calc = computeZeroRoas(d, c, since); const manual = d.zeroRoas?.[c] || null;
-    const zero = manual || calc?.zero || null; const roas = x.spend ? x.revenue / x.spend : 0;
+    // 제로 ROAS 우선순위: 캠페인에 직접 넣은 값 > 기본값(설정, 처음엔 250%) . 옵션 마진으로 계산한 값은 참고로만 보여 준다
+    const calc = computeZeroRoas(d, c, since); const manual = d.zeroRoas?.[c] || null; const dflt = zeroRoasDefault(d);
+    const zero = manual || dflt; const roas = x.spend ? x.revenue / x.spend : 0;
     const profitOf = (a) => (zero && a ? a.revenue / zero - a.spend * 1.1 : null);   // 광고 이익(추정) = 광고매출 × (마진/판매가) − 광고비(부가세 포함)
     const profit = profitOf(x), prevProfit = profitOf(p);
     const modeInfo = d.campMode?.[c] || null; const band = roasBand(modeInfo, last);
@@ -354,9 +358,10 @@ export function roasCheck(d, days = 3) {
           tips.push(head + parts.join(', ') + verdict);
         }
       }
+      if (calc?.zero && Math.abs(calc.zero - zero) / zero > 0.25) tips.push(`옵션 마진으로 계산한 제로는 ${Math.round(calc.zero * 100)}% (쓰는 값 ${Math.round(zero * 100)}%) — 차이가 크면 마진·판매가를 확인하세요`);
       if (band.hint) tips.push(band.hint);
     }
-    return { ...x, roas, zero, zeroSource: manual ? 'manual' : calc?.zero ? 'calc' : null, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
+    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
   });
   const order = { red: 0, unknown: 1, green: 2, blue: 3, idle: 4 };
   rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);

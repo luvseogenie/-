@@ -101,8 +101,8 @@
           <div class="card chart-card"><h2>일별 판매 수 <span class="sub">광고 전환 판매와 자연 판매</span></h2><div class="legend"><span><i style="background:#2a78d6"></i>광고 판매</span><span><i style="background:#1baf7a"></i>자연 판매</span></div><div class="chart" id="ch-qty"></div></div>
         </div>
         <div class="card" id="roas-card">
-          <h2>🎯 광고 효율 점검 <span class="sub" id="roas-sub"></span><span class="grow"></span><label class="sub">최근 <select id="roas-days"><option value="3">3일</option><option value="7">7일</option><option value="14">14일</option></select> 평균</label></h2>
-          <p class="sub" style="margin:0 0 8px">캠페인마다 <b>제로 ROAS</b>(손익분기 광고수익률 = 판매가 × 1.1 ÷ 개당 마진, 부가세 포함 광고비 기준)를 옵션 마진으로 계산하고, 직접 넣은 값이 있으면 그 값을 씁니다. 최근 평균 ROAS 가 허용 하한보다 낮으면 <span class="pill bad">조정 필요</span>, 여유 기준 이상이면 <span class="pill blue">여유</span>, 그 사이는 <span class="pill good">적정</span>. 직전 같은 기간과 비교해 <b>노출·광고비·광고 이익의 증감</b>과 <b>목표 ROAS 를 바꾼 효과</b>를 함께 보여 줍니다.<br>
+          <h2>🎯 광고 효율 점검 <span class="sub" id="roas-sub"></span><span class="grow"></span><label class="sub">기본 제로 ROAS <input type="number" id="roas-default" step="1" style="width:70px;text-align:right" title="캠페인에 직접 넣지 않은 경우 쓰는 손익분기 ROAS">%</label><label class="sub">최근 <select id="roas-days"><option value="3">3일</option><option value="7">7일</option><option value="14">14일</option></select> 평균</label></h2>
+          <p class="sub" style="margin:0 0 8px">캠페인마다 <b>제로 ROAS</b>(손익분기 광고수익률)는 <b>기본값</b>(오른쪽 위, 처음 250%)을 쓰고, 250~300% 처럼 캠페인마다 다르면 줄의 칸에 직접 넣으세요. 옵션 마진으로 계산한 값(판매가 × 1.1 ÷ 마진)은 참고로 옆에 보여 주고, 쓰는 값과 많이 다르면 알려 줍니다. 최근 평균 ROAS 가 허용 하한보다 낮으면 <span class="pill bad">조정 필요</span>, 여유 기준 이상이면 <span class="pill blue">여유</span>, 그 사이는 <span class="pill good">적정</span>. 직전 같은 기간과 비교해 <b>노출·광고비·광고 이익의 증감</b>과 <b>목표 ROAS 를 바꾼 효과</b>를 함께 보여 줍니다.<br>
           <b>모드</b>: 보통(제로 100~150%) · <b>시즌</b>(초·중반은 제로의 85%까지 허용해 노출을 밀고, 종료일이 가까울수록 100% → 120% 로 빡빡하게) · <b>비시즌</b>(제로의 120% 이상만 유지, 예산 보수적).</p>
           <div id="roas-summary" class="row" style="margin-bottom:8px"></div>
           <div class="tablewrap"><table id="roas-table"></table></div>

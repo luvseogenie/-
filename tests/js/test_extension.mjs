@@ -534,11 +534,14 @@ console.log('extension logic: all checks passed');
   assert.equal(S.computeZeroRoas(d, '3. 모름', '2026-09-01').zero, null);   // 마진 없음
   const r = S.roasCheck(d, 3); assert.deepEqual(r.dates, ['2026-09-17', '2026-09-18', '2026-09-19']);
   const by = Object.fromEntries(r.rows.map((x) => [x.campaign, x]));
-  assert.equal(by['1. 좋음'].status, 'blue'); assert.equal(Math.round(by['1. 좋음'].roas * 100), 1000);   // 10 ≥ 4.4×1.5
-  assert.equal(by['2. 나쁨'].status, 'red'); assert.ok(by['2. 나쁨'].note.includes('440%'));
-  assert.equal(by['3. 모름'].status, 'unknown'); assert.equal(by['4. 쉼'].status, 'idle');
-  assert.deepEqual(r.rows.map((x) => x.campaign), ['2. 나쁨', '3. 모름', '1. 좋음', '4. 쉼']);     // 조정 필요 → 모름 → 적정 → 여유 → 쉼
-  assert.equal(Math.round(by['1. 좋음'].profit), Math.round(30000 / 4.4 - 3000 * 1.1));
+  // 기본 제로 ROAS 250% 사용 (직접 입력 없음). 계산값 440% 는 참고로만
+  assert.equal(by['1. 좋음'].status, 'blue'); assert.equal(Math.round(by['1. 좋음'].roas * 100), 1000); assert.equal(by['1. 좋음'].zero, 2.5); assert.equal(by['1. 좋음'].zeroSource, 'default');
+  assert.ok(by['1. 좋음'].note.includes('계산한 제로는 440%'));
+  assert.equal(by['2. 나쁨'].status, 'green');                                   // 300% : 250~375 사이
+  assert.equal(by['3. 모름'].status, 'blue'); assert.equal(by['4. 쉼'].status, 'idle');   // 500 ≥ 375
+  assert.equal(Math.round(by['1. 좋음'].profit), Math.round(30000 / 2.5 - 3000 * 1.1));
+  S.setZeroRoasDefault(d, 4.4); assert.equal(S.roasCheck(d, 3).rows.find((x) => x.campaign === '2. 나쁨').status, 'red');   // 기본값 440 → 300 은 조정 필요
+  S.setZeroRoasDefault(d, null); assert.equal(S.zeroRoasDefault(d), 2.5);
   S.setZeroRoas(d, '3. 모름', 2.0); const r2 = S.roasCheck(d, 3); const m = r2.rows.find((x) => x.campaign === '3. 모름');
   assert.equal(m.status, 'blue'); assert.equal(m.zeroSource, 'manual');          // 5.0 ≥ 2.0×1.5
   S.setZeroRoas(d, '3. 모름', null); assert.deepEqual(d.zeroRoas, {});
@@ -557,9 +560,11 @@ console.log('extension logic: all checks passed');
   const r = S.roasCheck(d, 3); const x = r.rows[0];
   assert.deepEqual(r.prevDates, ['2026-09-14', '2026-09-15', '2026-09-16']);
   assert.equal(Math.round(x.trend.impressions * 100), -40); assert.equal(x.targetChanged, true); assert.equal(Math.round(x.trend.roasPrev * 100), 400);
+  S.setZeroRoasDefault(d, 4.4);   // 이 검사는 제로 440% 기준
+  const x2 = S.roasCheck(d, 3).rows[0];
   // 제로 4.4: 최근 이익 = 10500/4.4 − 2100×1.1 = 2386−2310 = 76 / 직전 = 12000/4.4 − 3300 = −573 → 이익 +649 → '잘 됐습니다'
-  assert.ok(x.trend.profit > 0); assert.ok(x.note.includes('300% → 400%')); assert.ok(x.note.includes('잘 됐습니다'), x.note);
-  assert.equal(x.status, 'green');                                              // 500% : 제로 440% 의 1.0~1.5 사이
+  assert.ok(x2.trend.profit > 0); assert.ok(x2.note.includes('300% → 400%')); assert.ok(x2.note.includes('잘 됐습니다'), x2.note);
+  assert.equal(x2.status, 'green');                                             // 500% : 제로 440% 의 1.0~1.5 사이
   S.setCampMode(d, 'X', 'season', '2026-12-31'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'green');   // 시즌 초반: 허용 374~528 → 500 적정
   S.setCampMode(d, 'X', 'season', '2026-10-01'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'red');     // 시즌 막바지(D-12): 하한 528 → 500 조정 필요
   S.setCampMode(d, 'X', 'off'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'red');                       // 비시즌: 하한 528
