@@ -588,3 +588,22 @@ console.log('extension logic: all checks passed');
   assert.equal(computeLedger(d3, '2026-05-10', '2026-05-10').grand.revenue, 30000);
   console.log('legacy revenue no double count: all checks passed');
 }
+
+// ---- 제로 ROAS 이력: 시작일부터만 새 값 적용, 예전 형식(숫자) 이행 ----
+{
+  const d = { zeroRoas: {}, zeroRoasDefault: 2.5 };
+  S.setZeroRoas(d, 'X', 2.5); S.setZeroRoas(d, 'X', 3.0, '2026-09-15');
+  assert.equal(S.zeroRoasAt(d, 'X', '2026-09-14'), 2.5); assert.equal(S.zeroRoasAt(d, 'X', '2026-09-15'), 3.0); assert.equal(S.zeroRoasAt(d, 'Y', '2026-09-15'), null);
+  S.setZeroRoas(d, 'X', 2.8, '2026-09-15'); assert.deepEqual(S.zeroRoasHistory(d, 'X'), [{ from: '', value: 2.5 }, { from: '2026-09-15', value: 2.8 }]);
+  S.deleteZeroRoas(d, 'X', ''); assert.equal(S.zeroRoasAt(d, 'X', '2026-09-01'), null); assert.equal(S.zeroRoasAt(d, 'X', '2026-09-20'), 2.8);
+  S.deleteZeroRoas(d, 'X', '2026-09-15'); assert.deepEqual(d.zeroRoas, {});
+  const old = { zeroRoas: { Z: 3.2 } }; assert.deepEqual(S.zeroRoasHistory(old, 'Z'), [{ from: '', value: 3.2 }]); assert.equal(S.zeroRoasAt(old, 'Z', '2020-01-01'), 3.2);
+  // 점검: 날짜별 제로가 다르면 광고 이익도 그날 값으로
+  const ad = (campaign, spend, rev) => ({ campaign, spend, ad_revenue: rev, impressions: 1, clicks: 1, ad_orders: 1, target_roas: 3 });
+  const dd = { options: [], margins: [], sales: {}, legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {}, zeroRoas: { X: [{ from: '', value: 2.0 }, { from: '2026-09-19', value: 4.0 }] },
+    ads: { '2026-09-18': { X: ad('X', 1000, 4000) }, '2026-09-19': { X: ad('X', 1000, 4000) } } };
+  const r = S.roasCheck(dd, 2).rows[0];
+  assert.equal(r.zero, 4.0); assert.equal(r.zeroFrom, '2026-09-19');
+  assert.equal(Math.round(r.profit), Math.round(4000 / 2.0 - 1100 + 4000 / 4.0 - 1100));   // 18일은 제로 200%, 19일은 400%
+  console.log('zero roas history: all checks passed');
+}

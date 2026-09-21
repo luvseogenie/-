@@ -10,6 +10,7 @@ const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {},
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
+  for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
   const added = autoAddOptions(d);
@@ -289,7 +290,17 @@ export function trafficStatus(d, campaign, date) {
 export const DEFAULT_ZERO_ROAS = 2.5;   // 사용자가 따로 안 정하면 250%
 export function zeroRoasDefault(d) { return d.zeroRoasDefault > 0 ? d.zeroRoasDefault : DEFAULT_ZERO_ROAS; }
 export function setZeroRoasDefault(d, ratio) { if (ratio > 0) d.zeroRoasDefault = ratio; else delete d.zeroRoasDefault; }
-export function setZeroRoas(d, campaign, ratio) { d.zeroRoas ||= {}; if (ratio == null || !(ratio > 0)) delete d.zeroRoas[campaign]; else d.zeroRoas[campaign] = ratio; }
+// 캠페인별 제로 ROAS 이력: d.zeroRoas[campaign] = [{ from: 'YYYY-MM-DD' | '' (처음부터), value }] — 할인·가격 변경으로 바뀌면 시작일부터만 새 값 적용
+export function zeroRoasHistory(d, campaign) { const v = d.zeroRoas?.[campaign]; if (!v) return []; if (typeof v === 'number') return [{ from: '', value: v }]; return [...v].sort((a, b) => a.from.localeCompare(b.from)); }
+export function zeroRoasAt(d, campaign, date) { let val = null; for (const h of zeroRoasHistory(d, campaign)) { if (h.from <= date) val = h.value; else break; } return val; }
+export function setZeroRoas(d, campaign, ratio, from = '') {
+  d.zeroRoas ||= {}; from = from || '';
+  let list = zeroRoasHistory(d, campaign);
+  if (ratio == null || !(ratio > 0)) list = list.filter((h) => h.from !== from);
+  else { const cur = list.find((h) => h.from === from); if (cur) cur.value = ratio; else list.push({ from, value: ratio }); }
+  if (list.length) d.zeroRoas[campaign] = list.sort((a, b) => a.from.localeCompare(b.from)); else delete d.zeroRoas[campaign];
+}
+export function deleteZeroRoas(d, campaign, from = '') { setZeroRoas(d, campaign, null, from); }
 export function computeZeroRoas(d, campaign, sinceIso) {
   const ids = new Set(d.options.filter((o) => o.campaign === campaign).map((o) => o.option_id)); if (!ids.size) return null;
   const margin = marginLookup(d); const rules = ignoreRules(d); let rev = 0, qty = 0, mg = 0;
@@ -326,10 +337,13 @@ export function roasCheck(d, days = 3) {
   const rows = Object.keys(cur).map((c) => {
     const x = { campaign: c, ...cur[c] }; const p = prev[c] || null;
     // 제로 ROAS 우선순위: 캠페인에 직접 넣은 값 > 기본값(설정, 처음엔 250%) . 옵션 마진으로 계산한 값은 참고로만 보여 준다
-    const calc = computeZeroRoas(d, c, since); const manual = d.zeroRoas?.[c] || null; const dflt = zeroRoasDefault(d);
-    const zero = manual || dflt; const roas = x.spend ? x.revenue / x.spend : 0;
-    const profitOf = (a) => (zero && a ? a.revenue / zero - a.spend * 1.1 : null);   // 광고 이익(추정) = 광고매출 × (마진/판매가) − 광고비(부가세 포함)
-    const profit = profitOf(x), prevProfit = profitOf(p);
+    const calc = computeZeroRoas(d, c, since); const dflt = zeroRoasDefault(d);
+    const zeroOn = (date) => zeroRoasAt(d, c, date) || dflt;
+    const manual = zeroRoasAt(d, c, last); const zero = manual || dflt; const roas = x.spend ? x.revenue / x.spend : 0;
+    const hist = zeroRoasHistory(d, c); const curEntry = [...hist].reverse().find((h) => h.from <= last) || null;
+    // 광고 이익(추정) = Σ날짜별 광고매출 ÷ 그날의 제로 ROAS − 광고비(부가세 포함). 제로가 날짜별로 다르면 그날 값으로
+    const profitOf = (dates) => { let v = 0, any = false; for (const date of dates) { const a = d.ads[date]?.[c]; if (!a) continue; any = true; v += (a.ad_revenue || 0) / zeroOn(date) - (a.spend || 0) * 1.1; } return any ? v : null; };
+    const profit = profitOf(adDates), prevProfit = p ? profitOf(prevDates) : null;
     const modeInfo = d.campMode?.[c] || null; const band = roasBand(modeInfo, last);
     const trend = p ? { impressions: pct(x.impressions, p.impressions), spend: pct(x.spend, p.spend), revenue: pct(x.revenue, p.revenue), profit: profit != null && prevProfit != null ? profit - prevProfit : null, roasPrev: p.spend ? p.revenue / p.spend : 0, targetPrev: p.target } : null;
     const targetChanged = !!(trend && trend.targetPrev && x.target && Math.abs(trend.targetPrev - x.target) > 0.005) || (x.targetFirst && x.target && Math.abs(x.targetFirst - x.target) > 0.005);
@@ -361,7 +375,7 @@ export function roasCheck(d, days = 3) {
       if (calc?.zero && Math.abs(calc.zero - zero) / zero > 0.25) tips.push(`옵션 마진으로 계산한 제로는 ${Math.round(calc.zero * 100)}% (쓰는 값 ${Math.round(zero * 100)}%) — 차이가 크면 마진·판매가를 확인하세요`);
       if (band.hint) tips.push(band.hint);
     }
-    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
+    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', zeroFrom: curEntry?.from || '', zeroHistory: hist, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
   });
   const order = { red: 0, unknown: 1, green: 2, blue: 3, idle: 4 };
   rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);
