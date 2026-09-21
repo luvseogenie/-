@@ -139,6 +139,7 @@ async function renderDash() {
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
   renderRoasCheck();
+  renderMonthly();
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
   const chk = dataStatus();
   $('#notice').innerHTML = chk.banners.join('')
@@ -175,6 +176,20 @@ function renderDataCheck(chk) {
   box.innerHTML = h + '</tbody></table></div>';
 }
 let campSort = { key: 'profit', dir: 'desc' };
+// 월별 원본 합계 (판매 리포트 행 합 + 광고센터 합) — 쿠팡 판매분석과 대조용
+function renderMonthly() {
+  const d = DATA; const rules = S.ignoreRules(d); const m = {};
+  const get = (k) => (m[k] ||= { revenue: 0, qty: 0, cancels: 0, rows: 0, days: new Set(), spend: 0, adRev: 0, adDays: new Set(), ignored: 0 });
+  for (const [date, day] of Object.entries(d.sales)) { const x = get(date.slice(0, 7)); for (const r of Object.values(day)) { if (S.isIgnoredRow(rules, r)) { x.ignored += r.revenue || 0; continue; } x.revenue += r.revenue || 0; x.qty += r.quantity || 0; x.cancels += Math.abs(r.cancels || 0) + Math.abs(r.returns || 0); x.rows++; x.days.add(date); } }
+  for (const [date, day] of Object.entries(d.ads)) { const x = get(date.slice(0, 7)); for (const a of Object.values(day)) { x.spend += a.spend || 0; x.adRev += a.ad_revenue || 0; } x.adDays.add(date); }
+  for (const [date, day] of Object.entries(d.legacy || {})) { const x = get(date.slice(0, 7)); if (!d.ads[date]) { for (const L of Object.values(day)) { x.spend += L.spend || 0; x.adRev += L.ad_revenue || 0; } x.adDays.add(date); } }
+  const keys = Object.keys(m).sort().reverse(); const t = $('#monthly-table'); if (!t) return;
+  const tot = { revenue: 0, qty: 0, cancels: 0, spend: 0, adRev: 0, ignored: 0 };
+  t.innerHTML = '<thead><tr><th class="l">월</th><th>판매 데이터 일수</th><th>매출 (판매 리포트)</th><th>판매량</th><th>반품·취소</th><th>무시한 매출</th><th>광고비 (부가세 전)</th><th>광고 매출</th><th>ROAS</th></tr></thead><tbody>'
+    + keys.map((k) => { const x = m[k]; for (const f of Object.keys(tot)) tot[f] += x[f]; const daysIn = new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0).getDate(); const miss = x.days.size < daysIn && k < localIso(yday).slice(0, 7);
+      return `<tr><td class="l">${k}</td><td class="num ${miss ? 'neg' : ''}">${x.days.size}/${daysIn}${miss ? ' ⚠' : ''}</td><td class="num">${fmtWon(x.revenue)}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${fmtInt(x.cancels)}</td><td class="num sub">${x.ignored ? fmtWon(x.ignored) : ''}</td><td class="num">${fmtWon(x.spend)}</td><td class="num">${fmtWon(x.adRev)}</td><td class="num">${x.spend ? Math.round(x.adRev / x.spend * 100) + '%' : '-'}</td></tr>`; }).join('')
+    + `<tr class="grand"><td class="l">합계</td><td></td><td class="num">${fmtWon(tot.revenue)}</td><td class="num">${fmtInt(tot.qty)}</td><td class="num">${fmtInt(tot.cancels)}</td><td class="num sub">${tot.ignored ? fmtWon(tot.ignored) : ''}</td><td class="num">${fmtWon(tot.spend)}</td><td class="num">${fmtWon(tot.adRev)}</td><td class="num">${tot.spend ? Math.round(tot.adRev / tot.spend * 100) + '%' : '-'}</td></tr></tbody>`;
+}
 // 광고 효율 점검 (제로 ROAS 대비 최근 평균 ROAS)
 let roasDays = 3; try { roasDays = Number(localStorage.getItem('cc-roas-days') || 3); } catch { /* 무시 */ }
 function renderRoasCheck() {

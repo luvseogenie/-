@@ -132,7 +132,9 @@ export function computeLedger(d, start, end) {
         Object.assign(c, { has_ads: true, target_roas: L.target_roas || 0, budget: L.budget || 0, spend: L.spend || 0, spend_vat: L.spend_vat || 0, ad_revenue: L.ad_revenue || 0,
           roas: L.roas || 0, cpc: L.cpc || 0, impressions: L.impressions || 0, clicks: L.clicks || 0, ctr: L.ctr || 0, conversion: L.conversion || 0, ad_orders: L.ad_orders || 0 });
       }
-      if (salesFromLegacy && (L.actual_qty || L.margin_total)) { c.has_sales = true; c.actual_qty = L.actual_qty || 0; c.margin_total = L.margin_total || 0; if (!c.has_revenue) c.revenue = c.ad_revenue; c.legacy = true; }
+      // 총 매출: 그날 판매 리포트가 하나도 없을 때만 광고 매출로 대신한다. 판매 리포트가 있는 날은 (이 캠페인에 연결된 옵션이 없어 다른 줄에 잡혔더라도) 다시 더하지 않는다 — 안 그러면 매출이 이중으로 잡힌다
+      const noSalesThatDay = !Object.keys(d.sales[date] || {}).length;
+      if (salesFromLegacy && (L.actual_qty || L.margin_total)) { c.has_sales = true; c.actual_qty = L.actual_qty || 0; c.margin_total = L.margin_total || 0; if (!c.has_revenue && noSalesThatDay) c.revenue = c.ad_revenue; c.legacy = true; }
       if (adsFromLegacy && salesFromLegacy) c.legacy = true;
     }
   }

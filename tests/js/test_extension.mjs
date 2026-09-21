@@ -566,3 +566,20 @@ console.log('extension logic: all checks passed');
   S.setCampMode(d, 'X', 'normal'); assert.deepEqual(d.campMode, {});
   console.log('season/trend: all checks passed');
 }
+
+// ---- 엑셀 확정 구간: 판매 리포트가 있는 날은 캠페인 줄에 광고 매출을 총 매출로 다시 더하지 않는다 (이중 집계 방지) ----
+{
+  const L = { spend: 1000, spend_vat: 1100, ad_revenue: 50000, actual_qty: 3, margin_total: 9000 };
+  const base = { options: [{ option_id: 'A', product_name: 'a', campaign: '1. 캠', sort_order: 1 }], margins: [], ads: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {},
+    legacy: { '2026-05-10': { '1. 캠': L } } };
+  // 옵션이 연결되지 않은 판매(Z) 만 있는 날: 총 매출은 판매 리포트 60,000 하나여야 함 (예전엔 60,000 + 50,000 = 110,000)
+  const d1 = { ...base, sales: { '2026-05-10': { Z: { option_id: 'Z', quantity: 2, revenue: 60000 } } } };
+  assert.equal(computeLedger(d1, '2026-05-10', '2026-05-10').grand.revenue, 60000);
+  // 판매 리포트가 아예 없는 날: 총 매출 = 광고 매출 (예전과 같음)
+  const d2 = { ...base, sales: {} };
+  assert.equal(computeLedger(d2, '2026-05-10', '2026-05-10').grand.revenue, 50000);
+  // 연결된 옵션(A)의 판매가 있는 날: 그 매출만
+  const d3 = { ...base, sales: { '2026-05-10': { A: { option_id: 'A', quantity: 1, revenue: 30000 } } } };
+  assert.equal(computeLedger(d3, '2026-05-10', '2026-05-10').grand.revenue, 30000);
+  console.log('legacy revenue no double count: all checks passed');
+}
