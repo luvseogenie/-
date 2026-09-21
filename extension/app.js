@@ -185,7 +185,9 @@ function renderRoasCheck() {
   const active = rows.filter((r) => r.status !== 'idle');
   const n = (k) => rows.filter((r) => r.status === k).length;
   const ranked = active.filter((r) => r.zero && r.spend > 0).sort((a, b) => (b.roas / b.zero) - (a.roas / a.zero));
-  const best = ranked.slice(0, 3), worst = ranked.slice(-3).reverse().filter((r) => !best.includes(r));
+  const best = ranked.slice(0, 3);
+  const reds = ranked.filter((r) => r.status === 'red').reverse();   // 조정 필요는 효율 나쁜 순
+  const worst = (reds.length ? reds : ranked.slice(-3).reverse().filter((r) => !best.includes(r))).slice(0, 3);
   const li = (r) => `<div>${esc(r.campaign)} — ROAS ${Math.round(r.roas * 100)}% (제로 ${Math.round(r.zero * 100)}%${r.profit != null ? `, 광고 이익 ${fmtWon(r.profit)}원` : ''})</div>`;
   $('#roas-summary').innerHTML = `<span class="pill bad">조정 필요 ${n('red')}</span> <span class="pill good">적정 ${n('green')}</span> <span class="pill blue">여유 ${n('blue')}</span> <span class="pill warn">제로 ROAS 모름 ${n('unknown')}</span> <span class="pill gray">광고비 없음 ${n('idle')}</span>`
     + (ranked.length ? `<div class="roas-best" style="width:100%;margin-top:8px"><div class="box"><b>🏆 효율이 가장 좋은 광고</b>${best.map(li).join('')}</div><div class="box"><b>🔧 조정이 필요한 광고</b>${(worst.length ? worst : []).map(li).join('') || '<span class="sub">없음</span>'}</div></div>` : '');
