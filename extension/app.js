@@ -64,7 +64,17 @@ function showPage(p) {
   $('#notice').style.display = page === 'dash' ? '' : 'none';
   renderCurrent();
 }
-$$('.nav button').forEach((b) => b.onclick = () => { location.hash = b.dataset.page; });
+// 탭을 누르면 그 화면의 검색·필터·선택을 처음 상태로 되돌린다 (처음 켰을 때의 값을 기억해 두었다가 복원)
+const PAGE_INIT = {};
+function snapshotPages() { for (const sec of $$('main section')) { const m = {}; for (const el of sec.querySelectorAll('input[id], select[id], textarea[id], details[id]')) m[el.id] = el.tagName === 'DETAILS' ? el.open : (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value; PAGE_INIT[sec.id] = m; } }
+function resetPage(p) {
+  const m = PAGE_INIT['page-' + p]; if (m) for (const [id, v] of Object.entries(m)) { const el = document.getElementById(id); if (!el) continue; if (el.tagName === 'DETAILS') el.open = v; else if (el.type === 'checkbox' || el.type === 'radio') el.checked = v; else el.value = v; }
+  if (p === 'campaign') { cp.tab = 'stats'; cp.area = '합계'; cp.search = ''; cp.kwSearch = ''; cp.checked.clear(); }
+  if (p === 'options') { for (const id of ['opt-bulk', 'new-option', 'opt-help']) { const el = $('#' + id); if (el) el.style.display = 'none'; } }
+  if (p === 'ledger') { const vp = $('#vis-panel'); if (vp) vp.style.display = 'none'; }
+  window.scrollTo({ top: 0 });
+}
+$$('.nav button').forEach((b) => b.onclick = () => { resetPage(b.dataset.page); if (location.hash.slice(1) === b.dataset.page) showPage(b.dataset.page); else location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
   if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
@@ -128,6 +138,7 @@ async function renderDash() {
   lineChart($('#ch-cost'), dates, [{ label: '광고비', cls: 'cost', color: '#eb6834', values: D('spend_vat') }, { label: '광고 매출', cls: 'rev', color: '#2a78d6', values: D('ad_revenue') }]);
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
+  renderRoasCheck();
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
   const chk = dataStatus();
   $('#notice').innerHTML = chk.banners.join('')
@@ -164,6 +175,37 @@ function renderDataCheck(chk) {
   box.innerHTML = h + '</tbody></table></div>';
 }
 let campSort = { key: 'profit', dir: 'desc' };
+// 광고 효율 점검 (제로 ROAS 대비 최근 평균 ROAS)
+let roasDays = 3; try { roasDays = Number(localStorage.getItem('cc-roas-days') || 3); } catch { /* 무시 */ }
+function renderRoasCheck() {
+  const sel = $('#roas-days'); sel.value = String(roasDays);
+  const { dates, prevDates, rows } = S.roasCheck(DATA, roasDays);
+  const md = (x) => x.slice(5).replace('-', '/');
+  $('#roas-sub').textContent = dates.length ? `${md(dates[0])} ~ ${md(dates[dates.length - 1])} (${dates.length}일)${prevDates.length ? ` · 비교: ${md(prevDates[0])} ~ ${md(prevDates[prevDates.length - 1])}` : ''}` : '광고 데이터 없음';
+  const active = rows.filter((r) => r.status !== 'idle');
+  const n = (k) => rows.filter((r) => r.status === k).length;
+  const ranked = active.filter((r) => r.zero && r.spend > 0).sort((a, b) => (b.roas / b.zero) - (a.roas / a.zero));
+  const best = ranked.slice(0, 3), worst = ranked.slice(-3).reverse().filter((r) => !best.includes(r));
+  const li = (r) => `<div>${esc(r.campaign)} — ROAS ${Math.round(r.roas * 100)}% (제로 ${Math.round(r.zero * 100)}%${r.profit != null ? `, 광고 이익 ${fmtWon(r.profit)}원` : ''})</div>`;
+  $('#roas-summary').innerHTML = `<span class="pill bad">조정 필요 ${n('red')}</span> <span class="pill good">적정 ${n('green')}</span> <span class="pill blue">여유 ${n('blue')}</span> <span class="pill warn">제로 ROAS 모름 ${n('unknown')}</span> <span class="pill gray">광고비 없음 ${n('idle')}</span>`
+    + (ranked.length ? `<div class="roas-best" style="width:100%;margin-top:8px"><div class="box"><b>🏆 효율이 가장 좋은 광고</b>${best.map(li).join('')}</div><div class="box"><b>🔧 조정이 필요한 광고</b>${(worst.length ? worst : []).map(li).join('') || '<span class="sub">없음</span>'}</div></div>` : '');
+  const t = $('#roas-table');
+  const pill = (r) => r.status === 'red' ? '<span class="pill bad">조정 필요</span>' : r.status === 'blue' ? '<span class="pill blue">여유</span>' : r.status === 'green' ? '<span class="pill good">적정</span>' : r.status === 'unknown' ? '<span class="pill warn">제로 모름</span>' : '<span class="pill gray">광고비 없음</span>';
+  const dpct = (v) => v == null ? '' : `<div class="sub ${v < 0 ? 'neg' : ''}">${v >= 0 ? '+' : ''}${Math.round(v * 100)}%</div>`;
+  const dwon = (v) => v == null ? '' : `<div class="sub ${v < 0 ? 'neg' : ''}">${v >= 0 ? '+' : ''}${fmtWon(v)}</div>`;
+  t.innerHTML = `<thead><tr><th class="l">캠페인</th><th>상태</th><th>모드</th><th>노출<div class="sub">직전 대비</div></th><th>광고비</th><th>광고매출</th><th>ROAS<div class="sub">직전</div></th><th>제로 ROAS</th><th>광고센터 목표</th><th>광고 이익(추정)<div class="sub">직전 대비</div></th><th class="l">판단 · 추천</th></tr></thead><tbody>`
+    + rows.map((r) => `<tr class="st-${r.status}" data-c="${esc(r.campaign)}"><td class="l">${esc(r.campaign)}</td><td>${pill(r)}</td>
+      <td><select class="mode"><option value="normal" ${r.mode === 'normal' ? 'selected' : ''}>보통</option><option value="season" ${r.mode === 'season' ? 'selected' : ''}>시즌</option><option value="off" ${r.mode === 'off' ? 'selected' : ''}>비시즌</option></select><input type="date" class="mode-end" value="${esc(r.modeEnd)}" title="시즌 종료일 (뒤로 갈수록 기준이 빡빡해집니다)" style="${r.mode === 'season' ? '' : 'display:none'}"><div class="sub">${esc(r.band.label)}</div></td>
+      <td class="num">${fmtInt(r.impressions)}${dpct(r.trend?.impressions)}</td><td class="num">${fmtWon(r.spend)}${dpct(r.trend?.spend)}</td><td class="num">${fmtWon(r.revenue)}${dpct(r.trend?.revenue)}</td><td class="num"><b>${r.spend ? Math.round(r.roas * 100) + '%' : '-'}</b>${r.trend ? `<div class="sub">${Math.round(r.trend.roasPrev * 100)}%</div>` : ''}</td>
+      <td class="num"><input class="zero num" type="number" step="1" placeholder="${r.calc?.zero ? Math.round(r.calc.zero * 100) : ''}" value="${r.zeroSource === 'manual' ? Math.round(r.zero * 100) : ''}" title="${r.calc ? `계산값 ${Math.round((r.calc.zero || 0) * 100)}% (판매가 ${fmtWon(r.calc.price)}원 · 마진 ${fmtWon(r.calc.margin)}원 · 최근 30일 ${fmtInt(r.calc.qty)}개). 직접 넣으면 그 값을 씁니다` : '계산할 판매·마진 데이터가 없습니다. 직접 넣어 주세요'}">%${r.zeroSource === 'calc' ? '<div class="sub">계산값</div>' : r.zeroSource === 'manual' ? '<div class="sub">직접 입력</div>' : ''}</td>
+      <td class="num">${r.target ? Math.round(r.target * 100) + '%' : '-'}${r.targetChanged ? '<div class="sub">변경됨</div>' : ''}</td><td class="num ${r.profit != null && r.profit < 0 ? 'neg' : ''}">${r.profit != null ? fmtWon(r.profit) + '원' : '-'}${dwon(r.trend?.profit)}</td><td class="note">${esc(r.note)}</td></tr>`).join('')
+    + '</tbody>';
+  t.querySelectorAll('input.zero').forEach((inp) => inp.onchange = async () => { const c = inp.closest('tr').dataset.c; const v = parseFloat(inp.value); const dd = await reload(); S.setZeroRoas(dd, c, v > 0 ? v / 100 : null); await S.save(dd); await reload(); renderRoasCheck(); toast(`${c} 제로 ROAS ${v > 0 ? v + '% 저장' : '직접 입력 지움 (계산값 사용)'}`); });
+  const saveMode = async (tr) => { const c = tr.dataset.c; const mode = tr.querySelector('select.mode').value; const end = tr.querySelector('input.mode-end').value; const dd = await reload(); S.setCampMode(dd, c, mode, end); await S.save(dd); await reload(); renderRoasCheck(); toast(`${c}: ${mode === 'season' ? '시즌' + (end ? ' (종료 ' + end + ')' : '') : mode === 'off' ? '비시즌' : '보통'}`); };
+  t.querySelectorAll('select.mode').forEach((el) => el.onchange = () => { const tr = el.closest('tr'); tr.querySelector('input.mode-end').style.display = el.value === 'season' ? '' : 'none'; saveMode(tr); });
+  t.querySelectorAll('input.mode-end').forEach((el) => el.onchange = () => saveMode(el.closest('tr')));
+}
+$('#roas-days').onchange = () => { roasDays = Number($('#roas-days').value); try { localStorage.setItem('cc-roas-days', String(roasDays)); } catch { /* 무시 */ } renderRoasCheck(); };
 function renderCampTable(led) {
   const hideZero = $('#camp-hide-zero').checked;
   const cols = [['campaign', '캠페인', 'l'], ['traffic', '트래픽', ''], ['spend_vat', '광고비', 'won'], ['ad_revenue', '광고 매출', 'won'], ['roas', 'ROAS', 'ratio'], ['target_roas', '목표', 'ratio'], ['ad_orders', '광고 판매', 'int'], ['organic_qty', '자연 판매', 'int'], ['returns_cancels', '반품·취소', 'int'], ['actual_qty', '실제 판매', 'int'], ['revenue', '총 매출', 'won'], ['margin_total', '판매 마진', 'won'], ['profit', '순이익', 'won'], ['trend', '추세', '']];
@@ -1292,6 +1334,7 @@ async function migrateEndDateBug() {
   const hash = location.hash.slice(1);
   if (hash === 'import' || hash === 'range' || hash === 'paste' || hash === 'update') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; if (hash === 'update') setTimeout(() => $('#update-card').scrollIntoView(), 100); }
   else showPage(hash || 'dash');
+  snapshotPages();
   chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccdata) { reload().then(() => { renderFoot(); renderCurrent(); }); } });
   // 다른 탭에서 저장하고 이 탭으로 돌아왔을 때도 최신 데이터로 다시 그린다
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });

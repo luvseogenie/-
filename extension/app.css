@@ -191,3 +191,11 @@ details.inline .menu .btn { text-align: left; }
 #toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 1000; padding: 10px 18px; border-radius: 999px; background: #1f2937; color: #fff; font-size: 13.5px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.ok { background: #0a7a0a; } #toast.err { background: #a52a2a; }
+
+/* 광고 효율 점검 */
+.pill.blue { background: #e3edfb; color: #1c4f8f; }
+#roas-table tr.st-red td:first-child { border-left: 4px solid #d03b3b; } #roas-table tr.st-blue td:first-child { border-left: 4px solid #2a78d6; } #roas-table tr.st-green td:first-child { border-left: 4px solid #1baf7a; } #roas-table tr.st-unknown td:first-child { border-left: 4px solid #e0a800; }
+#roas-table td.note { font-size: 12px; color: var(--text-2); max-width: 420px; text-align: left; }
+#roas-table input.zero { width: 80px; text-align: right; }
+.roas-best { display: flex; gap: 14px; flex-wrap: wrap; } .roas-best .box { flex: 1; min-width: 240px; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-size: 12.5px; } .roas-best .box b { display: block; margin-bottom: 4px; }
+#roas-table select.mode { width: auto; min-width: 0; } #roas-table input.mode-end { width: 130px; margin-top: 3px; } #roas-table td.note { min-width: 300px; }

@@ -5,7 +5,7 @@ import { cleanCampaignName } from './parse.js';
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] } });
+const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {} });
 
 export async function load() {
   const r = await chrome.storage.local.get(KEY);
@@ -281,4 +281,84 @@ export function trafficStatus(d, campaign, date) {
   const active = (d.traffic || []).filter((t) => t.campaign === campaign && t.start && date >= t.start && (!t.end || date <= t.end));
   if (!active.length) return null;
   return { slots: active.reduce((a, t) => a + t.slots, 0), since: active.map((t) => t.start).sort()[0], memo: active.map((t) => t.memo).filter(Boolean).join(' / ') };
+}
+
+// ---- 제로 ROAS(손익분기 광고수익률) ----
+// 광고센터 ROAS = 광고매출 ÷ 광고비(부가세 전). 광고비엔 부가세 10% 가 붙으므로 손익분기는 ROAS = 판매가 × 1.1 ÷ 개당 마진.
+// 캠페인 옵션들의 최근 판매(매출·판매량·마진)로 계산하고, 사용자가 직접 넣은 값(d.zeroRoas)이 있으면 그 값을 쓴다.
+export function setZeroRoas(d, campaign, ratio) { d.zeroRoas ||= {}; if (ratio == null || !(ratio > 0)) delete d.zeroRoas[campaign]; else d.zeroRoas[campaign] = ratio; }
+export function computeZeroRoas(d, campaign, sinceIso) {
+  const ids = new Set(d.options.filter((o) => o.campaign === campaign).map((o) => o.option_id)); if (!ids.size) return null;
+  const margin = marginLookup(d); const rules = ignoreRules(d); let rev = 0, qty = 0, mg = 0;
+  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (!ids.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; rev += r.revenue || 0; qty += r.quantity; mg += r.quantity * margin(r.option_id, date); } }
+  if (!qty || !rev) return null;
+  const price = rev / qty, m = mg / qty;
+  return { price, margin: m, qty, zero: m > 0 ? (price * 1.1) / m : null };
+}
+// ---- 캠페인 모드: 시즌 / 비시즌 / 보통 (추천 기준이 달라진다) ----
+export function setCampMode(d, campaign, mode, end = '') { d.campMode ||= {}; if (!mode || mode === 'normal') delete d.campMode[campaign]; else d.campMode[campaign] = { mode, end: end || '' }; }
+// 모드·시즌 남은 날짜에 따른 허용 범위 (제로 ROAS 의 배수). min 미만이면 조정 필요, good 이상이면 여유
+export function roasBand(modeInfo, todayIso) {
+  const mode = modeInfo?.mode || 'normal';
+  if (mode === 'off') return { min: 1.2, good: 1.8, label: '비시즌', hint: '비시즌: 이익 나는 광고만 남기고 예산은 보수적으로' };
+  if (mode === 'season') {
+    const end = modeInfo.end; const left = end ? Math.round((new Date(end + 'T00:00:00') - new Date(todayIso + 'T00:00:00')) / 86400000) : null;
+    if (left == null || left > 30) return { min: 0.85, good: 1.2, label: '시즌 초·중반', hint: '시즌 초·중반: 노출·순위를 위해 제로보다 약간 낮은 ROAS 까지 허용', left };
+    if (left > 14) return { min: 1.0, good: 1.4, label: `시즌 후반 (D-${left})`, hint: '시즌 후반: 제로 이상은 지키면서 노출 유지', left };
+    return { min: 1.2, good: 1.8, label: `시즌 막바지 (D-${Math.max(left, 0)})`, hint: '시즌 막바지: 손해 광고는 바로 정리, 이익 나는 것만', left };
+  }
+  return { min: 1.0, good: 1.5, label: '보통', hint: '' };
+}
+// 최근 N일(광고 데이터가 있는 날 기준) 캠페인별 효율 점검 + 직전 N일과 비교(노출·광고비·광고 이익 증감, 목표 ROAS 변경 효과). 운영 중인 캠페인만.
+// 상태: red = 허용 하한 미만(조정 필요) / blue = 여유 / green = 적정 / unknown = 제로 ROAS 모름 / idle = 광고비 없음
+export function roasCheck(d, days = 3) {
+  const st = campaignStatus(d); const allDates = Object.keys(d.ads).filter((x) => Object.keys(d.ads[x]).length).sort();
+  const adDates = allDates.slice(-days); const prevDates = allDates.slice(-days * 2, -days);
+  if (!adDates.length) return { dates: [], prevDates: [], rows: [] };
+  const last = adDates[adDates.length - 1];
+  const wa = new Date(last + 'T00:00:00'); wa.setDate(wa.getDate() - 29); const since = `${wa.getFullYear()}-${String(wa.getMonth() + 1).padStart(2, '0')}-${String(wa.getDate()).padStart(2, '0')}`;
+  const sum = (dates) => { const agg = {}; for (const date of dates) for (const [c, a] of Object.entries(d.ads[date])) { if (!isRunning(st, c)) continue; const x = (agg[c] ||= { spend: 0, revenue: 0, orders: 0, clicks: 0, impressions: 0, target: null, targetFirst: null, budget: 0, days: 0 }); x.spend += a.spend || 0; x.revenue += a.ad_revenue || 0; x.orders += a.ad_orders || 0; x.clicks += a.clicks || 0; x.impressions += a.impressions || 0; if (a.target_roas) { x.target = a.target_roas; if (x.targetFirst == null) x.targetFirst = a.target_roas; } if (a.budget) x.budget = a.budget; x.days++; } return agg; };
+  const cur = sum(adDates), prev = sum(prevDates);
+  const pct = (a, b) => (b ? (a - b) / b : null);
+  const rows = Object.keys(cur).map((c) => {
+    const x = { campaign: c, ...cur[c] }; const p = prev[c] || null;
+    const calc = computeZeroRoas(d, c, since); const manual = d.zeroRoas?.[c] || null;
+    const zero = manual || calc?.zero || null; const roas = x.spend ? x.revenue / x.spend : 0;
+    const profitOf = (a) => (zero && a ? a.revenue / zero - a.spend * 1.1 : null);   // 광고 이익(추정) = 광고매출 × (마진/판매가) − 광고비(부가세 포함)
+    const profit = profitOf(x), prevProfit = profitOf(p);
+    const modeInfo = d.campMode?.[c] || null; const band = roasBand(modeInfo, last);
+    const trend = p ? { impressions: pct(x.impressions, p.impressions), spend: pct(x.spend, p.spend), revenue: pct(x.revenue, p.revenue), profit: profit != null && prevProfit != null ? profit - prevProfit : null, roasPrev: p.spend ? p.revenue / p.spend : 0, targetPrev: p.target } : null;
+    const targetChanged = !!(trend && trend.targetPrev && x.target && Math.abs(trend.targetPrev - x.target) > 0.005) || (x.targetFirst && x.target && Math.abs(x.targetFirst - x.target) > 0.005);
+    let status = 'idle'; const tips = [];
+    if (x.spend > 0) {
+      if (!zero) { status = 'unknown'; tips.push('제로 ROAS 를 모릅니다 — 옵션 마진을 넣거나 직접 입력하세요'); }
+      else {
+        const lo = zero * band.min, hi = zero * band.good;
+        if (roas < lo) { status = 'red'; tips.push(`ROAS ${Math.round(roas * 100)}% < 허용 하한 ${Math.round(lo * 100)}% (제로 ${Math.round(zero * 100)}%${band.min !== 1 ? ` × ${band.min}` : ''}) — 목표 ROAS 를 ${Math.round(lo * 100)}% 이상으로 올리거나 입찰·키워드를 줄이세요`); }
+        else if (roas >= hi) { status = 'blue'; tips.push(`ROAS ${Math.round(roas * 100)}% ≥ ${Math.round(hi * 100)}% — 여유. 목표 ROAS 를 낮춰 노출을 늘릴 여지${x.budget && x.spend / x.days >= x.budget * 0.9 ? ', 예산이 거의 소진되니 예산 증액 검토' : ''}`); }
+        else { status = 'green'; tips.push(`적정 (허용 ${Math.round(lo * 100)}~${Math.round(hi * 100)}%)`); }
+        if (x.target && x.target < zero && band.min >= 1) tips.push(`광고센터 목표(${Math.round(x.target * 100)}%)가 제로(${Math.round(zero * 100)}%)보다 낮게 설정돼 있습니다`);
+      }
+      if (trend) {
+        const parts = [];
+        if (trend.impressions != null) parts.push(`노출 ${trend.impressions >= 0 ? '+' : ''}${Math.round(trend.impressions * 100)}%`);
+        if (trend.profit != null) parts.push(`광고 이익 ${trend.profit >= 0 ? '+' : ''}${Math.round(trend.profit).toLocaleString('ko-KR')}원`);
+        if (parts.length) {
+          const head = targetChanged ? `목표 ROAS ${Math.round((trend.targetPrev || x.targetFirst) * 100)}% → ${Math.round(x.target * 100)}% 로 바꾼 뒤 ` : '직전 기간 대비 ';
+          let verdict = '';
+          if (targetChanged) {
+            if (trend.profit != null && trend.profit < 0 && trend.impressions != null && trend.impressions < -0.2) verdict = ' → 노출과 이익이 함께 줄어 조정이 지나쳤습니다. 목표를 조금 되돌리세요';
+            else if (trend.profit != null && trend.profit >= 0) verdict = ' → 이익이 늘어 조정이 잘 됐습니다. 유지';
+            else if (trend.impressions != null && trend.impressions > 0.2 && trend.profit != null && trend.profit < 0) verdict = ' → 노출은 늘었지만 이익이 줄었습니다. 목표를 조금 올리세요';
+          } else if (trend.impressions != null && trend.impressions < -0.3 && status !== 'red') verdict = ' → 노출이 크게 줄었습니다. 목표 ROAS 를 낮추거나 예산·입찰을 확인하세요';
+          tips.push(head + parts.join(', ') + verdict);
+        }
+      }
+      if (band.hint) tips.push(band.hint);
+    }
+    return { ...x, roas, zero, zeroSource: manual ? 'manual' : calc?.zero ? 'calc' : null, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
+  });
+  const order = { red: 0, unknown: 1, green: 2, blue: 3, idle: 4 };
+  rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);
+  return { dates: adDates, prevDates, rows };
 }

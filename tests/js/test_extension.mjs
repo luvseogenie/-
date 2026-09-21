@@ -519,3 +519,50 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(S.autoAddOptions(d), []);
   console.log('auto add options: all checks passed');
 }
+
+// ---- 제로 ROAS 계산 + 최근 N일 효율 점검 ----
+{
+  const ad = (campaign, spend, rev, target) => ({ campaign, spend, ad_revenue: rev, impressions: 100, clicks: 10, ad_orders: 1, target_roas: target });
+  const d = { options: [{ option_id: 'A', product_name: 'a', campaign: '1. 좋음', sort_order: 1 }, { option_id: 'B', product_name: 'b', campaign: '2. 나쁨', sort_order: 2 }, { option_id: 'C', product_name: 'c', campaign: '3. 모름', sort_order: 3 }],
+    margins: [{ option_id: 'A', effective_from: '', margin: 5000 }, { option_id: 'B', effective_from: '', margin: 5000 }], legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {}, zeroRoas: {},
+    sales: { '2026-09-18': { A: { option_id: 'A', quantity: 2, revenue: 40000 }, B: { option_id: 'B', quantity: 2, revenue: 40000 }, C: { option_id: 'C', quantity: 1, revenue: 10000 } } },
+    ads: { '2026-09-17': { '1. 좋음': ad('1. 좋음', 1000, 10000, 3), '2. 나쁨': ad('2. 나쁨', 1000, 3000, 3), '3. 모름': ad('3. 모름', 1000, 5000, 3), '4. 쉼': ad('4. 쉼', 0, 0, 3) },
+           '2026-09-18': { '1. 좋음': ad('1. 좋음', 1000, 10000, 3), '2. 나쁨': ad('2. 나쁨', 1000, 3000, 3), '3. 모름': ad('3. 모름', 1000, 5000, 3), '4. 쉼': ad('4. 쉼', 0, 0, 3) },
+           '2026-09-19': { '1. 좋음': ad('1. 좋음', 1000, 10000, 3), '2. 나쁨': ad('2. 나쁨', 1000, 3000, 3), '3. 모름': ad('3. 모름', 1000, 5000, 3), '4. 쉼': ad('4. 쉼', 0, 0, 3) } } };
+  const z = S.computeZeroRoas(d, '1. 좋음', '2026-09-01');            // 판매가 20,000 · 마진 5,000 → 제로 = 20,000×1.1/5,000 = 4.4
+  assert.equal(Math.round(z.zero * 100), 440); assert.equal(z.price, 20000);
+  assert.equal(S.computeZeroRoas(d, '3. 모름', '2026-09-01').zero, null);   // 마진 없음
+  const r = S.roasCheck(d, 3); assert.deepEqual(r.dates, ['2026-09-17', '2026-09-18', '2026-09-19']);
+  const by = Object.fromEntries(r.rows.map((x) => [x.campaign, x]));
+  assert.equal(by['1. 좋음'].status, 'blue'); assert.equal(Math.round(by['1. 좋음'].roas * 100), 1000);   // 10 ≥ 4.4×1.5
+  assert.equal(by['2. 나쁨'].status, 'red'); assert.ok(by['2. 나쁨'].note.includes('440%'));
+  assert.equal(by['3. 모름'].status, 'unknown'); assert.equal(by['4. 쉼'].status, 'idle');
+  assert.deepEqual(r.rows.map((x) => x.campaign), ['2. 나쁨', '3. 모름', '1. 좋음', '4. 쉼']);     // 조정 필요 → 모름 → 적정 → 여유 → 쉼
+  assert.equal(Math.round(by['1. 좋음'].profit), Math.round(30000 / 4.4 - 3000 * 1.1));
+  S.setZeroRoas(d, '3. 모름', 2.0); const r2 = S.roasCheck(d, 3); const m = r2.rows.find((x) => x.campaign === '3. 모름');
+  assert.equal(m.status, 'blue'); assert.equal(m.zeroSource, 'manual');          // 5.0 ≥ 2.0×1.5
+  S.setZeroRoas(d, '3. 모름', null); assert.deepEqual(d.zeroRoas, {});
+  console.log('zero roas / roas check: all checks passed');
+}
+
+// ---- 시즌/비시즌 모드 + 직전 기간 비교(목표 ROAS 변경 효과) ----
+{
+  assert.deepEqual([S.roasBand(null, '2026-09-20').min, S.roasBand({ mode: 'off' }, '2026-09-20').min, S.roasBand({ mode: 'season', end: '2026-12-01' }, '2026-09-20').min, S.roasBand({ mode: 'season', end: '2026-10-10' }, '2026-09-20').min, S.roasBand({ mode: 'season', end: '2026-09-25' }, '2026-09-20').min], [1, 1.2, 0.85, 1, 1.2]);
+  const ad = (campaign, spend, rev, imp, target) => ({ campaign, spend, ad_revenue: rev, impressions: imp, clicks: 10, ad_orders: 1, target_roas: target, budget: 1000 });
+  const ads = {};
+  for (const [i, dt] of ['2026-09-14', '2026-09-15', '2026-09-16'].entries()) ads[dt] = { X: ad('X', 1000, 4000, 1000, 3.0) };      // 직전: ROAS 400%, 노출 1000/일
+  for (const [i, dt] of ['2026-09-17', '2026-09-18', '2026-09-19'].entries()) ads[dt] = { X: ad('X', 700, 3500, 600, 4.0) };       // 최근: 목표 3→4 로 올림, ROAS 500%, 노출 −40%
+  const d = { options: [{ option_id: 'A', product_name: 'a', campaign: 'X', sort_order: 1 }], margins: [{ option_id: 'A', effective_from: '', margin: 5000 }], legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {}, zeroRoas: {}, campMode: {}, ads,
+    sales: { '2026-09-18': { A: { option_id: 'A', quantity: 2, revenue: 40000 } } } };
+  const r = S.roasCheck(d, 3); const x = r.rows[0];
+  assert.deepEqual(r.prevDates, ['2026-09-14', '2026-09-15', '2026-09-16']);
+  assert.equal(Math.round(x.trend.impressions * 100), -40); assert.equal(x.targetChanged, true); assert.equal(Math.round(x.trend.roasPrev * 100), 400);
+  // 제로 4.4: 최근 이익 = 10500/4.4 − 2100×1.1 = 2386−2310 = 76 / 직전 = 12000/4.4 − 3300 = −573 → 이익 +649 → '잘 됐습니다'
+  assert.ok(x.trend.profit > 0); assert.ok(x.note.includes('300% → 400%')); assert.ok(x.note.includes('잘 됐습니다'), x.note);
+  assert.equal(x.status, 'green');                                              // 500% : 제로 440% 의 1.0~1.5 사이
+  S.setCampMode(d, 'X', 'season', '2026-12-31'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'green');   // 시즌 초반: 허용 374~528 → 500 적정
+  S.setCampMode(d, 'X', 'season', '2026-10-01'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'red');     // 시즌 막바지(D-12): 하한 528 → 500 조정 필요
+  S.setCampMode(d, 'X', 'off'); assert.equal(S.roasCheck(d, 3).rows[0].status, 'red');                       // 비시즌: 하한 528
+  S.setCampMode(d, 'X', 'normal'); assert.deepEqual(d.campMode, {});
+  console.log('season/trend: all checks passed');
+}
