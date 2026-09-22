@@ -35,13 +35,18 @@ export async function parseLegacyWorkbook(buf, filename = '') {
     if (cols.length >= 5) { hr = r; dateCols = cols; break; }
   }
   if (hr < 0) throw new Error('4번 시트에서 날짜 행을 찾지 못했습니다.');
+  // 시트 위쪽 '전체 순이익' 줄 (대조용): 날짜별 엑셀 합계
+  const excelTotals = {};
+  for (let r = hr + 1; r < Math.min(rows.length, hr + 4); r++) { if (/전체\s*순이익/.test(str(rows[r][1]))) { for (const [ci, date] of dateCols) { const v = rows[r][ci]; if (typeof v === 'number') excelTotals[date] = v; } break; } }
   // 캠페인 블록: A열에 이름, B열에 항목
   const legacy = {}; let camp = null; const campaigns = new Set(); let cells = 0;
+  // 블록 = '목표효율' 줄부터 '순이익' 줄까지. A열 이름은 블록 첫 줄(목표효율)에만 의미가 있고, 블록 중간의 A열 글자('카피바라 였음' 같은 메모)는 이름이 아니다.
+  // 이름 없이 시작하는 블록(맨 아래 빈 템플릿)은 앞 캠페인에 붙지 않게 캠페인을 끊는다 — 안 그러면 0 값이 앞 캠페인 값을 덮어쓴다.
   for (let r = hr + 1; r < rows.length; r++) {
     const row = rows[r]; const a = str(row[0]), b = str(row[1]);
-    if (a && !/이곳에|입력해 주세요|캠페인명을/.test(a)) camp = a; else if (a) camp = null;
-    if (!camp || !b) continue;
-    const field = labelField(b); if (!field) continue;
+    const field = labelField(b);
+    if (field === 'target_roas') { camp = a && !/이곳에|입력해 주세요|캠페인명을/.test(a) ? a : null; }
+    if (!camp || !b || !field) continue;
     for (const [ci, date] of dateCols) {
       const v = row[ci]; if (v == null || v === '') continue;
       const n = typeof v === 'number' ? v : parseNumber(v); if (n == null) continue;
@@ -93,8 +98,11 @@ export async function parseLegacyWorkbook(buf, filename = '') {
     }
   }
   const salesDates = [...new Set(sales.map((r) => r.date))].sort();
+  // 대조: 캠페인 순이익 합이 엑셀 '전체 순이익' 줄과 다른 날
+  const mismatch = [];
+  for (const [date, tot] of Object.entries(excelTotals)) { const ours = Object.values(legacy[date] || {}).reduce((a, L) => a + (L.profit || 0), 0); if (Math.abs(ours - tot) > 1) mismatch.push({ date, excel: tot, ours }); }
   return { source: filename, legacy, dates, from: dates[0], to: dates[dates.length - 1], campaigns: [...campaigns], cells, mapping, marginFrom: addDays(dates[dates.length - 1], 1),
-    sales, salesFrom: salesDates[0] || null, salesTo: salesDates[salesDates.length - 1] || null };
+    sales, salesFrom: salesDates[0] || null, salesTo: salesDates[salesDates.length - 1] || null, checkedDays: Object.keys(excelTotals).length, mismatch };
 }
 
 // 미리보기: 현재 데이터와 겹치는 정도

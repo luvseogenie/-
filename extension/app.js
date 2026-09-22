@@ -1045,7 +1045,8 @@ $('#import-legacy').onchange = async (ev) => {
       + (pv.overlapDays ? `이미 엑셀에서 가져온 날짜 ${pv.overlapDays}일은 덮어씁니다.<br>` : '')
       + (pv.dailyDays ? `확장 프로그램으로 저장한 날짜 ${pv.dailyDays}일은 그 데이터가 우선이고, 엑셀 값은 비어 있는 쪽만 채웁니다.<br>` : '')
       + `3번 시트(실제 판매): <b>${fmtInt(pv.salesRows)}행</b> 전부 저장${legacyParsed.salesFrom ? ` (${legacyParsed.salesFrom} ~ ${legacyParsed.salesTo})` : ''}${pv.salesOverwrite ? ` · 이미 있는 ${fmtInt(pv.salesOverwrite)}행은 덮어씀` : ''}<br>`
-      + `1번 시트: 옵션 ${legacyParsed.mapping.length}개 (새 옵션 ${pv.newOptions}개) · 마진은 <b>${legacyParsed.marginFrom}</b>부터 적용`;
+      + `1번 시트: 옵션 ${legacyParsed.mapping.length}개 (새 옵션 ${pv.newOptions}개) · 마진은 <b>${legacyParsed.marginFrom}</b>부터 적용`
+      + (legacyParsed.checkedDays ? `<br>엑셀 '전체 순이익' 줄과 대조: ${legacyParsed.checkedDays}일 중 ${legacyParsed.mismatch.length ? `<b class="neg">${legacyParsed.mismatch.length}일 불일치</b> (${legacyParsed.mismatch.slice(0, 5).map((m) => `${m.date.slice(5)} 엑셀 ${fmtWon(m.excel)} / 읽은 값 ${fmtWon(m.ours)}`).join(', ')}${legacyParsed.mismatch.length > 5 ? ' …' : ''})` : '<b>불일치 없음 ✓</b>'}` : '');
     $('#legacy-preview').style.display = 'block'; msg('#legacy-msg', '내용을 확인하고 적용을 누르세요.');
   } catch (e) { msg('#legacy-msg', e.message, 'err'); legacyParsed = null; }
   ev.target.value = '';
