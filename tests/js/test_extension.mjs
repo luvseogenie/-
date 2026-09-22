@@ -482,13 +482,17 @@ console.log('extension logic: all checks passed');
   console.log('campaign status/relink/organic: all checks passed');
 }
 
-// ---- 규칙으로 못 떼는 이름도, 번호로 시작하는 다른 캠페인 이름을 품고 있으면 그 이름으로 합친다 ----
+// ---- 규칙으로 못 떼는 이름도, 배지·버튼 글자만 더 붙은 것이면 번호로 시작하는 캠페인 이름으로 합친다 (다른 글자가 남으면 다른 캠페인) ----
 {
+  const row = (c, spend) => ({ campaign: c, spend });
   const d = { options: [], margins: [], sales: {}, legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, adrows: {}, campaignOptions: {},
-    ads: { '2026-09-16': { '오늘의 Pick31. 피크닉매트_260402': { campaign: '오늘의 Pick31. 피크닉매트_260402', spend: 92460, impressions: 74242 }, '31. 피크닉매트_260402': { campaign: '31. 피크닉매트_260402', spend: 0 }, '31. 피크닉매트_260402 수정 삭제': { campaign: '31. 피크닉매트_260402 수정 삭제', spend: 0 }, '베스트31. 피크닉매트_260402': { campaign: '베스트31. 피크닉매트_260402', spend: 0 }, '5. 자석 커튼끈_239%': { campaign: '5. 자석 커튼끈_239%', spend: 10 } } } };
+    ads: { '2026-09-16': { '오늘의 Pick31. 피크닉매트_260402': { campaign: '오늘의 Pick31. 피크닉매트_260402', spend: 92460, impressions: 74242 }, '31. 피크닉매트_260402': row('31. 피크닉매트_260402', 0), '31. 피크닉매트_260402 수정 삭제': row('31. 피크닉매트_260402 수정 삭제', 0), '베스트31. 피크닉매트_260402': row('베스트31. 피크닉매트_260402', 0), '5. 자석 커튼끈_239%': row('5. 자석 커튼끈_239%', 10),
+      '1. 타이머_236%': row('1. 타이머_236%', 5), '1. 타이머_236%_구': row('1. 타이머_236%_구', 7), '15. 자석 커튼끈_239%': row('15. 자석 커튼끈_239%', 3) } } };
   assert.equal(S.cleanCampaignNames(d), true);
-  assert.deepEqual(Object.keys(d.ads['2026-09-16']).sort(), ['31. 피크닉매트_260402', '5. 자석 커튼끈_239%']);
+  assert.deepEqual(Object.keys(d.ads['2026-09-16']).sort(), ['1. 타이머_236%', '1. 타이머_236%_구', '15. 자석 커튼끈_239%', '31. 피크닉매트_260402', '5. 자석 커튼끈_239%']);
   assert.equal(d.ads['2026-09-16']['31. 피크닉매트_260402'].spend, 92460);
+  assert.equal(d.ads['2026-09-16']['1. 타이머_236%_구'].spend, 7);        // '_구' 가 남으므로 다른 캠페인
+  assert.equal(d.nameMerges.length, 3);
   assert.equal(S.cleanCampaignNames(d), false);
   console.log('campaign name merge by containment: all checks passed');
 }

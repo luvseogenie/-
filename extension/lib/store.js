@@ -81,13 +81,16 @@ export function cleanCampaignNames(d) {
   for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign) names.add(r.campaign);
   const step1 = {}; for (const n of names) step1[n] = cleanCampaignName(n);
   const known = [...new Set(Object.values(step1))].filter((n) => /^\d{1,4}\.\s*\S/.test(n)).sort((a, b) => a.length - b.length);
+  // 품고 있는 이름으로 합치는 건 남는 글자가 배지·버튼 단어뿐일 때만 ('오늘의 Pick31. 피크닉' → '31. 피크닉' 은 되고, '1. 타이머_236%_구' → '1. 타이머_236%' 는 다른 캠페인이므로 안 됨)
+  const JUNK = /^(?:\s*(?:AI\s*스마트\s*광고|오늘의\s*Pick|NEW|추천|HOT|BEST|베스트|인기|수정|삭제|복사|편집|더보기))*\s*$/i;
   const map = {};
   for (const n of names) {
     let c = step1[n];
-    const inner = known.find((k) => k !== c && c.includes(k) && c.length - k.length <= 30);
+    const inner = known.find((k) => k !== c && c.includes(k) && JUNK.test(c.replace(k, ' ')));
     if (inner) c = inner;
     if (c !== n) map[n] = c;
   }
+  if (Object.keys(map).length) { const when = new Date().toISOString().slice(0, 16); d.nameMerges = [...(d.nameMerges || []), ...Object.entries(map).map(([from, to]) => ({ from, to, when }))].slice(-300); }   // 무엇을 합쳤는지 남긴다
   const fix = (name) => map[name] || name;
   const merge = (obj, mergeRow) => { for (const k of Object.keys(obj)) { const c = fix(k); if (c === k) continue; const v = obj[k]; delete obj[k]; if (mergeRow && obj[c]) obj[c] = mergeRow(obj[c], v); else if (!obj[c]) obj[c] = v; if (v && typeof v === 'object' && !Array.isArray(v) && 'campaign' in v) v.campaign = c; } };
   for (const date of Object.keys(d.ads || {})) merge(d.ads[date], (a, b) => (zeroAds(a) && !zeroAds(b) ? b : a));
