@@ -370,7 +370,7 @@
             <div class="row" style="margin-top:6px"><button class="btn sm" id="range-report">📢 이 기간 광고 보고서 받기 (키워드·옵션별)</button><span class="sub">위 시작~끝 날짜의 광고 보고서를 광고센터에서 만들어 받아 캠페인 분석에 넣습니다. 최근 구간부터 31일씩 나눠 받으며 한 구간에 1~3분쯤 걸립니다. 프로그램을 쓰기 전 기간도 되고, "최근 1년"으로 두면 쿠팡이 주는 데까지 전부 받다가 더 없으면 스스로 멈춥니다.</span><span id="range-report-msg" class="msg"></span></div>
             <div id="range-missing-list" class="sub" style="margin-top:6px"></div>
             <pre class="log" id="range-log" style="display:none;margin-top:8px"></pre>
-            <p class="sub" style="margin:6px 0 0">날짜마다 판매분석을 열어 리포트를 받습니다. 하루에 10~20초쯤 걸립니다. 광고는 <b>광고 관리 주소에 <code>{date}</code> 가 있어야</b> 날짜별로 열 수 있고, 없으면 건너뜁니다. 그럴 때는 광고센터에서 <b>기간을 정해 보고서</b>를 받아 <b>📂 파일 올리기</b> 의 '광고 CSV/XLSX' 로 올리면 날짜별로 한 번에 저장됩니다.</p>
+            <p class="sub" style="margin:6px 0 0">날짜마다 판매분석을 열어 리포트를 받습니다. 하루에 10~20초쯤 걸립니다. 광고 관리 화면은 어제만 열 수 있어서, <b>지난 날짜의 광고 값은 그 기간의 광고 보고서 합으로 채웁니다</b>(캠페인별 광고비·클릭·전환매출·판매수. 노출수는 클릭 있는 키워드만이라 조금 적을 수 있고, 목표효율·예산은 없음). 그러니 지난 날짜를 채울 때는 아래 <b>📢 이 기간 광고 보고서 받기</b>를 먼저(또는 같이) 누르세요.</p>
           </div>
           <details style="margin-top:8px" id="login-box"><summary>🔐 자동 로그인 (선택) <span id="login-sub" style="margin-left:6px"></span></summary>
             <p class="sub" style="margin:6px 0">쿠팡 로그인이 풀려 있으면 대신 로그인합니다. <b>아이디와 비밀번호가 이 PC 의 크롬 안에 저장됩니다</b> (다른 PC 로 동기화되지 않음). 쿠팡이 인증번호나 로봇 확인을 요구하는 날은 자동으로 넘어가지 못하니 그때는 직접 로그인해야 합니다. 공용 PC 에서는 켜지 마세요.</p>

@@ -45,9 +45,11 @@ export async function importAdReportFile(buf, filename, date) {
   await logHeaders('adreport', filename);
   const rows = normalizeAdReport(records, dateFromReportName(filename) || date || null);
   if (!rows.length) throw new Error('보고서에서 인식된 행이 없습니다 (날짜·캠페인 열을 확인하세요)');
-  const d = await S.load(); const n = S.upsertAdRows(d, rows); await S.save(d);
+  const d = await S.load(); const n = S.upsertAdRows(d, rows);
   const ds = [...new Set(rows.map((r) => r.date))].sort();
-  return { kind: 'adreport', saved: n, date: ds[ds.length - 1], from: ds[0], to: ds[ds.length - 1], days: ds.length, campaigns: new Set(rows.map((r) => r.campaign)).size, records };
+  const filled = S.fillAdsFromReport(d, ds);   // 광고 관리 화면 값이 없는 날은 보고서 합으로 장부 광고 값을 채운다
+  await S.save(d);
+  return { kind: 'adreport', saved: n, filled, date: ds[ds.length - 1], from: ds[0], to: ds[ds.length - 1], days: ds.length, campaigns: new Set(rows.map((r) => r.campaign)).size, records };
 }
 
 // 파일 헤더를 보고 판매 리포트인지 광고 보고서인지 판단해 저장한다.

@@ -210,6 +210,23 @@ export function campaigns(d) {
   return sortCampaigns([...out]);
 }
 // ---- 광고 보고서 행 (키워드·옵션별 일별). 같은 날짜·캠페인은 새 파일 내용으로 통째로 바뀐다 ----
+// 광고 보고서(adrows: 키워드·옵션별 일별)를 캠페인·날짜로 합쳐 광고 관리 화면 값(ads)이 없는 날을 채운다.
+// 광고비·클릭·전환매출·판매수는 보고서 합이 곧 캠페인 값. 노출수는 '클릭이 발생한 키워드만' 받은 보고서라 조금 적을 수 있다. 목표효율·예산은 보고서에 없어 비워 둔다.
+export function adsFromAdRows(date, rows) {
+  const by = {};
+  for (const r of rows) { if (!r.campaign) continue; const x = (by[r.campaign] ||= { date, campaign: r.campaign, spend: 0, ad_revenue: 0, impressions: 0, clicks: 0, ad_orders: 0, target_roas: 0, budget: 0, conversion: 0, ctr: 0, action: '', source: 'report' }); x.spend += r.spend || 0; x.ad_revenue += r.revenue14 || 0; x.impressions += r.impressions || 0; x.clicks += r.clicks || 0; x.ad_orders += (r.qty14 || r.orders14 || 0); }
+  for (const x of Object.values(by)) { x.ctr = x.impressions ? x.clicks / x.impressions : 0; x.conversion = x.clicks ? x.ad_orders / x.clicks : 0; }
+  return Object.values(by);
+}
+export function fillAdsFromReport(d, dates = null) {
+  let n = 0; const list = dates || Object.keys(d.adrows || {});
+  for (const date of list) {
+    const rows = d.adrows?.[date]; if (!rows || !rows.length) continue;
+    const day = (d.ads[date] ||= {});
+    for (const x of adsFromAdRows(date, rows)) { const cur = day[x.campaign]; if (cur && !zeroAds(cur) && cur.source !== 'report') continue; if (cur) { x.target_roas = cur.target_roas || 0; x.budget = cur.budget || 0; x.action = cur.action || ''; } day[x.campaign] = x; n++; }
+  }
+  return n;
+}
 export function upsertAdRows(d, rows) {
   d.adrows ||= {};
   const touched = new Set(rows.map((r) => r.date + '|' + r.campaign));

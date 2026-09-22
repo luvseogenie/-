@@ -554,7 +554,13 @@ async function collectRange(start, end, kinds, onlyMissing) {
       if (job.cancel) break;
       const d = await S.load();
       if (onlyMissing && ((kind === 'sales' && d.sales[date]) || (kind === 'ads' && d.ads[date]))) { job.done++; continue; }
-      if (kind === 'ads' && !s.adsUrl.includes('{date}')) { job.log.push(`${date} 광고: 광고 관리 주소에 {date} 가 없어 자동으로 열 수 없습니다 (광고센터에서 날짜를 고른 뒤 팝업의 날짜를 맞추고 ② 를 누르세요)`); job.done++; continue; }
+      if (kind === 'ads' && !s.adsUrl.includes('{date}') && date !== yesterdayIso()) {
+        // 광고 관리 화면은 어제만 열 수 있다 → 지난 날은 광고 보고서(키워드별 일별) 합으로 채운다
+        const dd = await S.load(); const k = S.fillAdsFromReport(dd, [date]);
+        if (k) { await S.save(dd); job.log.push(`${date} 광고: 광고 보고서 합으로 ${k}개 캠페인 채움 (광고 관리 화면은 어제만 열 수 있어서)`); }
+        else job.log.push(`${date} 광고: 광고 관리 화면은 어제만 열 수 있고, 이 날 광고 보고서도 없습니다 → 위의 '이 기간 광고 보고서 받기'로 먼저 받으면 채워집니다`);
+        job.done++; continue;
+      }
       try { const r = await collectKind(kind, date); job.log.push(`${date} ${kind === 'sales' ? '판매' : '광고'}: ${r.saved}건 저장`); }
       catch (e) { job.log.push(`${date} ${kind === 'sales' ? '판매' : '광고'}: 실패 — ${e.message}`); }
       job.done++;

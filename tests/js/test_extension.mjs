@@ -611,3 +611,16 @@ console.log('extension logic: all checks passed');
   assert.equal(Math.round(r.profit), Math.round(4000 / 2.0 - 1100 + 4000 / 4.0 - 1100));   // 18일은 제로 200%, 19일은 400%
   console.log('zero roas history: all checks passed');
 }
+
+// ---- 광고 보고서 합으로 광고 관리 값 채우기 (없는 날만, 화면에서 읽은 값은 안 건드림) ----
+{
+  const rows = [{ date: '2026-09-03', campaign: 'X', option_id: 'A', keyword: 'k1', spend: 1000, impressions: 500, clicks: 10, orders14: 2, qty14: 3, revenue14: 30000 }, { date: '2026-09-03', campaign: 'X', option_id: 'A', keyword: 'k2', spend: 500, impressions: 200, clicks: 5, orders14: 1, qty14: 1, revenue14: 10000 }, { date: '2026-09-03', campaign: 'Y', option_id: 'B', keyword: 'k3', spend: 200, impressions: 50, clicks: 2, orders14: 0, qty14: 0, revenue14: 0 }];
+  const d = { adrows: { '2026-09-03': rows }, ads: { '2026-09-03': { Y: { campaign: 'Y', spend: 999, ad_revenue: 5, impressions: 1, clicks: 1, ad_orders: 0, target_roas: 3, budget: 10000 } } } };
+  assert.equal(S.fillAdsFromReport(d), 1);                                    // X 만 채움 (Y 는 화면에서 읽은 값이 있음)
+  const x = d.ads['2026-09-03'].X; assert.equal(x.spend, 1500); assert.equal(x.ad_revenue, 40000); assert.equal(x.ad_orders, 4); assert.equal(x.impressions, 700); assert.equal(x.source, 'report');
+  assert.equal(d.ads['2026-09-03'].Y.spend, 999);
+  assert.equal(S.fillAdsFromReport(d), 1);                                    // 보고서로 채운 값은 다시 채워도 됨(덮어씀)
+  d.ads['2026-09-03'].X = { campaign: 'X', spend: 0, ad_revenue: 0, impressions: 0, clicks: 0, ad_orders: 0, target_roas: 2.5, budget: 50000 };
+  assert.equal(S.fillAdsFromReport(d, ['2026-09-03']), 1); assert.equal(d.ads['2026-09-03'].X.target_roas, 2.5); assert.equal(d.ads['2026-09-03'].X.spend, 1500);   // 0 뿐인 값은 채우되 목표·예산은 보존
+  console.log('fill ads from report: all checks passed');
+}
