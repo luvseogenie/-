@@ -571,13 +571,15 @@ function renderLedgerTable() {
   const metrics = led.metrics.filter((x) => shownMetrics.has(x.key));
   let h = '<thead><tr><th class="camp">캠페인</th><th class="lbl">항목</th>' + cols.map((c) => c.date ? `<th>${c.date.slice(5).replace('-', '/')}</th>` : `<th class="sum">${parseInt(c.sum.slice(5))}월 합계</th>`).join('') + '</tr></thead><tbody>';
   // 전체 순이익 = 판매 마진 − 광고비 − 광고 외 지출 (한 줄로). 지출이 있는 날은 툴팁에 내역
-  h += '<tr class="grand"><td class="camp">전체</td><td class="lbl"><b>전체 순이익</b></td>' + cols.map((c) => {
-    const v = c.date ? led.daily[c.date]?.profit_net : led.month_profit_net[c.sum];
-    const ex = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum];
-    const base = c.date ? led.total_profit[c.date] : led.month_profit[c.sum];
-    const title = ex ? `판매 마진 − 광고비 ${fmtWon(base || 0)} − 광고 외 지출 ${fmtWon(ex)}` : '';
-    return `<td class="total num ${v < 0 ? 'neg' : ''}" ${title ? `title="${esc(title)}"` : ''}>${v == null ? '' : fmtWon(v)}</td>`;
-  }).join('') + '</tr>';
+  // 전체 줄: 캠페인 순이익 합계(엑셀 마진계산기의 '전체 순이익'과 같은 값) → 광고 외 지출(있을 때만) → 지출 뺀 전체 순이익
+  const anyExpense = cols.some((c) => (c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]) > 0);
+  const cellOf = (v, cls = 'total') => `<td class="${cls} num ${v < 0 ? 'neg' : ''}">${v == null ? '' : fmtWon(v)}</td>`;
+  const baseOf = (c) => c.date ? led.total_profit[c.date] : led.month_profit[c.sum];
+  h += `<tr class="grand"><td class="camp" rowspan="${anyExpense ? 3 : 1}">전체</td><td class="lbl"><b>${anyExpense ? '캠페인 순이익 합계' : '전체 순이익'}</b><div class="sub">판매 마진 − 광고비(부가세 포함)${anyExpense ? ' · 엑셀 마진계산기의 전체 순이익과 같은 기준' : ''}</div></td>` + cols.map((c) => cellOf(baseOf(c))).join('') + '</tr>';
+  if (anyExpense) {
+    h += '<tr class="grand sub-row"><td class="lbl">광고 외 지출 <span class="sub">(월 지출은 그 달 일수로 나눠 매일 배분)</span></td>' + cols.map((c) => { const ex = c.date ? led.expense_by_day[c.date] : led.month_expense[c.sum]; return `<td class="total num ${ex ? 'neg' : ''}">${ex ? '−' + fmtWon(ex) : ''}</td>`; }).join('') + '</tr>';
+    h += '<tr class="grand"><td class="lbl"><b>전체 순이익</b><div class="sub">지출까지 뺀 값</div></td>' + cols.map((c) => cellOf(c.date ? led.daily[c.date]?.profit_net : led.month_profit_net[c.sum])).join('') + '</tr>';
+  }
   // 전날(광고 데이터가 있는 직전 날) 값과 비교하기 위한 준비
   const prevOf = (c, date) => { let p = null; for (const d of Object.keys(c.days).sort()) { if (d >= date) break; if (c.days[d].has_ads) p = c.days[d]; } return p; };
   const adsOnly = new Set(['target_roas', 'roas', 'budget', 'spend_vat', 'cpc', 'impressions', 'ctr', 'conversion', 'ad_orders', 'ad_revenue']);
@@ -635,7 +637,7 @@ function renderLedgerTable() {
   }
   $('#lg-table').innerHTML = h + '</tbody>';
   // 날짜 머리글 바로 아래에 '전체 순이익' 줄을 고정 (아래로 내려도 그날 이익과 날짜가 보이게)
-  { const th = $('#lg-table thead'); const top = th ? th.getBoundingClientRect().height : 0; $$('#lg-table tr.grand td').forEach((td) => td.style.top = top + 'px'); }
+  { const th = $('#lg-table thead'); let top = th ? th.getBoundingClientRect().height : 0; for (const tr of $$('#lg-table tr.grand')) { tr.querySelectorAll('td').forEach((td) => td.style.top = top + 'px'); top += tr.getBoundingClientRect().height; } }
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
   $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-details').open = true; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
