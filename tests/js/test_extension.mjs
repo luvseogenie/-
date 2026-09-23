@@ -608,6 +608,10 @@ console.log('extension logic: all checks passed');
     ads: { '2026-09-18': { X: ad('X', 1000, 4000) }, '2026-09-19': { X: ad('X', 1000, 4000) } } };
   const r = S.roasCheck(dd, 2).rows[0];
   assert.equal(r.zero, 4.0); assert.equal(r.zeroFrom, '2026-09-19');
+  // 오늘부터 적용한 값도 바로 '입력됨'으로 보이고 상태 판단에 쓰인다 (날짜별 이익은 그날 값)
+  const t = new Date(); const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  const d3 = { ...dd, zeroRoas: { X: [{ from: todayIso, value: 2.66 }] } }; const r3 = S.roasCheck(d3, 2).rows[0];
+  assert.equal(r3.zeroSource, 'manual'); assert.equal(r3.zero, 2.66); assert.equal(r3.zeroFrom, todayIso);
   assert.equal(Math.round(r.profit), Math.round(4000 / 2.0 - 1100 + 4000 / 4.0 - 1100));   // 18일은 제로 200%, 19일은 400%
   console.log('zero roas history: all checks passed');
 }

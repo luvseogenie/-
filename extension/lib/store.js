@@ -383,8 +383,10 @@ export function roasCheck(d, days = 3) {
     // 제로 ROAS 우선순위: 캠페인에 직접 넣은 값 > 기본값(설정, 처음엔 250%) . 옵션 마진으로 계산한 값은 참고로만 보여 준다
     const calc = computeZeroRoas(d, c, since); const dflt = zeroRoasDefault(d);
     const zeroOn = (date) => zeroRoasAt(d, c, date) || dflt;
-    const manual = zeroRoasAt(d, c, last); const zero = manual || dflt; const roas = x.spend ? x.revenue / x.spend : 0;
-    const hist = zeroRoasHistory(d, c); const curEntry = [...hist].reverse().find((h) => h.from <= last) || null;
+    // 지금 쓰는 제로 ROAS = 오늘 기준으로 유효한 값 (오늘부터 적용한 것도 바로 '입력됨'으로). 날짜별 이익 계산은 그날 값으로
+    const todayIso = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; })();
+    const manual = zeroRoasAt(d, c, todayIso); const zero = manual || dflt; const roas = x.spend ? x.revenue / x.spend : 0;
+    const hist = zeroRoasHistory(d, c); const curEntry = [...hist].reverse().find((h) => h.from <= todayIso) || null; const upcoming = hist.filter((h) => h.from > todayIso);
     // 광고 이익(추정) = Σ날짜별 광고매출 ÷ 그날의 제로 ROAS − 광고비(부가세 포함). 제로가 날짜별로 다르면 그날 값으로
     const profitOf = (dates) => { let v = 0, any = false; for (const date of dates) { const a = d.ads[date]?.[c]; if (!a) continue; any = true; v += (a.ad_revenue || 0) / zeroOn(date) - (a.spend || 0) * 1.1; } return any ? v : null; };
     const profit = profitOf(adDates), prevProfit = p ? profitOf(prevDates) : null;
@@ -419,7 +421,7 @@ export function roasCheck(d, days = 3) {
       if (calc?.zero && Math.abs(calc.zero - zero) / zero > 0.25) tips.push(`옵션 마진으로 계산한 제로는 ${Math.round(calc.zero * 100)}% (쓰는 값 ${Math.round(zero * 100)}%) — 차이가 크면 마진·판매가를 확인하세요`);
       if (band.hint) tips.push(band.hint);
     }
-    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', zeroFrom: curEntry?.from || '', zeroHistory: hist, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
+    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', zeroFrom: curEntry?.from || '', zeroUpcoming: upcoming, zeroHistory: hist, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
   });
   const order = { red: 0, unknown: 1, green: 2, blue: 3, idle: 4 };
   rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);
