@@ -21,10 +21,13 @@ export async function load() {
   else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; loadedAdrowsSig = adrowsSig(d.adrows); }
   else { loadedAdrowsSig = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
   for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
+  // 예전 방식('그 달에 나눠')으로 넣어 둔 지출은 한 번만 '입력일부터 30일 1/30' 으로 바꾼다 (사용자 요청). 그날만(day)은 그대로
+  let expChanged = false;
+  if (!d.expenseSpanMigrated) { for (const e of d.expenses || []) { if (e.mode !== 'day') { e.mode = 'span'; e.days = e.days || 30; expChanged = true; } } d.expenseSpanMigrated = true; expChanged = true; }
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
   const added = autoAddOptions(d);
-  if (changed || moved.length || added.length) await save(d);
+  if (changed || moved.length || added.length || expChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
