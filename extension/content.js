@@ -739,6 +739,15 @@
       const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null); delete r.row; sendResponse(r);
     } else if (msg?.type === 'clickInRow') {
       sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null));
+    } else if (msg?.type === 'fillTextarea') {
+      // 화면의 글 상자(textarea, 없으면 긴 input)에 글 넣기. 떠 있는 창 안의 것 → 새로 나타난 것 → 아무거나
+      const all = [...deepAll('textarea'), ...deepAll('input[type="text"], input:not([type])')].filter(visible);
+      const known = new Set(msg.known || []);
+      const pick = all.find((e) => e.closest(DIALOG) && e.tagName === 'TEXTAREA') || all.find((e) => e.closest(DIALOG)) || all.find((e) => e.tagName === 'TEXTAREA' && !known.has(e.placeholder + '|' + e.name)) || all.find((e) => e.tagName === 'TEXTAREA') || null;
+      if (!pick) sendResponse({ ok: false, inputs: all.map((e) => `${e.tagName.toLowerCase()}:${e.placeholder || e.name || e.id || ''}`).slice(0, 10) });
+      else { pick.focus(); setNativeValue(pick, msg.text || ''); sendResponse({ ok: true, tag: pick.tagName.toLowerCase(), placeholder: pick.placeholder || '', inDialog: !!pick.closest(DIALOG), value: pick.value.slice(0, 60) }); }
+    } else if (msg?.type === 'textareaKeys') {
+      sendResponse({ ok: true, keys: [...deepAll('textarea')].filter(visible).map((e) => e.placeholder + '|' + e.name) });
     } else if (msg?.type === 'textLines') {
       // 화면에 보이는 글자 줄 (전후 비교로 새로 뜬 창·문구를 알아내기 위한 진단)
       const lines = [...new Set((document.body?.innerText || '').split('\n').map((x) => clean(x)).filter((x) => x && x.length < 160))];

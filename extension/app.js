@@ -433,12 +433,26 @@ function renderCpExcludes(panel, rows) {
   const list = DATA.excludes?.[cp.campaign] || [];
   const stats = Object.fromEntries(AR.byKeyword(rows).map((k) => [k.key, k]));
   panel.innerHTML = `<div class="cp-panel-head"><h2 style="margin:0">제외 키워드 <span class="sub">${list.length}개</span></h2><span class="grow"></span><button class="btn sm" id="cp-ex-copy">모두 복사</button><button class="btn sm" id="cp-ex-copy-new">아직 등록 안 한 것만 복사</button><button class="btn sm" id="cp-ex-synced">복사한 것 등록 완료로 표시</button></div>
-    <p class="sub" style="margin:0 0 8px">복사한 뒤 광고센터 → 캠페인 → 제외 키워드에 붙여넣어 등록하세요 (줄바꿈으로 나뉘어 있습니다). 등록을 마치면 '등록 완료로 표시' 를 눌러 두면 다음부터 새로 담은 것만 구분됩니다. 광고센터에 자동 등록은 다음 단계에서 넣습니다.</p>
+    <div class="row" style="margin:0 0 8px"><button class="btn primary sm" id="cp-ex-push">🚀 쿠팡 광고센터에 등록 (아직 ${list.filter((x) => !x.synced).length}개)</button><button class="btn sm" id="cp-ex-dry" title="등록은 하지 않고 캠페인 화면을 열어 제외 키워드 넣는 곳까지만 가 보고 무엇이 보이는지 알려 줍니다">화면 확인만</button><span id="cp-ex-push-msg" class="msg"></span></div>
+    <p class="sub" style="margin:0 0 8px">자동 등록이 안 되면 복사한 뒤 광고센터 → 캠페인 → 제외 키워드에 붙여넣어 등록하세요 (줄바꿈으로 나뉘어 있습니다). 등록을 마치면 '등록 완료로 표시' 를 눌러 두면 다음부터 새로 담은 것만 구분됩니다. 광고센터에 자동 등록은 다음 단계에서 넣습니다.</p>
     <div class="row" style="margin-bottom:8px"><input type="text" id="cp-ex-add" placeholder="직접 추가할 키워드" style="width:220px"><button class="btn sm" id="cp-ex-add-btn">추가</button></div>
     <div class="tablewrap" style="max-height:60vh"><table><thead><tr><th class="l">키워드</th><th>담은 날</th><th>등록</th><th>기간 광고비</th><th>주문</th><th>ROAS</th><th></th></tr></thead><tbody>` +
     list.map((x) => { const k = stats[x.keyword]; return `<tr><td class="l kw">${esc(x.keyword)}</td><td>${x.added_at}</td><td>${x.synced ? '<span class="pill good">등록됨</span>' : '<span class="pill warn">아직</span>'}</td><td class="num">${k ? F.won(k.spend) : '-'}</td><td class="num">${k ? fmtInt(k.orders) : '-'}</td><td class="num">${k ? F.ratio(k.roas) : '-'}</td><td><button class="btn danger sm" data-rm="${esc(x.keyword)}">빼기</button></td></tr>`; }).join('') + '</tbody></table></div>';
   const copy = async (only) => { const ks = list.filter((x) => !only || !x.synced).map((x) => x.keyword); if (!ks.length) { msg('#cp-sub', '복사할 키워드가 없습니다', 'err'); return; } await navigator.clipboard.writeText(ks.join('\n')); msg('#cp-sub', `${ks.length}개 복사됨`, 'ok'); };
   $('#cp-ex-copy').onclick = () => copy(false); $('#cp-ex-copy-new').onclick = () => copy(true);
+  const push = async (dryRun) => {
+    const ks = list.filter((x) => !x.synced).map((x) => x.keyword);
+    if (!dryRun && !ks.length) { msg('#cp-ex-push-msg', '등록할 새 키워드가 없습니다', 'err'); return; }
+    if (!dryRun && !confirm(`광고센터의 캠페인 "${cp.campaign}" 에 제외 키워드 ${ks.length}개를 등록합니다. 창이 떠서 광고센터를 조작하니 끝날 때까지 건드리지 마세요. 진행할까요?`)) return;
+    $('#cp-ex-push').disabled = true; $('#cp-ex-dry').disabled = true; msg('#cp-ex-push-msg', dryRun ? '광고센터 캠페인 화면을 열어 보는 중… (30초쯤)' : `등록 중… ${ks.length}개 (1분쯤)`);
+    const r = await chrome.runtime.sendMessage({ type: 'registerExcludes', campaign: cp.campaign, keywords: ks, dryRun });
+    $('#cp-ex-push').disabled = false; $('#cp-ex-dry').disabled = false;
+    if (!r) { msg('#cp-ex-push-msg', '응답 없음', 'err'); return; }
+    if (r.dryRun) { msg('#cp-ex-push-msg', `확인만 함: ${r.steps.join(' → ')} · 화면: ${(r.diag || '').slice(0, 400)}`, r.ok ? '' : 'err'); return; }
+    if (r.ok) { msg('#cp-ex-push-msg', `${r.found.length}개 등록 확인${r.missing?.length ? ` · 화면에서 안 보인 것 ${r.missing.length}개: ${r.missing.slice(0, 5).join(', ')}` : ''} (${r.steps.join(' → ')})`, 'ok'); await reload(); renderCampaign(); }
+    else msg('#cp-ex-push-msg', `실패: ${r.error}`, 'err');
+  };
+  $('#cp-ex-push').onclick = () => push(false); $('#cp-ex-dry').onclick = () => push(true);
   $('#cp-ex-synced').onclick = async () => { const d = await reload(); S.markExcludesSynced(d, cp.campaign, list.map((x) => x.keyword)); await S.save(d); await reload(); renderCampaign(); };
   $('#cp-ex-add-btn').onclick = async () => { const k = $('#cp-ex-add').value.trim(); if (!k) return; const d = await reload(); S.addExclude(d, cp.campaign, k); await S.save(d); await reload(); renderCampaign(); };
   panel.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { const d = await reload(); S.removeExclude(d, cp.campaign, b.dataset.rm); await S.save(d); await reload(); renderCampaign(); });

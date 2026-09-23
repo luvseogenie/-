@@ -508,6 +508,59 @@ async function fetchCampaignOptions(campaigns) {
   } finally { await close(); }
 }
 
+// ---- 제외 키워드를 광고센터 캠페인에 등록 ----
+// 캠페인 화면 → '키워드' 탭 → '제외 키워드 (추가)' → 글 상자에 한 줄에 하나씩 → 창 안의 추가/등록/확인 → 화면에 키워드가 보이는지 확인.
+// 화면 구조를 모르는 채로 짠 부분이라 단계마다 기록을 남기고, dryRun 이면 글 상자를 채우기 직전까지만 해 보고 무엇이 보였는지 돌려준다.
+async function registerExcludes(campaign, keywords, dryRun = false) {
+  const s = await getSettings();
+  const url = s.adsUrl.replace(/\{date\}/g, yesterdayIso());
+  const { tab, close } = await openWorkTab(url, s);
+  const steps = [];
+  const m = (o) => chrome.tabs.sendMessage(tab.id, o).catch(() => null);
+  try {
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`광고센터를 열지 못했습니다: ${bad}`);
+    const li = await ensureLoggedIn(tab.id, url, s); if (li.needed && !li.ok) throw new Error(li.reason);
+    const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
+    await readWithRetry(tab.id, 'ads', Date.now() + 30000);
+    const rl = await m({ type: 'findRowLink', text: campaign });
+    if (rl?.reason === '이름 없음') throw new Error('광고센터 목록에 이 캠페인이 없습니다 (끝났거나 지운 캠페인이면 정상)');
+    if (rl?.ok && rl.href && rl.href !== url) { await chrome.tabs.update(tab.id, { url: rl.href }); steps.push('캠페인 화면으로 이동'); }
+    else { const c = await m({ type: 'clickRowName', text: campaign }); steps.push(`캠페인 이름 클릭(${c?.ok ? '됨' : '실패'})`); }
+    await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id);
+    const linesOf = async () => (await m({ type: 'textLines' }))?.lines || [];
+    const newSince = async (base) => { const now = await linesOf(); const b = new Set(base); return now.filter((x) => !b.has(x)).slice(0, 15); };
+    // 1) 키워드 탭
+    const before1 = await linesOf();
+    const t1 = await click(tab.id, ['키워드 관리', '키워드', '검색어', '제외 키워드'], { exactOnly: true }); steps.push(`키워드 탭 ${t1?.ok ? `'${t1.text}' 누름` : '못 찾음'}`); await sleep(2500); await inject(tab.id);
+    // 2) 제외 키워드 추가
+    const knownTa = (await m({ type: 'textareaKeys' }))?.keys || [];
+    const t2 = await click(tab.id, ['제외 키워드 추가', '제외키워드 추가', '제외 키워드 등록', '제외 키워드', '제외키워드', '네거티브 키워드']); steps.push(`제외 키워드 ${t2?.ok ? `'${t2.text}' 누름` : '못 찾음'}`); await sleep(2000); await inject(tab.id);
+    const t2b = await click(tab.id, ['추가', '키워드 추가', '등록', '+ 추가'], { exactOnly: true, inDialog: false }); if (t2b?.ok && !(await m({ type: 'textareaKeys' }))?.keys?.length) { steps.push(`'${t2b.text}' 누름`); await sleep(1500); await inject(tab.id); }
+    const appeared = await newSince(before1); if (appeared.length) steps.push(`새로 뜬 글자: ${appeared.map((x) => `「${x}」`).join(' ')}`);
+    if (dryRun) { const diagTxt = await diag(tab.id); return { ok: true, dryRun: true, steps, diag: diagTxt }; }
+    // 3) 글 상자에 키워드 (한 줄에 하나)
+    const f = await m({ type: 'fillTextarea', text: keywords.join('\n'), known: knownTa });
+    if (!f?.ok) throw new Error(`키워드를 넣을 글 상자를 찾지 못했습니다 (${steps.join(' → ')}). 입력칸: ${(f?.inputs || []).join(', ')}. 화면: ${await diag(tab.id)}`);
+    steps.push(`글 상자에 ${keywords.length}개 입력 (${f.inDialog ? '창 안' : '화면'}, ${f.placeholder || f.tag})`); await sleep(800);
+    // 4) 창 안의 추가/등록/저장/확인
+    const before2 = await linesOf();
+    let c3 = await click(tab.id, ['추가', '등록', '저장', '확인', '적용', '추가하기', '등록하기'], { exactOnly: true, inDialog: true });
+    if (!c3?.ok) c3 = await click(tab.id, ['키워드 추가', '제외 키워드 추가', '추가', '등록', '저장'], { exactOnly: true });
+    steps.push(c3?.ok ? `'${c3.text}' 누름` : '추가/등록 버튼 못 찾음'); await sleep(3000); await inject(tab.id);
+    const after = await newSince(before2); if (after.length) steps.push(`그 뒤 화면: ${after.map((x) => `「${x}」`).join(' ')}`);
+    // 5) 확인 창이 더 뜨면 (예: '제외 키워드를 추가할까요?') 확인
+    const c4 = await click(tab.id, ['확인', '예', '등록'], { exactOnly: true, inDialog: true }); if (c4?.ok) { steps.push(`확인 창 '${c4.text}' 누름`); await sleep(2500); await inject(tab.id); }
+    // 6) 화면에 보이는 키워드 = 등록된 것으로
+    const lines = (await linesOf()).map((x) => x.toLowerCase());
+    const found = keywords.filter((k) => lines.some((l) => l.includes(k.toLowerCase())));
+    if (found.length) { const d = await S.load(); S.markExcludesSynced(d, campaign, found); await S.save(d); }
+    await log(`[제외 키워드] ${campaign}: ${keywords.length}개 중 ${found.length}개 화면에서 확인 (${steps.join(' → ')})`);
+    return { ok: found.length > 0, steps, found, missing: keywords.filter((k) => !found.includes(k)), error: found.length ? null : `등록됐는지 화면에서 확인되지 않았습니다 (${steps.join(' → ')}). 화면: ${await diag(tab.id)}` };
+  } catch (e) { return { ok: false, steps, error: e.message }; }
+  finally { await close(); }
+}
+
 // 지난 기간 광고 보고서: 31일씩 나눠 차례로 받는다 (예전 1달치 등)
 const job = { running: false, total: 0, done: 0, log: [], cancel: false };
 async function collectReportRange(from, to) {
@@ -802,6 +855,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
+    else if (msg.type === 'registerExcludes') { sendResponse(await registerExcludes(msg.campaign, msg.keywords || [], !!msg.dryRun)); }
     else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 보고서는 아직 받지 않습니다. 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
