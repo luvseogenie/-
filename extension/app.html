@@ -286,7 +286,7 @@
           <label class="sub">사유</label><select id="ex-cat"></select><input type="text" id="ex-cat-custom" class="short" placeholder="직접 입력" style="display:none">
           <label class="sub">금액</label><input type="number" id="ex-amount" style="width:140px" placeholder="원">
           <label class="sub">메모</label><input type="text" id="ex-memo" style="width:220px" placeholder="예: 9월 트래픽 결제">
-          <label class="sub">적용</label><select id="ex-mode"><option value="month">해당 월에 나눠 반영 (월 결제)</option><option value="day">해당 일에 반영</option></select>
+          <label class="sub">적용</label><select id="ex-mode"><option value="span">입력일부터 N일 동안 1/N씩 (기본 30일)</option><option value="month">해당 월에 나눠 반영</option><option value="day">해당 일에 반영</option></select><input type="number" id="ex-days" value="30" min="1" style="width:64px" title="나눌 일수">일
           <button class="btn primary sm" id="ex-add">추가</button><span id="ex-msg" class="msg"></span>
         </div>
       </div>

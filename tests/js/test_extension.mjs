@@ -657,3 +657,16 @@ console.log('extension logic: all checks passed');
   const d = {}; S.setCampMode(d, 'X', 'summer', '2026-12-31'); assert.deepEqual(d.campMode.X, { mode: 'summer', end: '' });
   console.log('summer/winter season: all checks passed');
 }
+
+// ---- 광고 외 지출: 입력일부터 N일 1/N 배분 ----
+{
+  const d = { expenses: [] };
+  S.addExpense(d, { date: '2026-09-15', category: '트래픽', amount: 300000, days: 30 });                  // 기본 span
+  S.addExpense(d, { date: '2026-09-20', category: '기타', amount: 1000, mode: 'day' });
+  const by = S.expensesByDay(d, '2026-09-01', '2026-10-31');
+  assert.equal(Math.round(by['2026-09-15']), 10000); assert.equal(Math.round(by['2026-10-14']), 10000); assert.equal(by['2026-10-15'], undefined); assert.equal(by['2026-09-14'], undefined);
+  assert.equal(Math.round(by['2026-09-20']), 11000);
+  assert.equal(Math.round(Object.values(by).reduce((a, b) => a + b, 0)), 301000);
+  S.addExpense(d, { date: '2026-09-01', category: '3PL', amount: 500, days: 5 }); assert.equal(S.expensesByDay(d, '2026-09-01', '2026-09-05')['2026-09-03'], 100);
+  console.log('expense span: all checks passed');
+}

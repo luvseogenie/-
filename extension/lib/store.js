@@ -289,9 +289,10 @@ export function marginHistory(d, option_id) {
 
 // ---- 광고 외 지출 (트래픽·마케팅 등 수기 입력) ----
 export const EXPENSE_CATEGORIES = ['트래픽', '3PL', '마케팅', '체험단', '택배', '포장·부자재', '인증', '기타'];
-export function addExpense(d, { date, category, amount, memo = '', mode = 'month', id = null }) {
+export function addExpense(d, { date, category, amount, memo = '', mode = 'span', days = 30, id = null }) {
   d.expenses ||= [];
-  const e = { id: id || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date, category: String(category || '기타').trim(), amount: Number(amount) || 0, memo: String(memo || '').trim(), mode: mode === 'day' ? 'day' : 'month' };
+  // mode: span = 입력일부터 days 일 동안 1/n 씩 (기본 30일) / month = 그 달에 나눠 / day = 그날만
+  const e = { id: id || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date, category: String(category || '기타').trim(), amount: Number(amount) || 0, memo: String(memo || '').trim(), mode: mode === 'day' ? 'day' : mode === 'month' ? 'month' : 'span', days: Math.max(1, Number(days) || 30) };
   const i = d.expenses.findIndex((x) => x.id === e.id); if (i >= 0) d.expenses[i] = e; else d.expenses.push(e);
   return e;
 }
@@ -302,6 +303,11 @@ export function expensesByDay(d, start, end) {
   for (const e of d.expenses || []) {
     if (!e.date || !e.amount) continue;
     if (e.mode === 'day') { if (e.date >= start && e.date <= end) out[e.date] = (out[e.date] || 0) + e.amount; continue; }
+    if (e.mode === 'span' || !e.mode) {   // 입력일부터 days 일 동안 1/n
+      const n = Math.max(1, Number(e.days) || 30); const per = e.amount / n; const d0 = new Date(e.date + 'T00:00:00');
+      for (let i = 0; i < n; i++) { const dt = new Date(d0); dt.setDate(d0.getDate() + i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`; if (iso > end) break; if (iso >= start) out[iso] = (out[iso] || 0) + per; }
+      continue;
+    }
     const [y, m] = e.date.split('-').map(Number); const days = new Date(y, m, 0).getDate(); const per = e.amount / days;
     for (let day = 1; day <= days; day++) { const iso = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`; if (iso >= start && iso <= end) out[iso] = (out[iso] || 0) + per; }
   }

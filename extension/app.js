@@ -1274,7 +1274,7 @@ $('#ex-add').onclick = async () => {
   const cat = $('#ex-cat').value === '__custom' ? $('#ex-cat-custom').value.trim() : $('#ex-cat').value;
   const amount = parseNumber($('#ex-amount').value);
   if (!$('#ex-date').value || !cat || !amount) { msg('#ex-msg', '날짜 · 사유 · 금액을 넣어 주세요', 'err'); return; }
-  const d = await reload(); S.addExpense(d, { date: $('#ex-date').value, category: cat, amount, memo: $('#ex-memo').value, mode: $('#ex-mode').value }); await S.save(d);
+  const d = await reload(); S.addExpense(d, { date: $('#ex-date').value, category: cat, amount, memo: $('#ex-memo').value, mode: $('#ex-mode').value, days: Number($('#ex-days').value) || 30 }); await S.save(d);
   $('#ex-amount').value = ''; $('#ex-memo').value = ''; msg('#ex-msg', '추가됨', 'ok'); await reload(); $('#ex-month').value = $('#ex-date').value.slice(0, 7); renderExpense(); renderFoot();
 };
 $('#ex-month').onchange = () => renderExpense();
@@ -1288,9 +1288,9 @@ function renderExpense() {
   const tb = $('#ex-table tbody'); tb.innerHTML = '';
   for (const e of shown) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="l"><input type="date" data-k="date" value="${e.date}"></td><td class="l"><input type="text" data-k="category" value="${esc(e.category)}" list="ex-cat-list" style="width:110px"></td><td><input type="number" data-k="amount" value="${e.amount}" style="width:120px"></td><td class="l"><input type="text" data-k="memo" value="${esc(e.memo)}" style="width:200px"></td><td class="l"><select data-k="mode"><option value="month" ${e.mode === 'month' ? 'selected' : ''}>월에 나눠</option><option value="day" ${e.mode === 'day' ? 'selected' : ''}>그 날에</option></select></td><td class="actions"><button class="btn primary sm">저장</button> <button class="btn danger sm">삭제</button></td>`;
+    tr.innerHTML = `<td class="l"><input type="date" data-k="date" value="${e.date}"></td><td class="l"><input type="text" data-k="category" value="${esc(e.category)}" list="ex-cat-list" style="width:110px"></td><td><input type="number" data-k="amount" value="${e.amount}" style="width:120px"></td><td class="l"><input type="text" data-k="memo" value="${esc(e.memo)}" style="width:200px"></td><td class="l"><select data-k="mode"><option value="span" ${e.mode === 'span' || !e.mode ? 'selected' : ''}>입력일부터 N일</option><option value="month" ${e.mode === 'month' ? 'selected' : ''}>월에 나눠</option><option value="day" ${e.mode === 'day' ? 'selected' : ''}>그 날에</option></select> <input type="number" data-k="days" value="${e.days || 30}" min="1" style="width:56px" title="나눌 일수">일</td><td class="actions"><button class="btn primary sm">저장</button> <button class="btn danger sm">삭제</button></td>`;
     const [save, del] = tr.querySelectorAll('button');
-    save.onclick = async () => { const g = (k) => tr.querySelector(`[data-k=${k}]`).value; const dd = await reload(); S.addExpense(dd, { id: e.id, date: g('date'), category: g('category'), amount: parseNumber(g('amount')), memo: g('memo'), mode: g('mode') }); await S.save(dd); await reload(); renderExpense(); msg('#ex-msg', '저장됨', 'ok'); };
+    save.onclick = async () => { const g = (k) => tr.querySelector(`[data-k=${k}]`).value; const dd = await reload(); S.addExpense(dd, { id: e.id, date: g('date'), category: g('category'), amount: parseNumber(g('amount')), memo: g('memo'), mode: g('mode'), days: Number(g('days')) || 30 }); await S.save(dd); await reload(); renderExpense(); msg('#ex-msg', '저장됨', 'ok'); };
     del.onclick = async () => { if (confirm('이 지출을 삭제할까요?')) { const dd = await reload(); S.deleteExpense(dd, e.id); await S.save(dd); await reload(); renderExpense(); } };
     tb.appendChild(tr);
   }
