@@ -202,3 +202,4 @@ details.inline .menu .btn { text-align: left; }
 #roas-table td.zero-cell { min-width: 110px; } #roas-table .zero-form { margin-top: 6px; padding: 6px; background: var(--surface-2); border-radius: 8px; } #roas-table .zero-form[hidden] { display: none; }
 .cp-list button.idle { opacity: .6; }
 #roas-table .zm-table { font-size: 12px; margin-top: 4px; } #roas-table .zm-table input { width: 80px; } #roas-table td.zero-cell .zero-form { min-width: 520px; }
+#options-table tr.camphdr td { background: #e3edfb; border-top: 3px solid #b7cff2; position: sticky; top: 0; z-index: 3; }

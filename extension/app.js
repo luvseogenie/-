@@ -772,13 +772,15 @@ function applyRow(dd, tr) {
 }
 function dirtyRows() { return $$('#options-table tbody tr.dirty'); }
 function updateDirtyBar() {
-  const n = dirtyRows().length; const bar = $('#opt-dirtybar'); if (!bar) return;
+  const rows = dirtyRows(); const n = rows.length; const bar = $('#opt-dirtybar'); if (!bar) return;
   bar.style.display = n ? 'flex' : 'none'; $('#opt-dirty-n').textContent = n; $('#opt-save-all').textContent = `입력한 ${n}개 모두 저장`;
+  const byCamp = {}; for (const r of rows) { const k = r._opt.campaign || '(캠페인 없음)'; byCamp[k] = (byCamp[k] || 0) + 1; }
+  $$('#options-table tr.camphdr').forEach((tr) => { const k = byCamp[tr.dataset.camp] || 0; tr.querySelector('.camp-dirty-n').textContent = k; tr.querySelector('.camp-save').classList.toggle('primary', k > 0); });
 }
 async function saveAllDirty() {
   const rows = dirtyRows(); if (!rows.length) { toast('바뀐 줄이 없습니다', ''); return; }
   const dd = await reload(); const ids = [];
-  for (const tr of rows) { applyRow(dd, tr); ids.push(tr._opt.option_id); }
+  for (const tr of rows) { applyRow(dd, tr); ids.push(tr._opt.option_id); tr.classList.remove('dirty'); }
   await S.save(dd); await reload(); renderOptions(); renderFoot();
   toast(`${ids.length}개 저장됨`); msg('#opt-msg', `${ids.length}개 저장됨: ${ids.join(', ')}`, 'ok');
 }
@@ -847,7 +849,10 @@ function renderOptions() {
   $('#opt-apply-suggest').style.display = nSug ? '' : 'none';
   if (!document.getElementById('camp-list')) $('#options-table').insertAdjacentHTML('beforebegin', `<datalist id="camp-list"></datalist>`);
   document.getElementById('camp-list').innerHTML = camps.map((c) => `<option value="${esc(c)}">`).join('');
-  const tb = $('#options-table tbody'); const wrap = tb.closest('.tablewrap'); const keepScroll = wrap ? wrap.scrollTop : 0; tb.innerHTML = '';
+  const tb = $('#options-table tbody'); const wrap = tb.closest('.tablewrap'); const keepScroll = wrap ? wrap.scrollTop : 0;
+  // 저장 안 한 입력(노란 줄)은 다시 그려도 남긴다
+  const pending = {}; for (const tr of tb.querySelectorAll('tr.dirty')) { const v = {}; tr.querySelectorAll('input[data-k]').forEach((i) => { v[i.dataset.k] = i.value; }); pending[tr._opt.option_id] = v; }
+  tb.innerHTML = '';
   if (wrap) requestAnimationFrame(() => { wrap.scrollTop = keepScroll; });
   updateDirtyBar();
   const rowFor = (o) => {
@@ -863,18 +868,32 @@ function renderOptions() {
     const [save, del] = tr.querySelectorAll('button');
     tr._opt = o;
     tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', () => { tr.classList.add('dirty'); updateDirtyBar(); }));
-    save.onclick = async () => { const dd = await reload(); const what = applyRow(dd, tr); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${o.option_id} 저장됨${what ? ' (' + what + ')' : ''}`); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); };
+    save.onclick = async () => { const dd = await reload(); const what = applyRow(dd, tr); await S.save(dd); tr.classList.remove('dirty'); await reload(); renderOptions(); renderFoot(); toast(`${o.option_id} 저장됨${what ? ' (' + what + ')' : ''}`); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); };
     del.onclick = async () => { if (confirm(`옵션 ${o.option_id} 를 목록에서 삭제할까요? (마진 이력도 삭제)`)) { const dd = await reload(); S.deleteOption(dd, o.option_id); await S.save(dd); refreshAll(); } };
     tr.querySelectorAll('a[data-del]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); if (confirm('이 마진 이력을 삭제할까요?')) { const dd = await reload(); S.deleteMargin(dd, o.option_id, a.dataset.del); await S.save(dd); await reload(); renderOptions(); } });
     tr.querySelectorAll('a[data-sug]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const dd = await reload(); const oo = dd.options.find((x) => x.option_id === a.dataset.sug); S.upsertOption(dd, { ...oo, campaign: sug[oo.option_id] }); await S.save(dd); await reload(); renderOptions(); });
     return tr;
   };
   let shown = 0;
+  // 캠페인 번호순으로 볼 때: 캠페인이 바뀌는 자리에 캠페인 머리글 + '이 캠페인 입력한 것 저장' 버튼 (줄마다 저장 누르지 않게)
+  let lastCamp = null;
+  const campHeader = (camp) => {
+    if (sortMode !== 'campaign') return; const key = camp || '(캠페인 없음)'; if (key === lastCamp) return; lastCamp = key;
+    const n = list.filter((o) => (o.campaign || '(캠페인 없음)') === key).length;
+    const tr = document.createElement('tr'); tr.className = 'camphdr'; tr.dataset.camp = key;
+    tr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>📢 ${esc(key)}</b><span class="sub">옵션 ${n}개</span><span class="grow"></span><button class="btn primary sm camp-save">이 캠페인 입력한 것 저장 <span class="camp-dirty-n">0</span>개</button></div></td>`;
+    tr.querySelector('.camp-save').onclick = async () => {
+      const rows = dirtyRows().filter((r) => (r._opt.campaign || '(캠페인 없음)') === key); if (!rows.length) { toast('이 캠페인에 바뀐 줄이 없습니다', ''); return; }
+      const dd = await reload(); for (const r of rows) { applyRow(dd, r); r.classList.remove('dirty'); } await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${key}: ${rows.length}개 저장됨`);
+    };
+    tb.appendChild(tr);
+  };
   if (grouped) {
     const order = []; const seen = new Set();
     for (const o of list) { const pn = prod[o.option_id] || ''; if (!seen.has(pn)) { seen.add(pn); order.push(pn); } }
     for (const pn of order) {
       const g = groups[pn]; const members = list.filter((o) => (prod[o.option_id] || '') === pn);
+      campHeader(members[0]?.campaign || g.campaign || '');
       const hdr = document.createElement('tr'); hdr.className = 'grp';
       hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}${g.margin != null ? ` · 마진 ${fmtInt(g.margin)}원` : ''}</span><span class="grow"></span><button class="btn sm" data-gtools="1">이 상품 전체 바꾸기 ▾</button></div>
         <div class="row grp-tools" hidden><input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">캠페인 없는 옵션 모두에 적용</button>
@@ -902,9 +921,11 @@ function renderOptions() {
       if (shown >= 400) break;
     }
   } else {
-    for (const o of list.slice(0, 400)) { tb.appendChild(rowFor(o)); shown++; }
+    for (const o of list.slice(0, 400)) { campHeader(o.campaign || ''); tb.appendChild(rowFor(o)); shown++; }
   }
   if (list.length > 400) tb.insertAdjacentHTML('beforeend', `<tr><td colspan="7" class="sub">400개까지만 표시합니다. 검색이나 필터로 줄여 주세요.</td></tr>`);
+  for (const tr of tb.querySelectorAll('tr')) { const v = tr._opt && pending[tr._opt.option_id]; if (!v) continue; tr.querySelectorAll('input[data-k]').forEach((i) => { if (v[i.dataset.k] != null) i.value = v[i.dataset.k]; }); tr.classList.add('dirty'); }
+  updateDirtyBar();
 }
 $('#opt-group').onchange = () => renderOptions(); $('#opt-sort').onchange = () => renderOptions(); $('#opt-camp').onchange = () => renderOptions();
 let optBulkList = [];
