@@ -189,6 +189,8 @@ function renderMonthly() {
       return `<tr><td class="l">${k}</td><td class="num ${miss ? 'neg' : ''}">${x.days.size}/${daysIn}${miss ? ' ⚠' : ''}</td><td class="num">${fmtWon(x.revenue)}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${fmtInt(x.cancels)}</td><td class="num sub">${x.ignored ? fmtWon(x.ignored) : ''}</td><td class="num">${fmtWon(x.spend)}</td><td class="num">${fmtWon(x.adRev)}</td><td class="num">${x.spend ? Math.round(x.adRev / x.spend * 100) + '%' : '-'}</td></tr>`; }).join('')
     + `<tr class="grand"><td class="l">합계</td><td></td><td class="num">${fmtWon(tot.revenue)}</td><td class="num">${fmtInt(tot.qty)}</td><td class="num">${fmtInt(tot.cancels)}</td><td class="num sub">${tot.ignored ? fmtWon(tot.ignored) : ''}</td><td class="num">${fmtWon(tot.spend)}</td><td class="num">${fmtWon(tot.adRev)}</td><td class="num">${tot.spend ? Math.round(tot.adRev / tot.spend * 100) + '%' : '-'}</td></tr></tbody>`;
 }
+// 캠페인에 연결된 옵션들의 현재 마진 요약 { n, same(모두 같으면 그 값) }
+function campMargins(c) { const lookup = S.marginLookup(DATA); const t = localIso(today); const vals = DATA.options.filter((o) => o.campaign === c).map((o) => lookup(o.option_id, t)); const set = new Set(vals); return { n: vals.length, same: set.size === 1 ? vals[0] : null }; }
 // 광고 효율 점검 (제로 ROAS 대비 최근 평균 ROAS)
 let roasDays = 3; try { roasDays = Number(localStorage.getItem('cc-roas-days') || 3); } catch { /* 무시 */ }
 function renderRoasCheck() {
@@ -215,6 +217,7 @@ function renderRoasCheck() {
       <td class="num">${fmtInt(r.impressions)}${dpct(r.trend?.impressions)}</td><td class="num">${fmtWon(r.spend)}${dpct(r.trend?.spend)}</td><td class="num">${fmtWon(r.revenue)}${dpct(r.trend?.revenue)}</td><td class="num"><b>${r.spend ? Math.round(r.roas * 100) + '%' : '-'}</b>${r.trend ? `<div class="sub">${Math.round(r.trend.roasPrev * 100)}%</div>` : ''}</td>
       <td class="num zero-cell"><b>${Math.round(r.zero * 100)}%</b> <button class="btn sm zero-edit" title="제로 ROAS 입력·변경 (시작일부터 적용)">✎</button><div class="sub">${r.zeroSource === 'manual' ? (r.zeroFrom ? r.zeroFrom.slice(2) + '~' : '처음부터') : '기본값'}${r.calc?.zero ? ` · 계산 ${Math.round(r.calc.zero * 100)}%` : ''}</div>
         <div class="zero-form" hidden><div class="row" style="gap:4px;flex-wrap:nowrap"><input class="zero num" type="number" step="1" placeholder="${Math.round(r.zero * 100)}" style="width:64px">%<button class="btn primary sm zero-save">저장</button></div>
+        <div class="row" style="gap:4px;flex-wrap:nowrap;margin-top:4px"><span class="sub">옵션 마진도 같이</span><input class="zero-margin num" type="number" step="1" placeholder="${(() => { const ms = campMargins(r.campaign); return ms.n ? (ms.same != null ? Math.round(ms.same) : '여러 값') : '옵션 없음'; })()}" style="width:80px" title="비우면 마진은 그대로. 넣으면 이 캠페인에 연결된 옵션 전부의 마진이 같은 시작일로 바뀝니다">원 <span class="sub">(옵션 ${campMargins(r.campaign).n}개)</span></div>
         <div class="row" style="gap:6px;flex-wrap:nowrap;margin-top:4px;text-align:left"><label class="chk sub"><input type="radio" name="za-${esc(r.campaign)}" class="zero-all" ${r.zeroHistory.length ? '' : 'checked'}> 전체 기간에 적용</label><label class="chk sub"><input type="radio" name="za-${esc(r.campaign)}" class="zero-date" ${r.zeroHistory.length ? 'checked' : ''}> 이 날부터</label><input type="date" class="zero-from" value="${localIso(today)}" style="width:130px" ${r.zeroHistory.length ? '' : 'disabled'}></div>
         ${r.zeroHistory.length ? `<div class="sub" style="text-align:left;margin-top:4px">${r.zeroHistory.map((h) => `<div><code>${h.from || '처음부터'}</code> ${Math.round(h.value * 100)}% <a href="#" class="zero-del" data-from="${h.from}">삭제</a></div>`).join('')}</div>` : ''}
         <div class="sub" style="text-align:left">${r.calc?.zero ? `옵션 마진으로 계산: ${Math.round(r.calc.zero * 100)}% (판매가 ${fmtWon(r.calc.price)}원 · 마진 ${fmtWon(r.calc.margin)}원)` : ''}</div></div></td>
@@ -227,7 +230,11 @@ function renderRoasCheck() {
     if (!(v > 0)) { toast('제로 ROAS 값을 넣어 주세요', 'err'); return; }
     if (!fromAll && !from) { toast('적용 시작 날짜를 고르거나 "처음부터"를 선택하세요', 'err'); return; }
     if (fromAll) { for (const h of S.zeroRoasHistory(DATA, c)) S.deleteZeroRoas(DATA, c, h.from); }   // 처음부터 = 이력을 지우고 하나로
-    S.setZeroRoas(DATA, c, v / 100, from); await S.save(DATA); renderRoasCheck(); toast(`${c} 제로 ROAS ${v}% (${from ? from + '부터' : '전체 기간'}) 저장`);
+    S.setZeroRoas(DATA, c, v / 100, from);
+    // 옵션 마진도 같이 (같은 시작일로)
+    const mgTxt = td.querySelector('input.zero-margin').value; let mgNote = '';
+    if (mgTxt !== '') { const mg = parseNumber(mgTxt); const ids = DATA.options.filter((o) => o.campaign === c).map((o) => o.option_id); for (const id of ids) { if (fromAll) for (const h of S.marginHistory(DATA, id)) S.deleteMargin(DATA, id, h.effective_from); S.setMargin(DATA, id, mg || 0, from, '제로 ROAS 와 함께 변경'); } mgNote = ` · 옵션 ${ids.length}개 마진 ${fmtInt(mg || 0)}원`; }
+    await S.save(DATA); renderRoasCheck(); renderFoot(); toast(`${c} 제로 ROAS ${v}% (${from ? from + '부터' : '전체 기간'})${mgNote} 저장`);
   });
   t.querySelectorAll('a.zero-del').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.closest('tr').dataset.c; S.deleteZeroRoas(DATA, c, a.dataset.from); await S.save(DATA); renderRoasCheck(); toast(`${c} 제로 ROAS 이력 삭제`); });
   t.querySelectorAll('input.zero-all, input.zero-date').forEach((r) => r.onchange = () => { const td = r.closest('td'); td.querySelector('input.zero-from').disabled = td.querySelector('input.zero-all').checked; });
@@ -842,14 +849,17 @@ function renderOptions() {
       const hdr = document.createElement('tr'); hdr.className = 'grp';
       hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}${g.margin != null ? ` · 마진 ${fmtInt(g.margin)}원` : ''}</span><span class="grow"></span><button class="btn sm" data-gtools="1">이 상품 전체 바꾸기 ▾</button></div>
         <div class="row grp-tools" hidden><input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">캠페인 없는 옵션 모두에 적용</button>
-        <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">옵션 ${g.options.length}개 모두 새 마진 적용</button></div></td>`;
+        <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="number" class="tiny" data-gk="newzero" placeholder="제로 ROAS %" title="비우면 그대로. 넣으면 이 상품의 캠페인(${esc(g.campaign || '없음')}) 제로 ROAS 도 같은 시작일로 바뀝니다"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">옵션 ${g.options.length}개 모두 새 마진 적용</button></div></td>`;
       hdr.querySelector('[data-gtools]').onclick = () => { const t = hdr.querySelector('.grp-tools'); t.hidden = !t.hidden; };
       hdr.querySelector('[data-gmargin]').onclick = async () => {
         const mg = parseNumber(hdr.querySelector('[data-gk=newmargin]').value); const from = hdr.querySelector('[data-gk=from]').value || '';
         if (mg == null || hdr.querySelector('[data-gk=newmargin]').value === '') { msg('#opt-msg', '새 마진을 넣어 주세요', 'err'); return; }
-        if (!confirm(`${pn || '(상품명 없음)'} 옵션 ${g.options.length}개에 마진 ${fmtInt(mg)}원을 ${from ? from + ' 부터' : '처음부터'} 적용할까요?`)) return;
-        const dd = await reload(); for (const o of g.options) S.setMargin(dd, o.option_id, mg, from, ''); await S.save(dd); await reload();
-        msg('#opt-msg', `${g.options.length}개 옵션에 마진 ${fmtInt(mg)}원 (${from || '처음부터'}) 저장`, 'ok'); renderOptions(); renderFoot();
+        const zTxt = hdr.querySelector('[data-gk=newzero]').value; const z = zTxt !== '' ? parseFloat(zTxt) : null;
+        if (!confirm(`${pn || '(상품명 없음)'} 옵션 ${g.options.length}개에 마진 ${fmtInt(mg)}원을 ${from ? from + ' 부터' : '처음부터'} 적용할까요?${z > 0 && g.campaign ? ` (캠페인 ${g.campaign} 제로 ROAS 도 ${z}% 로)` : ''}`)) return;
+        for (const o of g.options) S.setMargin(DATA, o.option_id, mg, from, '');
+        if (z > 0 && g.campaign) S.setZeroRoas(DATA, g.campaign, z / 100, from);
+        await S.save(DATA);
+        msg('#opt-msg', `${g.options.length}개 옵션에 마진 ${fmtInt(mg)}원 (${from || '처음부터'}) 저장${z > 0 && g.campaign ? ` · 제로 ROAS ${z}%` : ''}`, 'ok'); renderOptions(); renderFoot();
       };
       hdr.querySelector('[data-gapply]').onclick = async () => {
         const camp = hdr.querySelector('[data-gk=campaign]').value.trim(); const mg = parseNumber(hdr.querySelector('[data-gk=margin]').value);
