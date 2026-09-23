@@ -632,3 +632,11 @@ console.log('extension logic: all checks passed');
   assert.equal(await S.safeEndIso(new Date('2026-09-23T18:00:00')), '2026-09-22');
   console.log('safe end: all checks passed');
 }
+
+// ---- 짧은 옵션명: 옵션명에서 상품명 앞부분을 뗀다 ----
+{
+  const d = { options: [{ option_id: 'C', product_name: 'DUGN 브러시, 그레이' }], sales: { '2026-09-20': { A: { option_id: 'A', option_name: 'DUGN 프리미엄 반려동물 브러시, 베이지', product_name: 'DUGN 프리미엄 반려동물 브러시' }, B: { option_id: 'B', option_name: '단품', product_name: '무언가' } } } };
+  const n = S.shortOptionNames(d);
+  assert.equal(n.A, '베이지'); assert.equal(n.B, '단품'); assert.equal(n.C, '그레이');   // 상품명은 쉼표 앞부분으로 보고 뗀다
+  console.log('short option names: all checks passed');
+}

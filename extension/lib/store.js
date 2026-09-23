@@ -153,6 +153,14 @@ export function unlistedSoldOptions(d, sinceIso) {
   return Object.values(out).sort((a, b) => b.qty - a.qty);
 }
 // 옵션ID → 상품명(판매 리포트의 '상품명' 열). 옵션에 저장된 값이 없으면 판매 데이터에서 찾는다.
+// 옵션ID → 짧은 옵션 이름: 판매 리포트의 옵션명에서 상품명(앞부분)을 뗀 것 ('DUGN 브러시, 베이지' → '베이지')
+export function shortOptionNames(d) {
+  const out = {}; const prod = productNames(d);
+  const strip = (name, pn) => { let s = String(name || '').trim(); if (pn && s.startsWith(pn)) s = s.slice(pn.length); s = s.replace(/^[\s,،·\-–|/]+/, '').trim(); return s || name || ''; };
+  for (const date of Object.keys(d.sales).sort()) for (const r of Object.values(d.sales[date])) if (r.option_name) out[r.option_id] = strip(r.option_name, r.product_name || prod[r.option_id]);
+  for (const o of d.options) if (!out[o.option_id] && o.product_name) out[o.option_id] = strip(o.product_name, o.product || prod[o.option_id]);
+  return out;
+}
 export function productNames(d) {
   const out = {};
   for (const o of d.options) if (o.product) out[o.option_id] = o.product;
