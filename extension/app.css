@@ -201,3 +201,4 @@ details.inline .menu .btn { text-align: left; }
 #roas-table select.mode { width: auto; min-width: 0; } #roas-table input.mode-end { width: 130px; margin-top: 3px; } #roas-table td.note { min-width: 300px; }
 #roas-table td.zero-cell { min-width: 110px; } #roas-table .zero-form { margin-top: 6px; padding: 6px; background: var(--surface-2); border-radius: 8px; } #roas-table .zero-form[hidden] { display: none; }
 .cp-list button.idle { opacity: .6; }
+#roas-table .zm-table { font-size: 12px; margin-top: 4px; } #roas-table .zm-table input { width: 80px; } #roas-table td.zero-cell .zero-form { min-width: 520px; }
