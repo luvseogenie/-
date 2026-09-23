@@ -7,7 +7,7 @@ import { computeLedger } from '../../extension/lib/ledger.js';
 
 // chrome.storage 흉내
 const mem = {};
-globalThis.chrome = { storage: { local: { get: async (k) => { const ks = Array.isArray(k) ? k : [k]; const o = {}; for (const x of ks) if (x in mem) o[x] = mem[x]; return o; }, set: async (o) => Object.assign(mem, o) } } };
+globalThis.chrome = { storage: { local: { get: async (k) => { const ks = Array.isArray(k) ? k : [k]; const o = {}; for (const x of ks) if (x in mem) o[x] = mem[x]; return o; }, set: async (o) => Object.assign(mem, o) }, sync: { get: async () => ({}), set: async () => {} } } };
 
 const D = '2025-06-08';
 const approx = (a, b, eps = 0.01) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -623,4 +623,12 @@ console.log('extension logic: all checks passed');
   d.ads['2026-09-03'].X = { campaign: 'X', spend: 0, ad_revenue: 0, impressions: 0, clicks: 0, ad_orders: 0, target_roas: 2.5, budget: 50000 };
   assert.equal(S.fillAdsFromReport(d, ['2026-09-03']), 1); assert.equal(d.ads['2026-09-03'].X.target_roas, 2.5); assert.equal(d.ads['2026-09-03'].X.spend, 1500);   // 0 뿐인 값은 채우되 목표·예산은 보존
   console.log('fill ads from report: all checks passed');
+}
+
+// ---- 예약 시각(13:00) 전에는 '어제'를 받지 않는다 → 그저께까지 ----
+{
+  assert.equal(await S.safeEndIso(new Date('2026-09-23T09:30:00')), '2026-09-21');
+  assert.equal(await S.safeEndIso(new Date('2026-09-23T13:00:00')), '2026-09-22');
+  assert.equal(await S.safeEndIso(new Date('2026-09-23T18:00:00')), '2026-09-22');
+  console.log('safe end: all checks passed');
 }

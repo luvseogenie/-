@@ -417,3 +417,14 @@ export function roasCheck(d, days = 3) {
   rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);
   return { dates: adDates, prevDates, rows };
 }
+
+// ---- 어제 데이터를 받아도 되는 시각 ----
+// 쿠팡 숫자는 오전엔 덜 잡혀 있어서, 설정한 예약 시각(기본 13:00) 전에는 '어제'를 받지 않는다 → 그 전에는 그저께까지만
+export async function safeEndIso(now = new Date()) {
+  let autoTime = '13:00';
+  try { const r = await chrome.storage.sync.get('autoTime'); if (r && r.autoTime) autoTime = r.autoTime; } catch { /* 설정 없음 */ }
+  const [hh, mm] = String(autoTime).split(':').map(Number);
+  const y = new Date(now); y.setDate(y.getDate() - 1);
+  if (now.getHours() * 60 + now.getMinutes() < hh * 60 + mm) y.setDate(y.getDate() - 1);
+  return `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+}

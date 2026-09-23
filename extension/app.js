@@ -1087,8 +1087,9 @@ $('#wipe').onclick = async () => {
 };
 { const a = new Date(yday); a.setDate(a.getDate() - 6); $('#range-start').value = localIso(a); $('#range-end').value = localIso(yday); }
 const rangeDates = () => { const out = []; for (let d = $('#range-start').value; d <= $('#range-end').value; d = addDays(d, 1)) out.push(d); return out; };
-$$('#range-card [data-fill]').forEach((b) => b.onclick = () => {
-  const n = Number(b.dataset.fill); const end = localIso(yday);
+$$('#range-card [data-fill]').forEach((b) => b.onclick = async () => {
+  const n = Number(b.dataset.fill); const end = await S.safeEndIso();
+  if (end !== localIso(yday)) msg('#range-report-msg', `예약 시각 전이라 어제(${localIso(yday)})는 아직 받지 않습니다 → ${end} 까지`, '');
   $('#range-start').value = addDays(end, -(n - 1)); $('#range-end').value = end; $('#range-check').click();
 });
 $('#range-since').onclick = () => {
@@ -1098,7 +1099,8 @@ $('#range-since').onclick = () => {
 };
 $('#range-report').onclick = async () => {
   const from = $('#range-start').value, to = $('#range-end').value; if (!from || !to || from > to) { msg('#range-report-msg', '시작~끝 날짜를 확인해 주세요', 'err'); return; }
-  const y = localIso(yday); const end = to > y ? y : to;
+  const y = await S.safeEndIso(); const end = to > y ? y : to;
+  if (from > end) { msg('#range-report-msg', `예약 시각 전이라 어제 데이터는 아직 받지 않습니다 (${y} 까지). 예약 시각 이후에 다시 누르세요`, 'err'); return; }
   msg('#range-report-msg', `${from} ~ ${end} 광고 보고서 받는 중… (창이 떠서 광고센터 보고서 화면을 엽니다. 진행은 아래 기록에)`);
   chrome.runtime.sendMessage({ type: 'collectReportRange', from, to: end }).then((r) => { if (r && r.error) msg('#range-report-msg', r.error, 'err'); else msg('#range-report-msg', r && r.ok ? '광고 보고서 받기 끝' : '일부 구간 실패 — 아래 기록 참고', r && r.ok ? 'ok' : 'err'); loadSettings(); refreshAll(); });
   $('#range-log').style.display = 'block'; $('#range-stop').style.display = ''; $('#range-go').disabled = true; $('#range-report').disabled = true; setTimeout(pollJob, 800);

@@ -514,9 +514,12 @@ async function collectReportRange(from, to) {
   // 최근 구간부터 거꾸로 31일씩. 쿠팡이 더 이상 주지 않는 옛날 구간(빈 보고서·실패)이 2번 이어지면 멈춘다.
   if (job.running) return { ok: false, error: '이미 수집 중입니다' };
   const add = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const safe = await S.safeEndIso(); const capped = to > safe;
+  if (capped) { to = safe; if (from > to) return { ok: false, error: `예약 시각 전이라 어제 데이터는 아직 받지 않습니다 (${safe} 까지만). 예약 시각 이후에 다시 누르세요` }; }
   const spans = []; for (let cur = from; cur <= to; cur = add(cur, 31)) spans.push({ from: cur, to: add(cur, 30) < to ? add(cur, 30) : to });
   spans.reverse();
   Object.assign(job, { running: true, total: spans.length, done: 0, log: [], cancel: false });
+  if (capped) job.log.push(`예약 시각 전이라 어제 데이터는 받지 않습니다 → ${to} 까지만 (어제 것은 예약 시각의 자동 수집에서)`);
   const out = []; let emptyRun = 0;
   for (const sp of spans) {
     if (job.cancel) { job.log.push('중단됨'); break; }
@@ -544,9 +547,12 @@ async function missingDates(dates, kinds) {
 }
 async function collectRange(start, end, kinds, onlyMissing) {
   if (job.running) return { ok: false, error: '이미 수집 중입니다' };
-  let dates = isoRange(start, end).filter((x) => x < yesterdayIso() || x === yesterdayIso());
+  const safe = await S.safeEndIso();
+  let dates = isoRange(start, end).filter((x) => x <= safe);
+  const cut = isoRange(start, end).filter((x) => x > safe && x <= yesterdayIso());
   if (onlyMissing) dates = await missingDates(dates, kinds);
   Object.assign(job, { running: true, total: dates.length * kinds.length, done: 0, log: [], cancel: false });
+  if (cut.length) job.log.push(`예약 시각 전이라 ${cut.join(', ')} 는 아직 받지 않습니다 (예약 시각 이후 자동 수집)`);
   if (!dates.length) { job.log.push('가져올 날짜가 없습니다 (이미 모두 저장됨)'); job.running = false; return { ok: true }; }
   const s = await getSettings();
   for (const date of dates) {
@@ -790,14 +796,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'jobStatus') sendResponse(job);
     else if (msg.type === 'checkUpdate') { sendResponse({ latest: await checkRemote(true), reloaded: await reloadIfFilesChanged() }); }
     else if (msg.type === 'cancelJob') { job.cancel = true; sendResponse({ ok: true }); }
-    else if (msg.type === 'collectDate') { try { sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
-    else if (msg.type === 'runAuto') sendResponse(await runAuto(msg.date));
+    else if (msg.type === 'collectDate') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 데이터는 아직 받지 않습니다 (숫자가 덜 잡혀 있음). 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectKind(msg.kind, msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
+    else if (msg.type === 'runAuto') { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) sendResponse([{ ok: false, error: `예약 시각 전이라 어제 데이터는 아직 받지 않습니다 (숫자가 덜 잡혀 있음). 예약 시각 이후에 자동으로 받습니다` }]); else sendResponse(await runAuto(msg.date)); }
     else if (msg.type === 'saveLogin') { const enc = msg.pw ? btoa(unescape(encodeURIComponent(msg.pw))) : ''; await chrome.storage.local.set({ loginId: String(msg.id || '').trim(), loginPw: enc, autoLogin: !!msg.enabled }); await log(`[로그인] 자동 로그인 ${msg.enabled ? '켬' : '끔'}${msg.id ? ` (${String(msg.id).slice(0, 3)}***)` : ''}`); sendResponse({ ok: true }); }
     else if (msg.type === 'clearLogin') { await chrome.storage.local.remove(['loginId', 'loginPw', 'autoLogin']); await log('[로그인] 저장된 로그인 정보를 지웠습니다'); sendResponse({ ok: true }); }
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
-    else if (msg.type === 'collectReport') { try { sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
+    else if (msg.type === 'collectReport') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 보고서는 아직 받지 않습니다. 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
