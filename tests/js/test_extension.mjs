@@ -644,3 +644,16 @@ console.log('extension logic: all checks passed');
   assert.equal(n.A, '베이지'); assert.equal(n.B, '단품'); assert.equal(n.C, '그레이');   // 상품명은 쉼표 앞부분으로 보고 뗀다
   console.log('short option names: all checks passed');
 }
+
+// ---- 여름/겨울 시즌: 시즌 안 위치(초반·중반·후반)와 시즌 밖 ----
+{
+  const w = S.seasonWindow('summer', '2026-05-20'); assert.equal(w.inSeason, true); assert.ok(w.progress < 0.4);
+  assert.equal(S.roasBand({ mode: 'summer' }, '2026-05-20').min, 0.85);      // 초반: 공격적
+  assert.equal(S.roasBand({ mode: 'summer' }, '2026-07-01').min, 1.0);       // 중반
+  assert.equal(S.roasBand({ mode: 'summer' }, '2026-08-20').min, 1.2);       // 후반: 보수적
+  assert.equal(S.roasBand({ mode: 'summer' }, '2026-09-24').min, 1.2); assert.ok(S.roasBand({ mode: 'summer' }, '2026-09-24').label.includes('비시즌'));
+  const ww = S.seasonWindow('winter', '2027-01-15'); assert.equal(ww.start, '2026-11-01'); assert.equal(ww.end, '2027-02-28'); assert.equal(ww.inSeason, true);
+  assert.equal(S.roasBand({ mode: 'winter' }, '2026-11-10').min, 0.85); assert.equal(S.roasBand({ mode: 'winter' }, '2027-02-20').min, 1.2);
+  const d = {}; S.setCampMode(d, 'X', 'summer', '2026-12-31'); assert.deepEqual(d.campMode.X, { mode: 'summer', end: '' });
+  console.log('summer/winter season: all checks passed');
+}

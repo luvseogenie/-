@@ -354,11 +354,32 @@ export function computeZeroRoas(d, campaign, sinceIso) {
   return { price, margin: m, qty, zero: m > 0 ? (price * 1.1) / m : null };
 }
 // ---- 캠페인 모드: 시즌 / 비시즌 / 보통 (추천 기준이 달라진다) ----
-export function setCampMode(d, campaign, mode, end = '') { d.campMode ||= {}; if (!mode || mode === 'normal') delete d.campMode[campaign]; else d.campMode[campaign] = { mode, end: end || '' }; }
+export function setCampMode(d, campaign, mode, end = '') { d.campMode ||= {}; if (!mode || mode === 'normal') delete d.campMode[campaign]; else d.campMode[campaign] = { mode, end: mode === 'season' ? (end || '') : '' }; }
 // 모드·시즌 남은 날짜에 따른 허용 범위 (제로 ROAS 의 배수). min 미만이면 조정 필요, good 이상이면 여유
+// 여름/겨울 시즌 기간 (월-일). 겨울은 해를 넘긴다
+export const SEASONS = { summer: { start: '05-01', end: '08-31', label: '여름' }, winter: { start: '11-01', end: '02-28', label: '겨울' } };
+// 오늘이 속한(또는 가장 가까운) 시즌 구간 → { start, end, inSeason, progress(0~1) }
+export function seasonWindow(kind, todayIso) {
+  const sd = SEASONS[kind]; if (!sd) return null;
+  const y = Number(todayIso.slice(0, 4)); const md = todayIso.slice(5);
+  const crosses = sd.start > sd.end;   // 겨울처럼 해를 넘김
+  let sy = y; if (crosses && md <= sd.end) sy = y - 1;   // 1~2월이면 작년 11월에 시작한 겨울
+  const start = `${sy}-${sd.start}`, end = `${crosses ? sy + 1 : sy}-${sd.end}`;
+  const inSeason = todayIso >= start && todayIso <= end;
+  const days = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  const progress = inSeason ? days(start, todayIso) / Math.max(1, days(start, end)) : null;
+  return { start, end, inSeason, progress, left: inSeason ? days(todayIso, end) : null };
+}
 export function roasBand(modeInfo, todayIso) {
   const mode = modeInfo?.mode || 'normal';
   if (mode === 'off') return { min: 1.2, good: 1.8, label: '비시즌', hint: '비시즌: 이익 나는 광고만 남기고 예산은 보수적으로' };
+  if (mode === 'summer' || mode === 'winter') {
+    const w = seasonWindow(mode, todayIso); const nm = SEASONS[mode].label;
+    if (!w.inSeason) return { min: 1.2, good: 1.8, label: `${nm} 상품 · 지금은 비시즌`, hint: `${nm} 시즌(${SEASONS[mode].start.replace('-', '/')}~${SEASONS[mode].end.replace('-', '/')}) 밖: 이익 나는 광고만, 예산 보수적으로` };
+    if (w.progress < 0.4) return { min: 0.85, good: 1.2, label: `${nm} 시즌 초반 (D-${w.left})`, hint: `${nm} 시즌 초반: 노출·순위를 위해 제로보다 약간 낮은 ROAS 까지 허용, 공격적으로`, left: w.left };
+    if (w.progress < 0.75) return { min: 1.0, good: 1.5, label: `${nm} 시즌 중반 (D-${w.left})`, hint: `${nm} 시즌 중반: 제로 이상 지키면서 노출 유지`, left: w.left };
+    return { min: 1.2, good: 1.8, label: `${nm} 시즌 후반 (D-${w.left})`, hint: `${nm} 시즌 후반: 손해 광고는 바로 정리, 이익 나는 것만 (재고 소진 위주)`, left: w.left };
+  }
   if (mode === 'season') {
     const end = modeInfo.end; const left = end ? Math.round((new Date(end + 'T00:00:00') - new Date(todayIso + 'T00:00:00')) / 86400000) : null;
     if (left == null || left > 30) return { min: 0.85, good: 1.2, label: '시즌 초·중반', hint: '시즌 초·중반: 노출·순위를 위해 제로보다 약간 낮은 ROAS 까지 허용', left };
@@ -391,6 +412,7 @@ export function roasCheck(d, days = 3) {
     const profitOf = (dates) => { let v = 0, any = false; for (const date of dates) { const a = d.ads[date]?.[c]; if (!a) continue; any = true; v += (a.ad_revenue || 0) / zeroOn(date) - (a.spend || 0) * 1.1; } return any ? v : null; };
     const profit = profitOf(adDates), prevProfit = p ? profitOf(prevDates) : null;
     const modeInfo = d.campMode?.[c] || null; const band = roasBand(modeInfo, last);
+    const daily = adDates.map((date) => { const a = d.ads[date]?.[c]; return { date, spend: a?.spend || 0, revenue: a?.ad_revenue || 0, roas: a?.spend ? (a.ad_revenue || 0) / a.spend : 0 }; });
     const trend = p ? { impressions: pct(x.impressions, p.impressions), spend: pct(x.spend, p.spend), revenue: pct(x.revenue, p.revenue), profit: profit != null && prevProfit != null ? profit - prevProfit : null, roasPrev: p.spend ? p.revenue / p.spend : 0, targetPrev: p.target } : null;
     const targetChanged = !!(trend && trend.targetPrev && x.target && Math.abs(trend.targetPrev - x.target) > 0.005) || (x.targetFirst && x.target && Math.abs(x.targetFirst - x.target) > 0.005);
     let status = 'idle'; const tips = [];
@@ -421,7 +443,7 @@ export function roasCheck(d, days = 3) {
       if (calc?.zero && Math.abs(calc.zero - zero) / zero > 0.25) tips.push(`옵션 마진으로 계산한 제로는 ${Math.round(calc.zero * 100)}% (쓰는 값 ${Math.round(zero * 100)}%) — 차이가 크면 마진·판매가를 확인하세요`);
       if (band.hint) tips.push(band.hint);
     }
-    return { ...x, roas, zero, zeroSource: manual ? 'manual' : 'default', zeroFrom: curEntry?.from || '', zeroUpcoming: upcoming, zeroHistory: hist, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
+    return { ...x, roas, daily, zero, zeroSource: manual ? 'manual' : 'default', zeroFrom: curEntry?.from || '', zeroUpcoming: upcoming, zeroHistory: hist, calc, profit, prevProfit, trend, targetChanged, mode: modeInfo?.mode || 'normal', modeEnd: modeInfo?.end || '', band, status, note: tips.join(' · ') };
   });
   const order = { red: 0, unknown: 1, green: 2, blue: 3, idle: 4 };
   rows.sort((a, b) => order[a.status] - order[b.status] || b.spend - a.spend);
