@@ -619,6 +619,7 @@ function renderLedgerTable() {
   const has = new Set(); led.campaigns.forEach((c) => Object.keys(c.days).forEach((d) => has.add(d)));
   let dates = led.dates.filter((d) => !hideEmpty || has.has(d));
   let warn = '';
+  if (!has.size) warn += `<div class="notice">이 기간(${led.start}${led.start !== led.end ? ' ~ ' + led.end : ''})에는 아직 저장된 데이터가 없습니다. 어제 데이터는 예약 시각(설정, 기본 13:00) 이후 자동 수집됩니다. 위의 <b>최근 7일</b>이나 <b>최근 30일</b>을 누르면 장부가 보입니다.</div>`;
   if (dates.length > 124) { warn = `<div class="notice">기간이 ${dates.length}일이라 최근 124일만 표시합니다. 더 긴 기간은 위의 기간을 나누어 보거나 CSV 로 내보내세요.</div>`; dates = dates.slice(-124); }
   $('#lg-warn').innerHTML = warn;
   const cols = []; let m = null;
