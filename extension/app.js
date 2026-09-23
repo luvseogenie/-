@@ -138,7 +138,6 @@ async function renderDash() {
   lineChart($('#ch-cost'), dates, [{ label: '광고비', cls: 'cost', color: '#eb6834', values: D('spend_vat') }, { label: '광고 매출', cls: 'rev', color: '#2a78d6', values: D('ad_revenue') }]);
   stackedChart($('#ch-qty'), dates, [{ label: '광고 판매', cls: 'ad', color: '#2a78d6', values: D('ad_orders') }, { label: '자연 판매', cls: 'org', color: '#1baf7a', values: D('organic_qty') }]);
   renderCampTable(led);
-  renderRoasCheck();
   renderMonthly();
   const legacyDays = dates.filter((x) => Object.values(led.campaigns).some((c) => c.days[x]?.legacy)).length;
   const chk = dataStatus();
@@ -292,13 +291,19 @@ function renderCampaign() {
   const camps = AR.byCampaign(allRows); const names = S.sortCampaigns(AR.campaignsOf(DATA));
   const spendOf = Object.fromEntries(camps.map((c) => [c.key, c]));
   const q = cp.search.trim();
-  const list = names.filter((n) => !q || n.includes(q));
-  if (!cp.campaign || !names.includes(cp.campaign)) cp.campaign = list[0] || names[0];
-  $('#cp-list').innerHTML = list.map((n) => { const c = spendOf[n]; return `<button data-cp="${esc(n)}" class="${n === cp.campaign ? 'active' : ''}">${esc(n)}<span class="sub">${c ? `광고비 ${fmtWon(c.spend)}원 · ROAS ${F.ratio(c.roas)}` : '이 기간 데이터 없음'}</span></button>`; }).join('') || '<div class="sub">검색 결과 없음</div>';
+  // 운영 중인 캠페인만 기본 표시. 중단·삭제된 것은 '중단·삭제된 캠페인도 보기' 를 켜면 회색으로 함께
+  const status = S.campaignStatus(DATA); const running = (n) => S.isRunning(status, n);
+  const idle = names.filter((n) => !running(n)); const showIdle = $('#cp-show-idle').checked;
+  const list = names.filter((n) => (!q || n.includes(q)) && (showIdle || running(n)));
+  $('#cp-idle-n').textContent = idle.length ? `(${idle.length}개)` : '';
+  if (!cp.campaign || !list.includes(cp.campaign)) cp.campaign = list[0] || null;
+  $('#cp-list').innerHTML = list.map((n) => { const c = spendOf[n]; return `<button data-cp="${esc(n)}" class="${n === cp.campaign ? 'active' : ''}${running(n) ? '' : ' idle'}">${esc(n)}${running(n) ? '' : ' <span class="pill gray">중단·삭제</span>'}<span class="sub">${c ? `광고비 ${fmtWon(c.spend)}원 · ROAS ${F.ratio(c.roas)}` : '이 기간 데이터 없음'}</span></button>`; }).join('') || '<div class="sub" style="padding:8px">표시할 캠페인이 없습니다</div>';
+  $('#cp-show-idle').onchange = () => renderCampaign();
   $$('#cp-list button').forEach((b) => b.onclick = () => { cp.campaign = b.dataset.cp; cp.checked.clear(); try { localStorage.setItem('cc-cp-campaign', cp.campaign); } catch { /* 무시 */ } renderCampaign(); });
   $('#cp-search').oninput = (e) => { cp.search = e.target.value; renderCampaign(); };
   $$('#cp-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === cp.tab); b.onclick = () => { cp.tab = b.dataset.tab; renderCampaign(); }; });
-  $('#cp-title').textContent = cp.campaign || '';
+  $('#cp-title').textContent = cp.campaign || '캠페인을 고르세요';
+  if (!cp.campaign) { $('#cp-panel').innerHTML = '<div class="sub">왼쪽에서 캠페인을 고르세요. 중단·삭제된 캠페인을 보려면 "중단·삭제된 캠페인도 보기"를 켜세요.</div>'; $('#cp-sub').textContent = ''; $('#cp-range').textContent = ''; return; }
   $('#cp-range').textContent = `${range.start} ~ ${range.end}`;
   $('#cp-ex-count').textContent = (DATA.excludes?.[cp.campaign] || []).length;
   const rows = allRows.filter((r) => r.campaign === cp.campaign);
@@ -538,7 +543,7 @@ function renderMetricPicker() {
   $('#metric-basic').onclick = () => { shownMetrics = new Set(DEFAULT_METRICS); renderMetricPicker(); renderLedgerTable(); };
 }
 let ledgerCache = null;
-async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); renderNoAd(); }
+async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderRoasCheck(); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); renderNoAd(); }
 // 광고 없이 팔린 옵션 목록 (마진 입력 유도)
 function renderNoAd() {
   const led = ledgerCache; const list = led?.noad_options || []; const names = S.productNames(DATA);
