@@ -5,11 +5,21 @@ import { cleanCampaignName } from './parse.js';
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
+const KEY_ADROWS = 'ccadrows';   // 광고 보고서 행(adrows)은 덩치가 커서 따로 저장 — 다른 데이터를 저장할 때마다 같이 쓰지 않게
 const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {} });
+// adrows 가 바뀌었는지 싸게 알아내는 지문 (날짜 수·행 수·캠페인 이름 합). 이름만 바뀌는 정리도 잡히게 캠페인 이름을 넣는다
+const adrowsSig = (a) => { let n = 0, h = 0; for (const [date, rows] of Object.entries(a || {})) { n += rows.length; for (const r of rows) { const c = r.campaign || ''; for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) >>> 0; } h = (h + date.length) >>> 0; } return `${Object.keys(a || {}).length}|${n}|${h}`; };
+let loadedAdrowsSig = null;
+// adrows 는 한 번 읽으면 메모리에 두고, 다른 곳(백그라운드 수집)에서 바뀌면 onChanged 로 받은 새 값으로 갈아 끼운다 — 매번 큰 데이터를 다시 읽지 않게
+let adrowsCache = null;
+try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY_ADROWS]) { adrowsCache = ch[KEY_ADROWS].newValue || {}; } }); } catch { /* 테스트 환경 */ }
 
 export async function load() {
-  const r = await chrome.storage.local.get(KEY);
+  const r = await chrome.storage.local.get(adrowsCache ? [KEY] : [KEY, KEY_ADROWS]);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
+  if (adrowsCache) { d.adrows = adrowsCache; loadedAdrowsSig = adrowsSig(d.adrows); }
+  else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; loadedAdrowsSig = adrowsSig(d.adrows); }
+  else { loadedAdrowsSig = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
   for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
@@ -103,8 +113,14 @@ export function cleanCampaignNames(d) {
   return Object.keys(map).length > 0;
 }
 const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
-export async function save(d) { await chrome.storage.local.set({ [KEY]: d }); }
-export async function replaceAll(d) { await chrome.storage.local.set({ [KEY]: { ...EMPTY(), ...d } }); }
+export async function save(d) {
+  const { adrows, ...rest } = d;
+  const sig = adrowsSig(adrows);
+  const out = { [KEY]: rest };
+  if (sig !== loadedAdrowsSig) out[KEY_ADROWS] = adrows || {};
+  await chrome.storage.local.set(out); loadedAdrowsSig = sig; adrowsCache = adrows || {};
+}
+export async function replaceAll(d) { const full = { ...EMPTY(), ...d }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); loadedAdrowsSig = adrowsSig(adrows); adrowsCache = adrows || {}; }
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 

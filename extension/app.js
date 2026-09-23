@@ -214,20 +214,29 @@ function renderRoasCheck() {
       <td><select class="mode"><option value="normal" ${r.mode === 'normal' ? 'selected' : ''}>보통</option><option value="season" ${r.mode === 'season' ? 'selected' : ''}>시즌</option><option value="off" ${r.mode === 'off' ? 'selected' : ''}>비시즌</option></select><input type="date" class="mode-end" value="${esc(r.modeEnd)}" title="시즌 종료일 (뒤로 갈수록 기준이 빡빡해집니다)" style="${r.mode === 'season' ? '' : 'display:none'}"><div class="sub">${esc(r.band.label)}</div></td>
       <td class="num">${fmtInt(r.impressions)}${dpct(r.trend?.impressions)}</td><td class="num">${fmtWon(r.spend)}${dpct(r.trend?.spend)}</td><td class="num">${fmtWon(r.revenue)}${dpct(r.trend?.revenue)}</td><td class="num"><b>${r.spend ? Math.round(r.roas * 100) + '%' : '-'}</b>${r.trend ? `<div class="sub">${Math.round(r.trend.roasPrev * 100)}%</div>` : ''}</td>
       <td class="num zero-cell"><b>${Math.round(r.zero * 100)}%</b> <button class="btn sm zero-edit" title="제로 ROAS 입력·변경 (시작일부터 적용)">✎</button><div class="sub">${r.zeroSource === 'manual' ? (r.zeroFrom ? r.zeroFrom.slice(2) + '~' : '처음부터') : '기본값'}${r.calc?.zero ? ` · 계산 ${Math.round(r.calc.zero * 100)}%` : ''}</div>
-        <div class="zero-form" hidden><div class="row" style="gap:4px;flex-wrap:nowrap"><input class="zero num" type="number" step="1" placeholder="${Math.round(r.zero * 100)}" style="width:64px">%<input type="date" class="zero-from" value="${localIso(today)}" title="이 날부터 적용. 비우면 처음부터" style="width:130px"><button class="btn primary sm zero-save">저장</button></div>
+        <div class="zero-form" hidden><div class="row" style="gap:4px;flex-wrap:nowrap"><input class="zero num" type="number" step="1" placeholder="${Math.round(r.zero * 100)}" style="width:64px">%<button class="btn primary sm zero-save">저장</button></div>
+        <div class="row" style="gap:6px;flex-wrap:nowrap;margin-top:4px;text-align:left"><label class="chk sub"><input type="radio" name="za-${esc(r.campaign)}" class="zero-all" ${r.zeroHistory.length ? '' : 'checked'}> 전체 기간에 적용</label><label class="chk sub"><input type="radio" name="za-${esc(r.campaign)}" class="zero-date" ${r.zeroHistory.length ? 'checked' : ''}> 이 날부터</label><input type="date" class="zero-from" value="${localIso(today)}" style="width:130px" ${r.zeroHistory.length ? '' : 'disabled'}></div>
         ${r.zeroHistory.length ? `<div class="sub" style="text-align:left;margin-top:4px">${r.zeroHistory.map((h) => `<div><code>${h.from || '처음부터'}</code> ${Math.round(h.value * 100)}% <a href="#" class="zero-del" data-from="${h.from}">삭제</a></div>`).join('')}</div>` : ''}
         <div class="sub" style="text-align:left">${r.calc?.zero ? `옵션 마진으로 계산: ${Math.round(r.calc.zero * 100)}% (판매가 ${fmtWon(r.calc.price)}원 · 마진 ${fmtWon(r.calc.margin)}원)` : ''}</div></div></td>
       <td class="num">${r.target ? Math.round(r.target * 100) + '%' : '-'}${r.targetChanged ? '<div class="sub">변경됨</div>' : ''}</td><td class="num ${r.profit != null && r.profit < 0 ? 'neg' : ''}">${r.profit != null ? fmtWon(r.profit) + '원' : '-'}${dwon(r.trend?.profit)}</td><td class="note">${esc(r.note)}</td></tr>`).join('')
     + '</tbody>';
   t.querySelectorAll('button.zero-edit').forEach((b) => b.onclick = () => { const f = b.closest('td').querySelector('.zero-form'); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input.zero').focus(); });
-  t.querySelectorAll('button.zero-save').forEach((b) => b.onclick = async () => { const td = b.closest('td'); const c = td.closest('tr').dataset.c; const v = parseFloat(td.querySelector('input.zero').value); const from = td.querySelector('input.zero-from').value || ''; if (!(v > 0)) { toast('제로 ROAS 값을 넣어 주세요', 'err'); return; } const dd = await reload(); S.setZeroRoas(dd, c, v / 100, from); await S.save(dd); await reload(); renderRoasCheck(); toast(`${c} 제로 ROAS ${v}% (${from ? from + '부터' : '처음부터'}) 저장`); });
-  t.querySelectorAll('a.zero-del').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.closest('tr').dataset.c; const dd = await reload(); S.deleteZeroRoas(dd, c, a.dataset.from); await S.save(dd); await reload(); renderRoasCheck(); toast(`${c} 제로 ROAS 이력 삭제`); });
+  t.querySelectorAll('button.zero-save').forEach((b) => b.onclick = async () => {
+    const td = b.closest('td'); const c = td.closest('tr').dataset.c; const v = parseFloat(td.querySelector('input.zero').value);
+    const fromAll = td.querySelector('input.zero-all').checked; const from = fromAll ? '' : (td.querySelector('input.zero-from').value || '');
+    if (!(v > 0)) { toast('제로 ROAS 값을 넣어 주세요', 'err'); return; }
+    if (!fromAll && !from) { toast('적용 시작 날짜를 고르거나 "처음부터"를 선택하세요', 'err'); return; }
+    if (fromAll) { for (const h of S.zeroRoasHistory(DATA, c)) S.deleteZeroRoas(DATA, c, h.from); }   // 처음부터 = 이력을 지우고 하나로
+    S.setZeroRoas(DATA, c, v / 100, from); await S.save(DATA); renderRoasCheck(); toast(`${c} 제로 ROAS ${v}% (${from ? from + '부터' : '전체 기간'}) 저장`);
+  });
+  t.querySelectorAll('a.zero-del').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.closest('tr').dataset.c; S.deleteZeroRoas(DATA, c, a.dataset.from); await S.save(DATA); renderRoasCheck(); toast(`${c} 제로 ROAS 이력 삭제`); });
+  t.querySelectorAll('input.zero-all, input.zero-date').forEach((r) => r.onchange = () => { const td = r.closest('td'); td.querySelector('input.zero-from').disabled = td.querySelector('input.zero-all').checked; });
   const dz = $('#roas-default'); if (dz && document.activeElement !== dz) dz.value = Math.round(S.zeroRoasDefault(DATA) * 100);
-  const saveMode = async (tr) => { const c = tr.dataset.c; const mode = tr.querySelector('select.mode').value; const end = tr.querySelector('input.mode-end').value; const dd = await reload(); S.setCampMode(dd, c, mode, end); await S.save(dd); await reload(); renderRoasCheck(); toast(`${c}: ${mode === 'season' ? '시즌' + (end ? ' (종료 ' + end + ')' : '') : mode === 'off' ? '비시즌' : '보통'}`); };
+  const saveMode = async (tr) => { const c = tr.dataset.c; const mode = tr.querySelector('select.mode').value; const end = tr.querySelector('input.mode-end').value; S.setCampMode(DATA, c, mode, end); await S.save(DATA); renderRoasCheck(); toast(`${c}: ${mode === 'season' ? '시즌' + (end ? ' (종료 ' + end + ')' : '') : mode === 'off' ? '비시즌' : '보통'}`); };
   t.querySelectorAll('select.mode').forEach((el) => el.onchange = () => { const tr = el.closest('tr'); tr.querySelector('input.mode-end').style.display = el.value === 'season' ? '' : 'none'; saveMode(tr); });
   t.querySelectorAll('input.mode-end').forEach((el) => el.onchange = () => saveMode(el.closest('tr')));
 }
-$('#roas-default').onchange = async () => { const v = parseFloat($('#roas-default').value); const dd = await reload(); S.setZeroRoasDefault(dd, v > 0 ? v / 100 : null); await S.save(dd); await reload(); renderRoasCheck(); toast(`기본 제로 ROAS ${Math.round(S.zeroRoasDefault(DATA) * 100)}%`); };
+$('#roas-default').onchange = async () => { const v = parseFloat($('#roas-default').value); S.setZeroRoasDefault(DATA, v > 0 ? v / 100 : null); await S.save(DATA); renderRoasCheck(); toast(`기본 제로 ROAS ${Math.round(S.zeroRoasDefault(DATA) * 100)}%`); };
 $('#roas-days').onchange = () => { roasDays = Number($('#roas-days').value); try { localStorage.setItem('cc-roas-days', String(roasDays)); } catch { /* 무시 */ } renderRoasCheck(); };
 function renderCampTable(led) {
   const hideZero = $('#camp-hide-zero').checked;
@@ -1361,7 +1370,7 @@ async function migrateEndDateBug() {
   if (hash === 'import' || hash === 'range' || hash === 'paste' || hash === 'update') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; if (hash === 'update') setTimeout(() => $('#update-card').scrollIntoView(), 100); }
   else showPage(hash || 'dash');
   snapshotPages();
-  chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccdata) { reload().then(() => { renderFoot(); renderCurrent(); }); } });
+  chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && (ch.ccdata || ch.ccadrows)) { reload().then(() => { renderFoot(); renderCurrent(); }); } });
   // 다른 탭에서 저장하고 이 탭으로 돌아왔을 때도 최신 데이터로 다시 그린다
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 })();

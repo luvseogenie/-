@@ -7,7 +7,7 @@ import { computeLedger } from '../../extension/lib/ledger.js';
 
 // chrome.storage 흉내
 const mem = {};
-globalThis.chrome = { storage: { local: { get: async (k) => ({ [k]: mem[k] }), set: async (o) => Object.assign(mem, o) } } };
+globalThis.chrome = { storage: { local: { get: async (k) => { const ks = Array.isArray(k) ? k : [k]; const o = {}; for (const x of ks) if (x in mem) o[x] = mem[x]; return o; }, set: async (o) => Object.assign(mem, o) } } };
 
 const D = '2025-06-08';
 const approx = (a, b, eps = 0.01) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
