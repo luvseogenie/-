@@ -21,13 +21,15 @@ export async function load() {
   else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; loadedAdrowsSig = adrowsSig(d.adrows); }
   else { loadedAdrowsSig = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
   for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
+  // 오늘·미래 날짜로 잘못 들어간 판매·광고 값은 지운다 (하루가 안 끝난 값)
+  let futureChanged = false; { const y = yesterdayLocal(); for (const k of ['sales', 'ads']) for (const date of Object.keys(d[k] || {})) if (date > y) { delete d[k][date]; futureChanged = true; } }
   // 예전 방식('그 달에 나눠')으로 넣어 둔 지출은 한 번만 '입력일부터 30일 1/30' 으로 바꾼다 (사용자 요청). 그날만(day)은 그대로
   let expChanged = false;
   if (!d.expenseSpanMigrated) { for (const e of d.expenses || []) { if (e.mode !== 'day') { e.mode = 'span'; e.days = e.days || 30; expChanged = true; } } d.expenseSpanMigrated = true; expChanged = true; }
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
   const added = autoAddOptions(d);
-  if (changed || moved.length || added.length || expChanged) await save(d);
+  if (changed || moved.length || added.length || expChanged || futureChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -195,13 +197,15 @@ export function marginLookup(d) {
     return v;
   };
 }
+// 오늘(또는 미래) 날짜의 데이터는 어차피 하루가 안 끝난 값이라 절대 저장하지 않는다
+export const yesterdayLocal = () => { const y = new Date(); y.setDate(y.getDate() - 1); return `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`; };
 export function upsertSales(d, rows) {
-  let n = 0;
-  for (const r of rows) { (d.sales[r.date] ||= {})[r.option_id] = r; n++; }
+  let n = 0; const y = yesterdayLocal();
+  for (const r of rows) { if (r.date > y) continue; (d.sales[r.date] ||= {})[r.option_id] = r; n++; }
   return n;
 }
 export function upsertAds(d, rows) {
-  let n = 0;
+  let n = 0; const yl = yesterdayLocal(); rows = rows.filter((r) => r.date <= yl);
   for (const r of rows) {
     const day = (d.ads[r.date] ||= {});
     const prev = day[r.campaign];

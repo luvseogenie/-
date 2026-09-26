@@ -333,6 +333,7 @@ async function collectKind(kind, dateOverride, opts = {}) {
     // 화면에 뜬 날짜가 요청한 날짜와 다르면 저장하지 않는다 (다른 날 숫자가 그 날짜로 들어가는 사고 방지)
     if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
+    if (date > yesterdayIso()) throw new Error(`화면 날짜가 ${date}(오늘 또는 미래)라 저장하지 않았습니다. 화면이 '오늘' 기간으로 열려 어제(${yesterdayIso()}) 값이 아닙니다`);
     const n = await saveLocal(kind, date, r.records);
     await syncServer(kind, date, r.records);
     await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${date} ${n}건 저장` + (kind === 'ads' ? ` (${r.pages ? `${r.pages}/${r.total || '?'}쪽` : '1쪽'}${r.notes?.length ? ', ' + r.notes.join(', ') : ''})` : ''));
