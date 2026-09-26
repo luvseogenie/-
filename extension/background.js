@@ -754,7 +754,23 @@ async function scheduleAlarm() {
   await log(`[자동] 매일 ${s.autoTime} 예약됨. 다음 실행 ${next.toLocaleString('ko-KR')}`);
 }
 // 매시간: 예약 시각이 지났는데 어제 것을 아직 못 받았으면 지금 한다 (PC 가 잠들었거나, 업데이트로 다시 켜지며 알람을 놓친 경우)
+// 예약 시각 전에 받아 둔 '어제' 값(크롬이 켜지며 놓친 알람이 새벽에 울린 경우 등)은 덜 잡힌 숫자 → 지우고, 예약 시각 이후 자동 수집에서 다시 받는다
+async function purgeEarlyYesterday() {
+  try {
+    const s = await getSettings(); const { lastAuto } = await chrome.storage.local.get('lastAuto');
+    if (!lastAuto?.at || !/^\d{4}-\d{2}-\d{2}$/.test(lastAuto.date || '')) return;
+    const [hh, mm] = String(s.autoTime || '13:00').split(':').map(Number);
+    const okFrom = new Date(lastAuto.date + 'T00:00:00'); okFrom.setDate(okFrom.getDate() + 1); okFrom.setHours(hh, mm, 0, 0);   // 그 날짜 다음날 예약 시각
+    if (lastAuto.at >= okFrom.getTime()) return;
+    const date = lastAuto.date; const d = await S.load();
+    const n = Object.keys(d.sales[date] || {}).length + Object.keys(d.ads[date] || {}).length + ((d.adrows || {})[date] || []).length;
+    delete d.sales[date]; delete d.ads[date]; if (d.adrows && d.adrows[date]) delete d.adrows[date];
+    await S.save(d); await chrome.storage.local.remove('lastAuto');
+    await log(`[자동] ${date} 판매·광고 값 ${n}건을 지웠습니다: 예약 시각(${s.autoTime}) 전인 ${new Date(lastAuto.at).toLocaleString('ko-KR')} 에 받은 덜 잡힌 숫자라서. 예약 시각 이후 자동 수집에서 다시 받습니다`);
+  } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }
+}
 async function hourlyCheck() {
+  await purgeEarlyYesterday();
   const s = await getSettings(); if (!s.autoEnabled) return;
   const { lastAuto } = await chrome.storage.local.get('lastAuto');
   const y = yesterdayIso();
@@ -797,13 +813,13 @@ async function fixUrls() {
   if (Object.keys(out).length) { await chrome.storage.sync.set(out); await log(`[설정] 주소가 도메인만 있어 기본값으로 되돌렸습니다: ${Object.entries(out).map(([k, v]) => `${k}=${v}`).join(', ')}`); }
 }
 
-chrome.runtime.onInstalled.addListener((d) => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
+chrome.runtime.onInstalled.addListener((d) => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
 async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-remote', { periodInMinutes: 60 });    // 새 버전 있는지
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }
-chrome.runtime.onStartup.addListener(() => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
+chrome.runtime.onStartup.addListener(() => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
 
 // 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
 async function catchUp() {
