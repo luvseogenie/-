@@ -587,11 +587,13 @@
     const m = t.match(new RegExp(D + '\\s*[~_\\-–]\\s*' + D)); if (!m) return null;
     return [`${m[1]}-${m[2]}-${m[3]}`, `${m[4]}-${m[5]}-${m[6]}`];
   }
-  function findRowByText(texts, mustHave = [], onlyDates = null) {
+  function findRowByText(texts, mustHave = [], onlyDates = null, excludeRows = []) {
     const rows = deepAll('tr, .rt-tr, [role="row"], li').filter(visible);
     const norm = (t) => clean(t).toLowerCase();
+    const ex = (excludeRows || []).map(norm).filter(Boolean);
     for (const r of rows) {
       const t = norm(r.innerText); if (t.length > 600) continue;
+      if (ex.includes(t)) continue;   // 이미 받아 본(빈) 보고서 줄은 건너뛴다
       if (texts.length && !texts.some((x) => t.includes(norm(x)))) continue;
       if (mustHave.length && !mustHave.some((m) => t.includes(norm(m)))) continue;
       if (onlyDates && onlyDates.length) {
@@ -599,7 +601,7 @@
         if (p) { if (p[0] !== want[0] || p[1] !== want[1]) continue; }
         else if (!want.every((d) => [d, d.replace(/-/g, ''), d.replace(/-/g, '.'), d.replace(/-/g, '/')].some((v) => t.includes(v)))) continue;
       }
-      return { ok: true, row: r, rowText: clean(r.innerText).slice(0, 120) };
+      return { ok: true, row: r, rowText: clean(r.innerText).slice(0, 120), rowFull: clean(r.innerText) };
     }
     return { ok: false };
   }
@@ -616,13 +618,13 @@
     for (const e of deepAll('span, p, div, li')) { if (!visible(e) || e.children.length > 2) continue; const t = clean(e.innerText); if (t.length < 120 && /최대|일까지|초과|기간을|선택해 주세요|선택하세요|실패|오류/.test(t) && /\d|기간|선택|실패|오류/.test(t)) out.add(t); }
     return [...out].slice(0, 8);
   }
-  function clickInRow(texts, buttonTexts, mustHave = [], onlyDates = null) {
-    const r = findRowByText(texts, mustHave, onlyDates); if (!r.ok) return { ok: false, reason: '줄 없음' };
+  function clickInRow(texts, buttonTexts, mustHave = [], onlyDates = null, excludeRows = []) {
+    const r = findRowByText(texts, mustHave, onlyDates, excludeRows); if (!r.ok) return { ok: false, reason: '줄 없음' };
     const norm = (t) => clean(t).replace(/\s+/g, '');
     const btn = [...r.row.querySelectorAll('button, a, [role="button"], span, div')].filter(visible).find((b) => buttonTexts.some((x) => norm(b.innerText) === norm(x) || (b.getAttribute('aria-label') || '').includes(x)));
     if (!btn) return { ok: false, reason: '줄 안에 버튼 없음', rowText: r.rowText };
     const target = btn.closest('button, a, [role="button"]') || btn; fire(target, [...HOVER, ...CLICK]); try { target.click(); } catch { /* 무시 */ }
-    return { ok: true, rowText: r.rowText };
+    return { ok: true, rowText: r.rowText, rowFull: r.rowFull };
   }
   // 라벨/자리표시 글자로 입력칸을 찾아 날짜를 넣는다 (여러 표기 시도)
   function fillDates(labels, iso, values = null) {
@@ -736,9 +738,9 @@
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly, inDialog: !!msg.inDialog }));
     } else if (msg?.type === 'findRowByText') {
-      const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null); delete r.row; sendResponse(r);
+      const r = findRowByText(msg.texts || [], msg.mustHave || [], msg.onlyDates || null, msg.excludeRows || []); delete r.row; sendResponse(r);
     } else if (msg?.type === 'clickInRow') {
-      sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null));
+      sendResponse(clickInRow(msg.texts || [], msg.button || ['다운로드'], msg.mustHave || [], msg.onlyDates || null, msg.excludeRows || []));
     } else if (msg?.type === 'fillTextarea') {
       // 화면의 글 상자(textarea, 없으면 긴 input)에 글 넣기. 떠 있는 창 안의 것 → 새로 나타난 것 → 아무거나
       const all = [...deepAll('textarea'), ...deepAll('input[type="text"], input:not([type])')].filter(visible);

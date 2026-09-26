@@ -670,3 +670,23 @@ console.log('extension logic: all checks passed');
   S.addExpense(d, { date: '2026-09-01', category: '3PL', amount: 500, days: 5 }); assert.equal(S.expensesByDay(d, '2026-09-01', '2026-09-05')['2026-09-03'], 100);
   console.log('expense span: all checks passed');
 }
+
+// 데이터가 0줄인 광고 보고서(제목 줄만): 오류가 아니라 '빈 보고서'로 알아본다 (다음날 오전엔 쿠팡이 아직 집계 전)
+{
+  const { importAnyFile, importAdReportFile } = await import('../../extension/lib/importer.js');
+  const { fileHeaders } = await import('../../extension/lib/xlsx.js');
+  const { readFileSync } = await import('node:fs');
+  const buf = readFileSync(new URL('./fixtures/empty_keyword_report.xlsx', import.meta.url));
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const hdr = await fileHeaders(ab, 'A01492559_pa_daily_keyword_20260926_20260926 (9).xlsx', ['캠페인']);
+  assert.ok(hdr && hdr.includes('캠페인명') && hdr.includes('키워드'));
+  const r = await importAnyFile(ab, 'A01492559_pa_daily_keyword_20260926_20260926 (9).xlsx', null);
+  assert.equal(r.kind, 'adreport'); assert.equal(r.empty, true); assert.equal(r.saved, 0); assert.equal(r.date, '2026-09-26');
+  const r2 = await importAdReportFile(ab, 'x.xlsx', '2026-09-25'); assert.equal(r2.empty, true); assert.equal(r2.date, '2026-09-25');
+  // 새 열 이름(광고전환매출발생 상품명/옵션ID)이 있어도 광고집행 옵션ID·상품명을 쓴다
+  const { normalizeAdReport } = await import('../../extension/lib/adreport.js');
+  const H = ['날짜', '캠페인명', '광고집행 상품명', '광고집행 옵션ID', '광고전환매출발생 상품명', '광고전환매출발생 옵션ID', '키워드', '노출수', '클릭수', '광고비'];
+  const rec = Object.fromEntries(H.map((h, i) => [h, ['2026-09-25', '1_담요', '집행상품', '111', '전환상품', '222', '담요', 10, 1, 100][i]]));
+  const rows = normalizeAdReport([rec]); assert.equal(rows[0].option_id, '111'); assert.equal(rows[0].product_name, '집행상품');
+  console.log('empty ad report: all checks passed');
+}

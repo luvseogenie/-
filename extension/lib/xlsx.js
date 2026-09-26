@@ -89,9 +89,12 @@ export function parseCsv(text) {
 }
 
 // 2차원 배열 → [{헤더: 값}]. 헤더 행은 mustHave 키워드를 모두 포함한 첫 행.
-export function rowsToRecords(rows, mustHave = ['옵션', '매출']) {
+export function headerRowIndex(rows, mustHave = ['옵션', '매출']) {
   const norm = (v) => String(v ?? '').replace(/\s/g, '');
-  let h = rows.findIndex((r) => { const j = r.map(norm).join('|'); return mustHave.every((k) => j.includes(k)); });
+  return rows.findIndex((r) => { const j = r.map(norm).join('|'); return mustHave.every((k) => j.includes(k)); });
+}
+export function rowsToRecords(rows, mustHave = ['옵션', '매출']) {
+  const h = headerRowIndex(rows, mustHave);
   if (h < 0) return [];
   const headers = rows[h].map((v) => String(v ?? '').trim());
   const out = [];
@@ -104,6 +107,16 @@ export function rowsToRecords(rows, mustHave = ['옵션', '매출']) {
 }
 
 // File / ArrayBuffer + 파일명 → records
+// 파일의 제목 줄만 (데이터 행이 0개인 빈 보고서인지 가리기 위해). 못 찾으면 null
+export async function fileHeaders(buf, filename, mustHave) {
+  const name = (filename || '').toLowerCase(); let sheets = [];
+  try {
+    if (name.endsWith('.csv') || name.endsWith('.txt')) { let text = new TextDecoder('utf-8').decode(buf); if (/\uFFFD/.test(text)) text = new TextDecoder('euc-kr').decode(buf); sheets = [{ rows: parseCsv(text.replace(/^\uFEFF/, '')) }]; }
+    else { const u8 = new Uint8Array(buf); if (u8[0] === 0x50 && u8[1] === 0x4b) sheets = await parseXlsx(buf); }
+  } catch { return null; }
+  for (const s of sheets) { const h = headerRowIndex(s.rows, mustHave); if (h >= 0) return s.rows[h].map((v) => String(v ?? '').trim()).filter(Boolean); }
+  return null;
+}
 export async function fileToRecords(buf, filename, mustHave) {
   const name = (filename || '').toLowerCase();
   if (name.endsWith('.csv') || name.endsWith('.txt')) {

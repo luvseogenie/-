@@ -1,6 +1,6 @@
 // 판매 리포트 파일(xlsx/csv) → 저장. 팝업, 앱 페이지, 백그라운드에서 공통으로 쓴다.
 import * as S from './store.js';
-import { fileToRecords } from './xlsx.js';
+import { fileToRecords, fileHeaders } from './xlsx.js';
 import { normalizeSales, normalizeAds, parseDate, yesterdayIso, lastHeaders } from './parse.js';
 import { isAdReport, normalizeAdReport } from './adreport.js';
 export { lastHeaders };
@@ -40,7 +40,13 @@ export async function importAdsFile(buf, filename, date) {
 // 광고센터 '보고서' 파일 (키워드·옵션별 일별 성과)
 export async function importAdReportFile(buf, filename, date) {
   const records = await fileToRecords(buf, filename, ['캠페인']);
-  if (!records.length || !isAdReport(Object.keys(records[0]))) throw new Error('광고 보고서 파일이 아닙니다 (캠페인·키워드/옵션·노출 열이 필요합니다)');
+  if (!records.length) {
+    // 제목 줄만 있고 데이터가 0줄인 보고서: 쿠팡이 아직 그 날을 집계하기 전(다음날 오전)이거나 광고가 없던 기간. 오류가 아니라 '빈 보고서'로 돌려준다
+    const hdr = await fileHeaders(buf, filename, ['캠페인']);
+    if (hdr && isAdReport(hdr)) { lastHeaders.adreport = hdr; const d0 = dateFromReportName(filename) || date || null; return { kind: 'adreport', empty: true, saved: 0, filled: 0, skippedFill: [], date: d0, from: d0, to: d0, days: 0, campaigns: 0, records: [] }; }
+    throw new Error('광고 보고서 파일이 아닙니다 (캠페인·키워드/옵션·노출 열이 필요합니다)');
+  }
+  if (!isAdReport(Object.keys(records[0]))) throw new Error('광고 보고서 파일이 아닙니다 (캠페인·키워드/옵션·노출 열이 필요합니다)');
   lastHeaders.adreport = Object.keys(records[0]);
   await logHeaders('adreport', filename);
   const rows = normalizeAdReport(records, dateFromReportName(filename) || date || null);
@@ -57,6 +63,7 @@ export async function importAdReportFile(buf, filename, date) {
 export async function importAnyFile(buf, filename, date) {
   const ads = await fileToRecords(buf, filename, ['캠페인']).catch(() => []);
   if (ads.length && isAdReport(Object.keys(ads[0]))) return importAdReportFile(buf, filename, date);
+  if (!ads.length) { const hdr = await fileHeaders(buf, filename, ['캠페인']); if (hdr && isAdReport(hdr)) return importAdReportFile(buf, filename, date); }   // 데이터 0줄인 광고 보고서
   const sales = await fileToRecords(buf, filename, ['옵션', '매출']).catch(() => []);
   const isAds = ads.length && (!sales.length || Object.keys(ads[0]).some((h) => /광고비|노출|클릭/.test(h)));
   if (isAds) { const r = await importAdsFile(buf, filename, date); return { ...r, kind: 'ads' }; }

@@ -411,20 +411,28 @@ async function collectReport(dateOverride, span = null) {
     // 목록 줄 찾기: 줄에 적힌 날짜들이 정확히 from·to 이고(생성 시각은 제외) '키워드/일별' 글자가 있는 줄
     const rowTexts = []; const onlyDates = from === to ? [from] : [from, to];
     expectDate = to;
-    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: rowTexts, mustHave: ['키워드', 'keyword', '일별', 'daily'], onlyDates }).catch(() => ({ ok: false }));
+    const excludeRows = [];   // 받아 봤더니 데이터가 0줄이던 옛 보고서 줄(만든 시각이 달라 글자가 다름) — 새로 만든 줄을 찾을 때 건너뛴다
+    const rowFor = async () => chrome.tabs.sendMessage(tab.id, { type: 'findRowByText', texts: rowTexts, mustHave: ['키워드', 'keyword', '일별', 'daily'], onlyDates, excludeRows }).catch(() => ({ ok: false }));
     const tryDownloadRow = async (label) => {
       const waiting = waitForReport(60000);
-      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: rowTexts, button: ['다운로드'], onlyDates }).catch(() => ({ ok: false }));
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickInRow', texts: rowTexts, button: ['다운로드'], onlyDates, excludeRows }).catch(() => ({ ok: false }));
       steps.push(`${label}: 어제 날짜 줄의 다운로드 ${c?.ok ? `누름(${(c.rowText || '').slice(0, 40)})` : '못 찾음'}`);
       if (!c?.ok) { settle(null); return null; }
-      return waiting;
+      const r = await waiting;
+      if (r?.ok && r.empty) { if (c.rowFull) excludeRows.push(c.rowFull); steps.push(`${label}는 데이터 0줄(빈 보고서)`); }
+      return r;
     };
     let res = null;
-    // 2) 이미 만들어진 어제 보고서가 목록에 있으면 바로 받는다
+    // 2) 이미 만들어진 어제 보고서가 목록에 있으면 바로 받는다. 받았는데 0줄이면(집계 전에 만든 것) 새로 만든다
     let row = await rowFor();
-    if (row?.ok) res = await tryDownloadRow('기존 보고서');
+    for (let i = 0; row?.ok && i < 4; i++) {   // 목록의 같은 기간 줄이 여럿(집계 전에 만든 빈 것들)이면 차례로 받아 보고, 데이터가 있는 것을 만나면 멈춘다
+      res = await tryDownloadRow(i ? `기존 보고서 ${i + 1}` : '기존 보고서');
+      if (!res?.ok || !res.empty) break;
+      row = await rowFor();
+    }
     // 3) 없으면 만든다: 기간 설정 → 시작일·종료일 = 어제 → 일별 → 키워드 포함 체크 → 보고서 만들기 → 목록 새로 고침하며 기다림
-    if (!res?.ok) {
+    const emptyOld = !!(res?.ok && res.empty);
+    if (!res?.ok || emptyOld) {
       const c1 = await click(tab.id, ['기간 설정', '직접 설정', '기간설정']); steps.push(`기간 설정 ${c1.ok ? '누름' : '못 찾음'}`); await sleep(800);
       const f = await chrome.tabs.sendMessage(tab.id, { type: 'fillDates', labels: ['시작일', '종료일'], value: target, values: [from, to] }).catch(() => ({ ok: false }));
       steps.push(`날짜 입력 ${f?.ok ? `됨(${(f.values || [f.how]).join(' ~ ')})` : '못 함'}`); await sleep(800);
@@ -468,6 +476,7 @@ async function collectReport(dateOverride, span = null) {
       }
     }
     if (!res?.ok) throw new Error(`광고 보고서를 받지 못했습니다 (${steps.join(' → ')}). 보고서 화면: ${await diag(tab.id)}`);
+    if (res.empty) { await log(`[자동] 광고 보고서 ${from === to ? from : `${from}~${to}`}: 데이터가 0줄입니다 — 쿠팡이 아직 집계하기 전이면 잠시 뒤 다시 받습니다 (${steps.join(' → ')})`); return { ok: true, empty: true, saved: 0, date: res.date || to, from, to }; }
     if (res.kind && res.kind !== 'adreport') await log(`[보고서] 받은 파일이 광고 보고서가 아니라 ${res.kind} 로 저장됐습니다`);
     await log(`[자동] 광고 보고서 ${from === to ? res.date : `${from}~${to}`} ${res.saved}행 저장 (${steps.join(' → ')})`);
     return { ok: true, saved: res.saved, date: res.date, from, to };
@@ -663,10 +672,10 @@ async function runAutoInner(dateOverride, kinds) {
     catch (e) { await log(`[자동] ${KIND_NAME[kind]} 실패: ${e.message}`); results.push({ kind, ok: false, error: e.message }); }
   }
   const okAll = results.filter((r) => r.kind !== 'report').every((r) => r.ok);
-  await chrome.storage.local.set({ lastAuto: { at: Date.now(), date: dateOverride || yesterdayIso(), ok: okAll, reportOk: results.find((r) => r.kind === 'report')?.ok ?? null, detail: results.map((r) => (r.ok ? `${r.date} ${r.saved}건` : r.error)).join(' / ') } });
+  await chrome.storage.local.set({ lastAuto: { at: Date.now(), date: dateOverride || yesterdayIso(), ok: okAll, reportOk: results.find((r) => r.kind === 'report')?.ok ?? null, detail: results.map((r) => (r.ok ? (r.empty ? `${r.date} 보고서 0줄(집계 전)` : `${r.date} ${r.saved}건`) : r.error)).join(' / ') } });
   // 실패한 종류만 10분 뒤 자동으로 다시 (하루 최대 3번). 사람이 다시 누를 필요가 없게.
   if (!dateOverride) {
-    const failed = results.filter((r) => !r.ok).map((r) => r.kind);
+    const failed = results.filter((r) => !r.ok || r.empty).map((r) => r.kind);   // 빈 보고서(집계 전)도 잠시 뒤 다시 받는다
     const { autoRetry = { count: 0, date: null } } = await chrome.storage.local.get('autoRetry');
     const count = autoRetry.date === yesterdayIso() ? autoRetry.count : 0;
     if (failed.length && count < RETRY_MAX) {
@@ -847,6 +856,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!isZip && !/csv|text/.test(msg.type || '') && !/\.csv$/i.test(msg.name || '')) { blobPending = false; return; }   // 엑셀/CSV 가 아니면 무시
           let name = msg.name || `report_${expectDate || ''}.${isZip ? 'xlsx' : 'csv'}`; if (!/\.(xlsx|xls|csv)$/i.test(name)) name += isZip ? '.xlsx' : '.csv';
           const res = await importAnyFile(buf.buffer, name, expectDate); expectDate = null;
+          if (res.empty) { await log(`[다운로드] ${name} 은 제목 줄만 있고 데이터가 0줄입니다 (쿠팡이 아직 그 날을 집계하기 전이거나 광고가 없던 기간)`); settle({ ok: true, saved: 0, empty: true, date: res.date, kind: res.kind }); return; }
           await log(`[다운로드] ${msg.how} 로 받은 ${name} (${Math.round(buf.length / 1024)}KB) → ${res.date} ${res.kind === 'ads' ? '광고' : res.kind === 'adreport' ? '광고 보고서' : '판매'} ${res.saved}${res.kind === 'adreport' ? '행' : '건'} 저장`);
           lastReportSavedAt = Date.now(); settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
         } catch (e) {

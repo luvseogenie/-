@@ -1222,7 +1222,7 @@ $('#import-adreport').onchange = async (e) => {
   const files = [...e.target.files]; if (!files.length) return;
   msg('#adreport-msg', `${files.length}개 파일 읽는 중…`); const out = [];
   for (const f of files) {
-    try { const r = await importAdReportFile(await f.arrayBuffer(), f.name, null); out.push(`${f.name}: ${r.from}${r.from !== r.to ? ` ~ ${r.to}` : ''} ${r.days}일 · 캠페인 ${r.campaigns}개 · ${fmtInt(r.saved)}행 저장`); }
+    try { const r = await importAdReportFile(await f.arrayBuffer(), f.name, null); out.push(r.empty ? `${f.name}: 제목 줄만 있고 데이터가 0줄인 보고서입니다 (쿠팡이 아직 그 날을 집계하기 전에 만든 파일이면 광고센터에서 새로 만들어 받으세요) — 0행 저장` : `${f.name}: ${r.from}${r.from !== r.to ? ` ~ ${r.to}` : ''} ${r.days}일 · 캠페인 ${r.campaigns}개 · ${fmtInt(r.saved)}행 저장`); }
     catch (err) { out.push(`${f.name}: 실패 — ${err.message}`); }
   }
   e.target.value = '';
