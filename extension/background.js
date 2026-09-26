@@ -645,8 +645,12 @@ async function collectWithRetry(kind, dateOverride, tries = 3) {
 const RETRY_MAX = 3;
 const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' };
 let autoRunning = false;
+async function beforeAutoTime(s) { const [hh, mm] = String(s.autoTime || '13:00').split(':').map(Number); const n = new Date(); return n.getHours() * 60 + n.getMinutes() < hh * 60 + mm; }
 async function runAuto(dateOverride, kinds = null) {
-  if (!kinds) { const s = await getSettings(); kinds = s.reportEnabled ? ['sales', 'ads', 'report'] : ['sales', 'ads']; }
+  const s0 = await getSettings();
+  if (!kinds) kinds = s0.reportEnabled ? ['sales', 'ads', 'report'] : ['sales', 'ads'];
+  // 예약 시각 전에는 어제 값을 받지 않는다 (오전엔 쿠팡 숫자가 덜 잡힘). 크롬이 꺼져 있다 켜지면 놓친 알람이 바로 울리는데 그때도 마찬가지
+  if (!dateOverride && await beforeAutoTime(s0)) { await log(`[자동] 지금은 예약 시각(${s0.autoTime}) 전이라 어제(${yesterdayIso()}) 수집을 하지 않습니다. 예약 시각 이후 매시간 점검에서 실행됩니다`); return [{ ok: false, error: `예약 시각(${s0.autoTime}) 전` }]; }
   if (autoRunning) { await log('[자동] 이미 수집 중이라 건너뜀'); return [{ ok: false, error: '이미 수집 중' }]; }
   autoRunning = true;
   try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
@@ -678,6 +682,11 @@ async function runAutoInner(dateOverride, kinds) {
     const y = yesterdayIso(); const from = new Date(y + 'T00:00:00'); from.setDate(from.getDate() - (s.fillMissingDays - 1));
     const start = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
     await collectRange(start, y, ['sales', 'ads'], true);
+    // 광고 관리 화면은 어제만 읽을 수 있으니, 그 전 날 중 광고 값이 없는 날은 광고 보고서를 받아 채운다 (PC 가 꺼져 있던 날 등)
+    try {
+      const d = await S.load(); const missing = isoRange(start, y).filter((x) => x < y && !Object.keys(d.ads[x] || {}).length);
+      if (missing.length && kinds.includes('report')) { await log(`[자동] 광고 값이 없는 날 ${missing.join(', ')} → 광고 보고서로 채웁니다`); await collectReportRange(missing[0], missing[missing.length - 1]); }
+    } catch (e) { await log(`[자동] 지난 날 광고 보고서 보충 실패: ${e.message}`); }
   }
   return results;
 }
@@ -840,7 +849,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const res = await importAnyFile(buf.buffer, name, expectDate); expectDate = null;
           await log(`[다운로드] ${msg.how} 로 받은 ${name} (${Math.round(buf.length / 1024)}KB) → ${res.date} ${res.kind === 'ads' ? '광고' : res.kind === 'adreport' ? '광고 보고서' : '판매'} ${res.saved}${res.kind === 'adreport' ? '행' : '건'} 저장`);
           lastReportSavedAt = Date.now(); settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
-        } catch (e) { await log(`[다운로드] blob 파일 저장 실패: ${e.message}`); settle({ ok: false, error: e.message }); }
+        } catch (e) {
+          let peek = '';
+          try { const { parseXlsx } = await import('./lib/xlsx.js'); const sheets = await parseXlsx(buf.buffer); peek = sheets.slice(0, 2).map((sh) => `${sh.name}(${sh.rows.length}행): ${sh.rows.slice(0, 3).map((r) => r.slice(0, 8).map((v) => String(v ?? '').slice(0, 14)).join(' | ')).join(' ‖ ')}`).join(' // '); } catch (e2) { peek = `엑셀로 못 읽음: ${e2.message}`; }
+          await log(`[다운로드] blob 파일 저장 실패: ${e.message} — 파일 ${msg.name || ''} ${Math.round((msg.size || 0) / 1024)}KB 내용: ${peek.slice(0, 500)}`); settle({ ok: false, error: e.message });
+        }
         finally { blobPending = false; }
       } else if (msg.data && msg.how !== 'createObjectURL') await log(`[다운로드] 기다리는 중이 아닐 때 blob 파일이 잡혔습니다 (무시): ${msg.name || ''} ${Math.round((msg.size || 0) / 1024)}KB`);
     }
