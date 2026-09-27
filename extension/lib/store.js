@@ -26,10 +26,12 @@ export async function load() {
   // 예전 방식('그 달에 나눠')으로 넣어 둔 지출은 한 번만 '입력일부터 30일 1/30' 으로 바꾼다 (사용자 요청). 그날만(day)은 그대로
   let expChanged = false;
   if (!d.expenseSpanMigrated) { for (const e of d.expenses || []) { if (e.mode !== 'day') { e.mode = 'span'; e.days = e.days || 30; expChanged = true; } } d.expenseSpanMigrated = true; expChanged = true; }
+  // 보고서로 채운 날의 목표효율·예산 0 → 가까운 날 값 물려받기 (한 번)
+  let carried = 0; if (!d.reportCarryMigrated) { carried = carryReportAdSettings(d); d.reportCarryMigrated = true; carried = carried || 1; }
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
   const added = autoAddOptions(d);
-  if (changed || moved.length || added.length || expChanged || futureChanged) await save(d);
+  if (changed || moved.length || added.length || expChanged || futureChanged || carried) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -249,12 +251,35 @@ export function adsFromAdRows(date, rows) {
   for (const x of Object.values(by)) { x.ctr = x.impressions ? x.clicks / x.impressions : 0; x.conversion = x.clicks ? x.ad_orders / x.clicks : 0; }
   return Object.values(by);
 }
+// 보고서에는 목표효율·광고예산이 없다 → 그 캠페인을 광고 관리 화면에서 읽은 가장 가까운 날(먼저 이전, 없으면 이후)의 값을 물려받는다
+export function carryAdSettings(d, date, campaign) {
+  const has = (a) => a && (a.target_roas || a.budget) && a.source !== 'report';
+  const dates = Object.keys(d.ads || {}).sort();
+  let best = null;
+  for (let i = dates.length - 1; i >= 0; i--) { if (dates[i] >= date) continue; const a = d.ads[dates[i]][campaign]; if (has(a)) { best = a; break; } }
+  if (!best) for (const dt of dates) { if (dt <= date) continue; const a = d.ads[dt][campaign]; if (has(a)) { best = a; break; } }
+  return best ? { target_roas: best.target_roas || 0, budget: best.budget || 0 } : null;
+}
 export function fillAdsFromReport(d, dates = null) {
   let n = 0; const list = dates || Object.keys(d.adrows || {});
   for (const date of list) {
     const rows = d.adrows?.[date]; if (!rows || !rows.length) continue;
     const day = (d.ads[date] ||= {});
-    for (const x of adsFromAdRows(date, rows)) { const cur = day[x.campaign]; if (cur && !zeroAds(cur) && cur.source !== 'report') continue; if (cur) { x.target_roas = cur.target_roas || 0; x.budget = cur.budget || 0; x.action = cur.action || ''; } day[x.campaign] = x; n++; }
+    for (const x of adsFromAdRows(date, rows)) {
+      const cur = day[x.campaign]; if (cur && !zeroAds(cur) && cur.source !== 'report') continue;
+      if (cur) { x.target_roas = cur.target_roas || 0; x.budget = cur.budget || 0; x.action = cur.action || ''; }
+      if (!x.target_roas && !x.budget) { const c = carryAdSettings(d, date, x.campaign); if (c) Object.assign(x, c); }
+      day[x.campaign] = x; n++;
+    }
+  }
+  return n;
+}
+// 이미 보고서로 채워 둔 날 중 목표효율·예산이 0인 것을 물려받기로 채운다 (한 번)
+export function carryReportAdSettings(d) {
+  let n = 0;
+  for (const [date, day] of Object.entries(d.ads || {})) for (const a of Object.values(day)) {
+    if (a.source !== 'report' || a.target_roas || a.budget) continue;
+    const c = carryAdSettings(d, date, a.campaign); if (c && (c.target_roas || c.budget)) { Object.assign(a, c); n++; }
   }
   return n;
 }

@@ -690,3 +690,18 @@ console.log('extension logic: all checks passed');
   const rows = normalizeAdReport([rec]); assert.equal(rows[0].option_id, '111'); assert.equal(rows[0].product_name, '집행상품');
   console.log('empty ad report: all checks passed');
 }
+
+// 보고서로 채운 날은 목표효율·광고예산이 없다 → 가장 가까운 날(이전 우선)의 값을 물려받는다
+{
+  const rows = [{ date: '2026-09-25', campaign: 'X', spend: 1000, revenue14: 5000, impressions: 100, clicks: 10, qty14: 1 }];
+  const d = { adrows: { '2026-09-25': rows }, ads: {
+    '2026-09-23': { X: { campaign: 'X', spend: 10, ad_revenue: 1, impressions: 1, clicks: 1, ad_orders: 0, target_roas: 4.45, budget: 100000 } },
+    '2026-09-26': { X: { campaign: 'X', spend: 10, ad_revenue: 1, impressions: 1, clicks: 1, ad_orders: 0, target_roas: 5, budget: 200000 } } } };
+  assert.equal(S.fillAdsFromReport(d, ['2026-09-25']), 1);
+  assert.equal(d.ads['2026-09-25'].X.target_roas, 4.45); assert.equal(d.ads['2026-09-25'].X.budget, 100000); assert.equal(d.ads['2026-09-25'].X.spend, 1000);
+  delete d.ads['2026-09-23']; d.ads['2026-09-25'].X.target_roas = 0; d.ads['2026-09-25'].X.budget = 0;
+  assert.equal(S.carryReportAdSettings(d), 1); assert.equal(d.ads['2026-09-25'].X.target_roas, 5);   // 이전이 없으면 이후 값
+  delete d.ads['2026-09-26']; d.ads['2026-09-25'].X.target_roas = 0; d.ads['2026-09-25'].X.budget = 0;
+  assert.equal(S.carryReportAdSettings(d), 0);   // 물려받을 날이 없으면 그대로
+  console.log('carry ad settings: all checks passed');
+}
