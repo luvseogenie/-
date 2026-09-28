@@ -682,6 +682,18 @@ async function runAuto(dateOverride, kinds = null) {
   autoRunning = true;
   try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
 }
+// 매일 자동 수집 뒤 다운로드\쿠팡광고계산기_백업\ 에 요일별 백업 파일을 남긴다 (7개를 돌려 씀). 확장이 지워져도 '복원' 으로 되살릴 수 있게
+async function autoBackup(reason = '') {
+  try {
+    const d = await S.load(); const json = JSON.stringify(d);
+    const bytes = new TextEncoder().encode(json); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
+    const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json`;
+    await new Promise((res, rej) => chrome.downloads.download({ url: 'data:application/json;base64,' + btoa(bin), filename, conflictAction: 'overwrite', saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+    await chrome.storage.local.set({ lastBackup: { at: Date.now(), file: filename, size: bytes.length } });
+    await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
+  } catch (e) { await log(`[백업] 자동 백업 실패: ${e.message}`); }
+}
 async function runAutoInner(dateOverride, kinds) {
   await fixUrls();
   const results = [];
@@ -715,6 +727,7 @@ async function runAutoInner(dateOverride, kinds) {
       if (missing.length && kinds.includes('report')) { await log(`[자동] 광고 값이 없는 날 ${missing.join(', ')} → 광고 보고서로 채웁니다`); await collectReportRange(missing[0], missing[missing.length - 1]); }
     } catch (e) { await log(`[자동] 지난 날 광고 보고서 보충 실패: ${e.message}`); }
   }
+  if (!dateOverride) await autoBackup('자동 수집 뒤');
   return results;
 }
 
@@ -914,6 +927,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'registerExcludes') { sendResponse(await registerExcludes(msg.campaign, msg.keywords || [], !!msg.dryRun)); }
+    else if (msg.type === 'autoBackup') { await autoBackup('직접 누름'); const { lastBackup = null } = await chrome.storage.local.get('lastBackup'); sendResponse({ ok: !!lastBackup, lastBackup }); }
     else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 보고서는 아직 받지 않습니다. 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }

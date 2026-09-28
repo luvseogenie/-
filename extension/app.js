@@ -1180,6 +1180,9 @@ $('#range-go').onclick = async () => {
 };
 $('#range-stop').onclick = () => chrome.runtime.sendMessage({ type: 'cancelJob' });
 async function pollJob() { const j = await chrome.runtime.sendMessage({ type: 'jobStatus' }); $('#range-log').textContent = `${j.done}/${j.total} 진행\n` + j.log.join('\n'); if (j.running) setTimeout(pollJob, 1500); else { $('#range-stop').style.display = 'none'; $('#range-go').disabled = false; $('#range-report').disabled = false; refreshAll(); } }
+const showLastBackup = async () => { try { const { lastBackup } = await chrome.storage.local.get('lastBackup'); $('#backup-last').textContent = lastBackup ? `마지막 자동 백업: ${new Date(lastBackup.at).toLocaleString('ko-KR')} (${Math.round((lastBackup.size || 0) / 1024)}KB)` : '아직 자동 백업이 없습니다 (첫 자동 수집 뒤 생깁니다).'; } catch { /* 무시 */ } };
+showLastBackup();
+$('#backup-auto').onclick = async () => { msg('#data-msg', '저장 중…'); const r = await chrome.runtime.sendMessage({ type: 'autoBackup' }).catch(() => null); msg('#data-msg', r?.ok ? '다운로드\\쿠팡광고계산기_백업\\ 에 저장했습니다' : '저장하지 못했습니다 (기록을 보세요)', r?.ok ? 'ok' : 'err'); showLastBackup(); };
 $('#backup').onclick = async () => { const d = await reload(); download(`쿠팡광고계산기_백업_${localIso(today)}.json`, JSON.stringify(d), 'application/json'); };
 $('#restore').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
