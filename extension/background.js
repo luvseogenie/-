@@ -690,6 +690,12 @@ async function ensureOffscreen() {
   const has = await chrome.offscreen.hasDocument?.().catch(() => false);
   if (!has) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: '백업·엑셀 파일을 다운로드 폴더에 저장하려고 blob 주소를 만든다' }).catch((e) => { if (!/single offscreen|already exists/i.test(e.message)) throw e; });
 }
+const ASCII_WORDS = [['쿠팡광고계산기_백업', 'coupang-ad-calc-backup'], ['자동백업', 'auto-backup'], ['채움', 'filled'], ['요일', ''], ['일', 'sun'], ['월', 'mon'], ['화', 'tue'], ['수', 'wed'], ['목', 'thu'], ['금', 'fri'], ['토', 'sat']];
+function asciiName(filename) {
+  let out = filename; for (const [k, v] of ASCII_WORDS) out = out.split(k).join(v);
+  out = out.replace(/[^\x20-\x7e/]/g, '').replace(/\/+/g, '/');
+  return out.split('/').map((p, i, arr) => p || (i === arr.length - 1 ? 'file' : 'folder')).join('/');
+}
 async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mime = 'application/octet-stream' } = {}) {
   const key = `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   await putFile(key, { bytes });
@@ -697,12 +703,21 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
   let r = null;
   for (let i = 0; i < 5 && !r?.ok; i++) { r = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'blobUrl', key, mime }).catch((e) => ({ ok: false, error: e.message })); if (!r?.ok) await sleep(500); }
   if (!r?.ok) throw new Error(`blob 주소를 만들지 못했습니다: ${r?.error || '응답 없음'}`);
-  const id = await new Promise((res, rej) => chrome.downloads.download({ url: r.url, filename, conflictAction, saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+  const start = (fn) => new Promise((res, rej) => chrome.downloads.download({ url: r.url, filename: fn, conflictAction, saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+  let id;
+  try { id = await start(filename); }
+  catch (e) {
+    // 드물게 한글 이름을 못 받는 환경(영문 로캘 리눅스 등) → 영문 이름으로 한 번 더
+    const ascii = asciiName(filename);
+    if (!/Invalid filename/i.test(e.message) || ascii === filename) throw e;
+    await log(`[다운로드] '${filename}' 이름을 받아 주지 않아 '${ascii}' 로 저장합니다`); id = await start(ascii);
+  }
   // 다 받을 때까지 blob 주소를 살려 둔다 (최대 2분)
   const t0 = Date.now();
   while (Date.now() - t0 < 120000) { const [it] = await chrome.downloads.search({ id }); if (!it || it.state !== 'in_progress') break; await sleep(1000); }
   chrome.runtime.sendMessage({ target: 'offscreen', type: 'revoke', url: r.url }).catch(() => {});
-  return id;
+  const [it] = await chrome.downloads.search({ id }).catch(() => []);
+  return { id, filename: it?.filename ? it.filename.replace(/\\/g, '/').split('/').slice(-2).join('/') : filename };
 }
 // 매일 자동 수집 뒤 다운로드\쿠팡광고계산기_백업\ 에 요일별 백업 파일을 남긴다 (7개를 돌려 씀). 확장이 지워져도 '복원' 으로 되살릴 수 있게
 async function autoBackup(reason = '') {
@@ -710,9 +725,9 @@ async function autoBackup(reason = '') {
     const d = await S.load(); const bytes = new TextEncoder().encode(JSON.stringify(d));
     const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
     const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json`;
-    await downloadBytes(bytes, filename, { mime: 'application/json' });
-    await chrome.storage.local.set({ lastBackup: { at: Date.now(), file: filename, size: bytes.length } });
-    await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
+    const saved = await downloadBytes(bytes, filename, { mime: 'application/json' });
+    await chrome.storage.local.set({ lastBackup: { at: Date.now(), file: saved.filename, size: bytes.length } });
+    await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${saved.filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
   } catch (e) { await log(`[백업] 자동 백업 실패: ${e.message}`); }
 }
 // ---- 엑셀 마진계산기 자동 채우기: 매달 1·11·21일(지난 말일·10일·20일까지의 데이터)에 마지막으로 올려 둔/만든 통합문서에 이어 붙여 다운로드 폴더에 저장 ----
@@ -725,11 +740,11 @@ async function excelFill({ to = null, reason = '' } = {}) {
   if (!n) { await log(`[엑셀] ${report.from}~${report.to}: 새로 넣을 데이터가 없습니다 (엑셀 마지막 날짜 ${report.excelLast})`); return { ok: true, report, saved: false }; }
   const base = (tpl.name || '마진계산기.xlsx').replace(/(_채움_\d{4}-\d{2}-\d{2})?\.xlsx$/i, '');
   const filename = `쿠팡광고계산기_백업/${base}_채움_${report.to}.xlsx`;
-  await downloadBytes(out, filename, { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const saved = await downloadBytes(out, filename, { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   await saveTemplate(out, { name: `${base}.xlsx`, lastDate: report.to, source: 'auto' });
-  await chrome.storage.local.set({ lastExcelFill: { at: Date.now(), file: filename, from: report.from, to: report.to, report } });
-  await log(`[엑셀] ${report.from}~${report.to} 채워 저장: 다운로드 폴더\\${filename.replace('/', '\\')} (광고 ${report.ads}줄·매출 ${report.sales}줄·옵션 ${report.options}개·새 캠페인 ${report.campaigns.length}개${reason ? `, ${reason}` : ''})`);
-  return { ok: true, report, saved: true, filename };
+  await chrome.storage.local.set({ lastExcelFill: { at: Date.now(), file: saved.filename, from: report.from, to: report.to, report } });
+  await log(`[엑셀] ${report.from}~${report.to} 채워 저장: 다운로드 폴더\\${saved.filename.replace('/', '\\')} (광고 ${report.ads}줄·매출 ${report.sales}줄·옵션 ${report.options}개·새 캠페인 ${report.campaigns.length}개${reason ? `, ${reason}` : ''})`);
+  return { ok: true, report, saved: true, filename: saved.filename };
 }
 async function excelAutoCheck() {
   try {
