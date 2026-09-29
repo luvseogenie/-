@@ -9,6 +9,8 @@ import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib
 import * as AR from './lib/adreport.js';
 import { importAdReportFile } from './lib/importer.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
+import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
+import { loadTemplate, saveTemplate } from './lib/excelstore.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
 /* ===== 공통 ===== */
@@ -1183,6 +1185,50 @@ async function pollJob() { const j = await chrome.runtime.sendMessage({ type: 'j
 const showLastBackup = async () => { try { const { lastBackup } = await chrome.storage.local.get('lastBackup'); $('#backup-last').textContent = lastBackup ? `마지막 자동 백업: ${new Date(lastBackup.at).toLocaleString('ko-KR')} (${Math.round((lastBackup.size || 0) / 1024)}KB)` : '아직 자동 백업이 없습니다 (첫 자동 수집 뒤 생깁니다).'; } catch { /* 무시 */ } };
 showLastBackup();
 $('#backup-auto').onclick = async () => { msg('#data-msg', '저장 중…'); const r = await chrome.runtime.sendMessage({ type: 'autoBackup' }).catch(() => null); msg('#data-msg', r?.ok ? '다운로드\\쿠팡광고계산기_백업\\ 에 저장했습니다' : '저장하지 못했습니다 (기록을 보세요)', r?.ok ? 'ok' : 'err'); showLastBackup(); };
+
+// ---- 엑셀 마진계산기 채우기 ----
+const xlInfo = async () => {
+  try {
+    const t = await loadTemplate(); const { lastExcelFill } = await chrome.storage.local.get('lastExcelFill');
+    $('#xl-info').textContent = t ? `올려 둔 파일: ${t.name || '(이름 없음)'} · 마지막 날짜 ${t.lastDate || '?'} · ${new Date(t.savedAt).toLocaleString('ko-KR')}${t.source === 'auto' ? ' (자동으로 채운 파일)' : ''}` : '올려 둔 파일 없음';
+    if (lastExcelFill) $('#xl-result').textContent = `마지막 채우기: ${new Date(lastExcelFill.at).toLocaleString('ko-KR')} ${lastExcelFill.from}~${lastExcelFill.to} → ${lastExcelFill.file}`;
+    const { excelAuto = false } = await chrome.storage.sync.get('excelAuto'); $('#xl-auto').checked = !!excelAuto;
+  } catch { /* 무시 */ }
+};
+(async () => { $('#xl-to').value = await S.safeEndIso(); xlInfo(); })();
+$('#xl-auto').onchange = async () => { await chrome.storage.sync.set({ excelAuto: $('#xl-auto').checked }); msg('#xl-msg', $('#xl-auto').checked ? '자동 채우기 켬 (파일을 올려 두어야 합니다)' : '자동 채우기 끔', 'ok'); };
+$('#xl-file').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return; e.target.value = '';
+  msg('#xl-msg', '파일 읽는 중…');
+  try {
+    const buf = await f.arrayBuffer(); const info = await inspectWorkbook(buf);
+    const last = [info.adsLast, info.salesLast].filter(Boolean).sort().pop() || null;
+    await saveTemplate(new Uint8Array(buf), { name: f.name, lastDate: last, source: 'upload' });
+    msg('#xl-msg', `올려 두었습니다 (광고 ${info.adsLast || '?'} · 매출 ${info.salesLast || '?'} 까지 있음)`, 'ok'); xlInfo();
+  } catch (err) { msg('#xl-msg', err.message, 'err'); }
+};
+$('#xl-fill').onclick = async () => {
+  const t = await loadTemplate(); if (!t?.bytes) { msg('#xl-msg', '먼저 엑셀 파일을 올려 주세요', 'err'); return; }
+  const to = $('#xl-to').value || await S.safeEndIso(); msg('#xl-msg', '채우는 중… (파일이 크면 10초쯤 걸립니다)');
+  try {
+    const d = await reload(); const bytes = t.bytes instanceof Uint8Array ? t.bytes : new Uint8Array(t.bytes);
+    const { bytes: out, report } = await fillWorkbook(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), d, { to, marginOf: S.marginLookup(d), campaignStatus: S.campaignStatus(d) });
+    const n = report.ads + report.sales + report.options + report.campaigns.length;
+    const base = (t.name || '마진계산기.xlsx').replace(/(_채움_\d{4}-\d{2}-\d{2})?\.xlsx$/i, '');
+    if (!n) { msg('#xl-msg', `새로 넣을 데이터가 없습니다 (엑셀은 ${report.excelLast} 까지, 요청 ${report.from}~${report.to})`, 'err'); return; }
+    const name = `${base}_채움_${report.to}.xlsx`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); a.download = name; a.click();
+    await saveTemplate(out, { name: `${base}.xlsx`, lastDate: report.to, source: 'fill' });
+    await chrome.storage.local.set({ lastExcelFill: { at: Date.now(), file: name, from: report.from, to: report.to, report } });
+    msg('#xl-msg', `받았습니다: ${name}`, 'ok');
+    const lines = [`${report.from} ~ ${report.to}: 2번 광고 ${fmtInt(report.ads)}줄, 3번 매출 ${fmtInt(report.sales)}줄, 1번 옵션 ${report.options}개 추가`];
+    if (report.campaigns.length) lines.push(`4번 새 캠페인 블록: ${report.campaigns.join(', ')}`);
+    if (report.relinked.length) lines.push(`캠페인 바뀐 옵션(1번 시트 갱신): ${report.relinked.map((x) => `${x.option_id} ${x.from}→${x.to}`).join(', ')}`);
+    if (report.marginChanged.length) lines.push(`마진 바뀐 옵션(1번 시트 갱신): ${report.marginChanged.map((x) => `${x.option_id} ${fmtInt(x.from)}→${fmtInt(x.to)}`).join(', ')}`);
+    lines.push('다음에는 방금 받은 파일에 이어서 채웁니다. 엑셀에서 5번 이후 시트를 직접 고쳤다면 그 파일을 다시 올려 두세요.');
+    $('#xl-result').innerHTML = lines.map((x) => `<div>${esc(x)}</div>`).join(''); xlInfo();
+  } catch (err) { msg('#xl-msg', `실패: ${err.message}`, 'err'); }
+};
 $('#backup').onclick = async () => { const d = await reload(); download(`쿠팡광고계산기_백업_${localIso(today)}.json`, JSON.stringify(d), 'application/json'); };
 $('#restore').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;

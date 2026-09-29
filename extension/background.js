@@ -1,10 +1,12 @@
 // 서비스 워커: 매일 정해진 시각의 자동 수집(탭 열기 → '어제' 클릭 → 표 읽기 → 저장), 선택적 서버 전송.
 import * as S from './lib/store.js';
+import { fillWorkbook } from './lib/excelfill.js';
+import { putFile, loadTemplate, saveTemplate } from './lib/excelstore.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765' };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -682,17 +684,64 @@ async function runAuto(dateOverride, kinds = null) {
   autoRunning = true;
   try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
 }
+// 서비스 워커에서 큰 파일 내려받기: 내용을 IndexedDB 에 두고 숨은 문서(offscreen)가 blob: 주소를 만들어 주면 chrome.downloads 로 받는다 (data: 주소는 2MB 제한이라 못 쓴다)
+async function ensureOffscreen() {
+  if (!chrome.offscreen) throw new Error('이 크롬은 offscreen 문서를 지원하지 않습니다 (크롬 109 이상 필요)');
+  const has = await chrome.offscreen.hasDocument?.().catch(() => false);
+  if (!has) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: '백업·엑셀 파일을 다운로드 폴더에 저장하려고 blob 주소를 만든다' }).catch((e) => { if (!/single offscreen|already exists/i.test(e.message)) throw e; });
+}
+async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mime = 'application/octet-stream' } = {}) {
+  const key = `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await putFile(key, { bytes });
+  await ensureOffscreen();
+  let r = null;
+  for (let i = 0; i < 5 && !r?.ok; i++) { r = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'blobUrl', key, mime }).catch((e) => ({ ok: false, error: e.message })); if (!r?.ok) await sleep(500); }
+  if (!r?.ok) throw new Error(`blob 주소를 만들지 못했습니다: ${r?.error || '응답 없음'}`);
+  const id = await new Promise((res, rej) => chrome.downloads.download({ url: r.url, filename, conflictAction, saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+  // 다 받을 때까지 blob 주소를 살려 둔다 (최대 2분)
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120000) { const [it] = await chrome.downloads.search({ id }); if (!it || it.state !== 'in_progress') break; await sleep(1000); }
+  chrome.runtime.sendMessage({ target: 'offscreen', type: 'revoke', url: r.url }).catch(() => {});
+  return id;
+}
 // 매일 자동 수집 뒤 다운로드\쿠팡광고계산기_백업\ 에 요일별 백업 파일을 남긴다 (7개를 돌려 씀). 확장이 지워져도 '복원' 으로 되살릴 수 있게
 async function autoBackup(reason = '') {
   try {
-    const d = await S.load(); const json = JSON.stringify(d);
-    const bytes = new TextEncoder().encode(json); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const d = await S.load(); const bytes = new TextEncoder().encode(JSON.stringify(d));
     const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
     const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json`;
-    await new Promise((res, rej) => chrome.downloads.download({ url: 'data:application/json;base64,' + btoa(bin), filename, conflictAction: 'overwrite', saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+    await downloadBytes(bytes, filename, { mime: 'application/json' });
     await chrome.storage.local.set({ lastBackup: { at: Date.now(), file: filename, size: bytes.length } });
     await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
   } catch (e) { await log(`[백업] 자동 백업 실패: ${e.message}`); }
+}
+// ---- 엑셀 마진계산기 자동 채우기: 매달 1·11·21일(지난 말일·10일·20일까지의 데이터)에 마지막으로 올려 둔/만든 통합문서에 이어 붙여 다운로드 폴더에 저장 ----
+async function excelFill({ to = null, reason = '' } = {}) {
+  const tpl = await loadTemplate(); if (!tpl?.bytes) throw new Error('올려 둔 엑셀 마진계산기 파일이 없습니다 (데이터 · 설정 → 엑셀 마진계산기 채우기에서 파일을 올려 두세요)');
+  const d = await S.load(); to = to || await S.safeEndIso();
+  const bytes = tpl.bytes instanceof Uint8Array ? tpl.bytes : new Uint8Array(tpl.bytes);
+  const { bytes: out, report } = await fillWorkbook(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), d, { to, marginOf: S.marginLookup(d), campaignStatus: S.campaignStatus(d) });
+  const n = report.ads + report.sales + report.options + report.campaigns.length;
+  if (!n) { await log(`[엑셀] ${report.from}~${report.to}: 새로 넣을 데이터가 없습니다 (엑셀 마지막 날짜 ${report.excelLast})`); return { ok: true, report, saved: false }; }
+  const base = (tpl.name || '마진계산기.xlsx').replace(/(_채움_\d{4}-\d{2}-\d{2})?\.xlsx$/i, '');
+  const filename = `쿠팡광고계산기_백업/${base}_채움_${report.to}.xlsx`;
+  await downloadBytes(out, filename, { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  await saveTemplate(out, { name: `${base}.xlsx`, lastDate: report.to, source: 'auto' });
+  await chrome.storage.local.set({ lastExcelFill: { at: Date.now(), file: filename, from: report.from, to: report.to, report } });
+  await log(`[엑셀] ${report.from}~${report.to} 채워 저장: 다운로드 폴더\\${filename.replace('/', '\\')} (광고 ${report.ads}줄·매출 ${report.sales}줄·옵션 ${report.options}개·새 캠페인 ${report.campaigns.length}개${reason ? `, ${reason}` : ''})`);
+  return { ok: true, report, saved: true, filename };
+}
+async function excelAutoCheck() {
+  try {
+    const s = await getSettings(); if (!s.excelAuto) return;
+    const now = new Date(); const dom = now.getDate(); if (![1, 11, 21].includes(dom)) return;
+    const [hh, mm] = String(s.autoTime || '13:00').split(':').map(Number);
+    if (now.getHours() * 60 + now.getMinutes() < hh * 60 + mm + 60) return;   // 자동 수집(예약 시각)이 끝난 뒤 1시간 지나서
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dom).padStart(2, '0')}`;
+    const { excelAutoLast } = await chrome.storage.local.get('excelAutoLast'); if (excelAutoLast === today) return;
+    await chrome.storage.local.set({ excelAutoLast: today });
+    await excelFill({ reason: '자동(1·11·21일)' });
+  } catch (e) { await log(`[엑셀] 자동 채우기 실패: ${e.message}`); }
 }
 async function runAutoInner(dateOverride, kinds) {
   await fixUrls();
@@ -784,6 +833,7 @@ async function purgeEarlyYesterday() {
 }
 async function hourlyCheck() {
   await purgeEarlyYesterday();
+  await excelAutoCheck();
   const s = await getSettings(); if (!s.autoEnabled) return;
   const { lastAuto } = await chrome.storage.local.get('lastAuto');
   const y = yesterdayIso();
@@ -927,6 +977,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'loginStatus') { const { loginId = '', loginPw = '', autoLogin = false } = await chrome.storage.local.get(['loginId', 'loginPw', 'autoLogin']); sendResponse({ id: loginId, hasPw: !!loginPw, enabled: autoLogin }); }
     else if (msg.type === 'campaignOptions') { try { sendResponse(await fetchCampaignOptions(msg.campaigns || [])); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'registerExcludes') { sendResponse(await registerExcludes(msg.campaign, msg.keywords || [], !!msg.dryRun)); }
+    else if (msg.type === 'excelFill') { try { sendResponse(await excelFill({ to: msg.to || null, reason: '직접 누름' })); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'autoBackup') { await autoBackup('직접 누름'); const { lastBackup = null } = await chrome.storage.local.get('lastBackup'); sendResponse({ ok: !!lastBackup, lastBackup }); }
     else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 보고서는 아직 받지 않습니다. 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }

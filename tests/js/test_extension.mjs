@@ -705,3 +705,43 @@ console.log('extension logic: all checks passed');
   assert.equal(S.carryReportAdSettings(d), 0);   // 물려받을 날이 없으면 그대로
   console.log('carry ad settings: all checks passed');
 }
+
+// 엑셀 마진계산기 채우기: 1~4번 시트에 줄을 이어 붙이고 새 캠페인 블록을 복제한다 (구조만 같은 작은 통합문서로)
+{
+  const { fillWorkbook, inspectWorkbook, shiftRefs, serialOf, isoOfSerial } = await import('../../extension/lib/excelfill.js');
+  const { unzip } = await import('../../extension/lib/xlsx.js');
+  const { readFileSync } = await import('node:fs');
+  assert.equal(shiftRefs("SUMIFS('2. 일별 광고 실적 입력'!$D:$D,'4. 광고 장부확인'!C$3,'4. 광고 장부확인'!$A601)", 0, 13), "SUMIFS('2. 일별 광고 실적 입력'!$D:$D,'4. 광고 장부확인'!C$3,'4. 광고 장부확인'!$A614)");
+  assert.equal(shiftRefs('FN611-FN609', 5, 13), 'FS624-FS622'); assert.equal(isoOfSerial(serialOf('2026-09-01')), '2026-09-01'); assert.equal(serialOf('2026-09-01'), 46266);
+  const buf = readFileSync(new URL('./fixtures/margin_small.xlsx', import.meta.url)); const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const info = await inspectWorkbook(ab); assert.equal(info.adsLast, '2026-09-01'); assert.equal(info.salesLast, '2026-09-01');
+  const d = { options: [
+    { option_id: '93606119506', product_name: '옵션 하나, 파랑', campaign: '1. 타이머_236%', sort_order: 1 },
+    { option_id: '93656717722', product_name: '옵션 둘', campaign: '52. 새 발매트_250%', sort_order: 2 },   // 2번 캠페인이 끝나고 52번으로 옮긴 옵션
+    { option_id: '99999999999', product_name: '새 옵션 <A&B>', campaign: '52. 새 발매트_250%', sort_order: 3 } ], margins: [], sales: {}, ads: {} };
+  for (const date of ['2026-09-02', '2026-09-03']) {
+    d.ads[date] = { '1. 타이머_236%': { campaign: '1. 타이머_236%', date, target_roas: 4.45, budget: 100000, spend: 12345, ad_revenue: 54500, conversion: 0.0439, ctr: 0.0036, impressions: 32058, clicks: 114, ad_orders: 5 },
+      '52. 새 발매트_250%': { campaign: '52. 새 발매트_250%', date, target_roas: 2.5, budget: 50000, spend: 5000, ad_revenue: 20000, conversion: 0.05, ctr: 0.01, impressions: 1000, clicks: 10, ad_orders: 2, action: 'ROAS 올림' } };
+    d.sales[date] = { '93606119506': { date, option_id: '93606119506', option_name: '옵션 하나, 파랑', product_name: '상품 하나', product_id: '15767114108', category: '주방용품', sales_type: '로켓그로스', revenue: 9900, orders: 1, quantity: 1, visitors: 6, views: 9, carts: 1, conversion: 0.1111 },
+      '99999999999': { date, option_id: '99999999999', option_name: '새 옵션 <A&B>', product_name: '새 옵션', product_id: '16000000000', category: '가구', sales_type: '로켓그로스', revenue: 20000, orders: 2, quantity: 2, visitors: 10, views: 12, carts: 3, conversion: 0.2 } };
+  }
+  const marginOf = (oid) => ({ '93606119506': 4571, '93656717722': 4000, '99999999999': 3000 })[oid] || 0;
+  const { bytes, report } = await fillWorkbook(ab, d, { to: '2026-09-03', marginOf, campaignStatus: { '1. 타이머_236%': 'running', '2. 발매트_213%': 'deleted', '52. 새 발매트_250%': 'running' } });
+  assert.equal(report.from, '2026-09-02'); assert.equal(report.ads, 4); assert.equal(report.sales, 4); assert.equal(report.options, 1);
+  assert.deepEqual(report.campaigns, ['52. 새 발매트_250%']);
+  assert.deepEqual(report.relinked, [{ option_id: '93656717722', from: '2. 발매트_213%', to: '52. 새 발매트_250%' }]);
+  assert.deepEqual(report.marginChanged, [{ option_id: '93656717722', from: 4192, to: 4000 }]);
+  const files = await unzip(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); const dec = new TextDecoder();
+  const s1 = dec.decode(files['xl/worksheets/sheet2.xml']), s2 = dec.decode(files['xl/worksheets/sheet3.xml']), s3 = dec.decode(files['xl/worksheets/sheet4.xml']), s4 = dec.decode(files['xl/worksheets/sheet5.xml']);
+  assert.ok(s1.includes('<c r="C7"') && s1.includes('<v>99999999999</v>') && s1.includes('새 옵션 &lt;A&amp;B&gt;'));   // 1번: 옵션 추가
+  assert.ok(/<c r="D6"[^>]*t="inlineStr"><is><t>52\. 새 발매트_250%<\/t><\/is>/.test(s1) && /<c r="E6"[^>]*><v>4000<\/v>/.test(s1));   // 캠페인·마진 갱신
+  assert.ok(s2.includes('<row r="8"') && s2.includes('<row r="11"') && !s2.includes('<row r="12"'));   // 2번: 4줄 (8~11)
+  assert.ok(/<c r="M8"[^>]*><f>F8\*1\.1<\/f><\/c>/.test(s2) && /<c r="P11"[^>]*><f>IFERROR\(F11\/K11,0\)<\/f>/.test(s2) && /<c r="C8"[^>]*><v>46267<\/v>/.test(s2));
+  assert.ok(/<c r="Q7"[^>]*><f>IFERROR\(VLOOKUP\(C7,/.test(s3));   // 3번: 수식 이어짐
+  assert.ok(s3.includes('<row r="10"') && !s3.includes('<row r="11"'));
+  assert.ok(/<c r="A31"[^>]*t="inlineStr"><is><t>52\. 새 발매트_250%<\/t><\/is>/.test(s4));   // 4번: 새 블록 (기존 블록 5~17, 18~30 → 31~43)
+  assert.ok(s4.includes("'4. 광고 장부확인'!$A31)") && /<c r="C43"[^>]*><f>C42-C34<\/f>/.test(s4) && /<c r="C40"[^>]*><f>C41-C39<\/f>/.test(s4) && /<c r="AF40"[^>]*><f>AF41-AF39<\/f>/.test(s4));
+  assert.ok(dec.decode(files['xl/workbook.xml']).includes('fullCalcOnLoad="1"') && !files['xl/calcChain.xml']);
+  const again = await fillWorkbook(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), d, { to: '2026-09-03', marginOf }); assert.equal(again.report.ads + again.report.sales + again.report.options + again.report.campaigns.length, 0);   // 이어서 채우면 새 것 없음
+  console.log('excel fill: all checks passed');
+}
