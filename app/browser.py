@@ -223,7 +223,25 @@ class BrowserThread(threading.Thread):
         else:
             self.channel = getattr(self, "channel", None) or cands[0][0]
             log.info("이미 실행 중인 브라우저에 다시 접속합니다")
-        browser = self.pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=30000)
+        try:
+            browser = self.pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=30000)
+        except Exception as e:  # noqa: BLE001
+            # 포트는 살아 있는데 접속이 안 되는 경우: 반쯤 죽은(창은 닫혔는데 프로세스만 남은) 브라우저 → 정리하고 새로 띄운다
+            if getattr(self, "_relaunch_tried", False):
+                raise
+            self._relaunch_tried = True
+            log.warn(f"남아 있던 브라우저에 접속하지 못해 정리하고 새로 엽니다: {str(e)[:80]}")
+            try:
+                port_file.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+            name = getattr(self, "channel", None) or cands[0][0]
+            self._kill_browser_processes(name)
+            _t.sleep(2.0)
+            try:
+                return self._attach_launch()
+            finally:
+                self._relaunch_tried = False
         self.browser = browser
         # 평소 프로필의 쿠키를 쓰려면 반드시 브라우저의 기본 컨텍스트여야 한다 (new_context 는 시크릿 창과 같아 쿠키가 없다)
         waited = 0
