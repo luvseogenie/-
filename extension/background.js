@@ -2,6 +2,7 @@
 import * as S from './lib/store.js';
 import { fillWorkbook } from './lib/excelfill.js';
 import { putFile, loadTemplate, saveTemplate } from './lib/excelstore.js';
+import { gzip } from './lib/gz.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
@@ -723,12 +724,13 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
 async function autoBackup(reason = '') {
   try {
     const d = await S.load(); const settings = await chrome.storage.sync.get(null).catch(() => ({}));
-    const bytes = new TextEncoder().encode(JSON.stringify({ ...d, __settings: settings, __backupAt: new Date().toISOString() }));
+    const raw = new TextEncoder().encode(JSON.stringify({ ...d, __settings: settings, __backupAt: new Date().toISOString() }));
+    const bytes = await gzip(raw);   // 광고 보고서(키워드) 행이 많아 JSON 이 수십 MB → gzip 으로 1/10 쯤. 복원은 그대로 이 파일을 올리면 된다
     const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
-    const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json`;
-    const saved = await downloadBytes(bytes, filename, { mime: 'application/json' });
+    const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json.gz`;
+    const saved = await downloadBytes(bytes, filename, { mime: 'application/gzip' });
     await chrome.storage.local.set({ lastBackup: { at: Date.now(), file: saved.filename, size: bytes.length } });
-    await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${saved.filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
+    await log(`[백업] 자동 백업 저장: 다운로드 폴더\\${saved.filename.replace('/', '\\')} (${Math.round(bytes.length / 1024)}KB, 압축 전 ${Math.round(raw.length / 1024)}KB${reason ? `, ${reason}` : ''})`);
   } catch (e) { await log(`[백업] 자동 백업 실패: ${e.message}`); }
 }
 // ---- 엑셀 마진계산기 자동 채우기: 매달 1·11·21일(지난 말일·10일·20일까지의 데이터)에 마지막으로 올려 둔/만든 통합문서에 이어 붙여 다운로드 폴더에 저장 ----

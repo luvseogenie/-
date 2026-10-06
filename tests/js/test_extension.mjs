@@ -752,3 +752,13 @@ console.log('extension logic: all checks passed');
   const { ccdata } = await chrome.storage.local.get('ccdata'); assert.ok(ccdata && !('__settings' in ccdata) && !('__backupAt' in ccdata));
   console.log('restore strips settings: all checks passed');
 }
+
+// 자동 백업 gzip: 압축 → 복원 읽기가 같은 내용
+{
+  const { gzip, readBackup, isGzip } = await import('../../extension/lib/gz.js');
+  const obj = { sales: { '2026-10-05': { A: { revenue: 1 } } }, ads: {}, adrows: { '2026-10-05': Array.from({ length: 2000 }, (_, i) => ({ campaign: '1. 타이머', keyword: '키워드' + (i % 50), spend: i })) }, __settings: { autoEnabled: true } };
+  const raw = new TextEncoder().encode(JSON.stringify(obj)); const z = await gzip(raw);
+  assert.ok(isGzip(z) && z.length * 5 < raw.length);
+  assert.deepEqual(await readBackup(z.buffer), obj); assert.deepEqual(await readBackup(raw.buffer), obj);
+  console.log('backup gzip: all checks passed');
+}

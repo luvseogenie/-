@@ -11,6 +11,7 @@ import { importAdReportFile } from './lib/importer.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
 import { loadTemplate, saveTemplate } from './lib/excelstore.js';
+import { readBackup } from './lib/gz.js';
 import { computeYearTax, monthlyBreakdown, bracketsFor, DEFAULT_TAX_SETTINGS, basicDeduction } from './lib/tax.js';
 
 /* ===== 공통 ===== */
@@ -1273,7 +1274,7 @@ $('#backup').onclick = async () => { const d = await reload(); const settings = 
 $('#restore').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   try {
-    const d = JSON.parse(await f.text()); if (!d.sales || !d.ads) throw new Error('백업 파일 형식이 아닙니다');
+    const d = await readBackup(await f.arrayBuffer()); if (!d.sales || !d.ads) throw new Error('백업 파일 형식이 아닙니다');
     if (confirm('현재 데이터를 백업 파일 내용으로 바꿉니다. 계속할까요?')) {
       await S.replaceAll(d);
       // 백업에 설정(자동 수집 켜기·시각·주소·계정 이름 등)이 들어 있으면 함께 되살린다. 쿠팡 비밀번호는 백업에 넣지 않으므로 다시 입력해야 한다

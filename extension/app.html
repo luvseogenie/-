@@ -341,8 +341,8 @@
       <div class="grid2">
         <div class="card">
           <h2>💾 백업 · 내보내기</h2>
-          <p class="sub" style="margin:0 0 8px">데이터는 이 크롬 안에만 저장됩니다. 확장 프로그램이 지워지면 데이터도 같이 사라지니, 매일 자동 수집 뒤 <b>다운로드\쿠팡광고계산기_백업\자동백업_○요일.json</b> 에 백업을 남깁니다(7개 돌려 씀). 되살릴 때는 아래 <b>복원</b>에 그 파일을 올리면 됩니다. <span id="backup-last"></span></p>
-          <div class="row"><button class="btn primary sm" id="backup">백업 파일 받기 (JSON)</button><button class="btn sm" id="backup-auto">지금 자동 백업 폴더에 저장</button><label class="btn sm">복원 <input type="file" id="restore" accept=".json" style="display:none"></label><button class="btn sm" id="sales-csv">판매 데이터 CSV</button><button class="btn sm" id="ads-csv">광고 데이터 CSV</button><span id="data-msg" class="msg"></span></div>
+          <p class="sub" style="margin:0 0 8px">데이터는 이 크롬 안에만 저장됩니다. 확장 프로그램이 지워지면 데이터도 같이 사라지니, 매일 자동 수집 뒤 <b>다운로드\쿠팡광고계산기_백업\자동백업_○요일.json.gz</b> 에 백업을 남깁니다(7개 돌려 씀). 되살릴 때는 아래 <b>복원</b>에 그 파일을 올리면 됩니다. <span id="backup-last"></span></p>
+          <div class="row"><button class="btn primary sm" id="backup">백업 파일 받기 (JSON)</button><button class="btn sm" id="backup-auto">지금 자동 백업 폴더에 저장</button><label class="btn sm">복원 <input type="file" id="restore" accept=".json,.gz" style="display:none"></label><button class="btn sm" id="sales-csv">판매 데이터 CSV</button><button class="btn sm" id="ads-csv">광고 데이터 CSV</button><span id="data-msg" class="msg"></span></div>
           <div class="row" style="margin-top:10px"><button class="btn danger sm" id="wipe">모든 데이터 지우기</button><span class="sub">처음부터 다시 넣고 싶을 때. 지우기 전에 백업 파일을 먼저 받아 두세요.</span></div>
         </div>
         <div class="card">
