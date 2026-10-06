@@ -745,3 +745,10 @@ console.log('extension logic: all checks passed');
   const again = await fillWorkbook(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), d, { to: '2026-09-03', marginOf }); assert.equal(again.report.ads + again.report.sales + again.report.options + again.report.campaigns.length, 0);   // 이어서 채우면 새 것 없음
   console.log('excel fill: all checks passed');
 }
+
+// 백업에 들어 있는 설정(__settings)은 데이터 저장소에 섞이지 않는다
+{
+  await S.replaceAll({ options: [], margins: [], sales: { '2026-10-01': {} }, ads: {}, __settings: { autoEnabled: true }, __backupAt: 'x' });
+  const { ccdata } = await chrome.storage.local.get('ccdata'); assert.ok(ccdata && !('__settings' in ccdata) && !('__backupAt' in ccdata));
+  console.log('restore strips settings: all checks passed');
+}

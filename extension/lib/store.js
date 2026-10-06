@@ -127,7 +127,7 @@ export async function save(d) {
   if (sig !== loadedAdrowsSig) out[KEY_ADROWS] = adrows || {};
   await chrome.storage.local.set(out); loadedAdrowsSig = sig; adrowsCache = adrows || {};
 }
-export async function replaceAll(d) { const full = { ...EMPTY(), ...d }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); loadedAdrowsSig = adrowsSig(adrows); adrowsCache = adrows || {}; }
+export async function replaceAll(d) { const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); loadedAdrowsSig = adrowsSig(adrows); adrowsCache = adrows || {}; }
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 

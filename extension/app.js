@@ -96,10 +96,43 @@ function renderMarginAlert() {
   box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00">⚠️ <b>마진이 없는 광고 옵션 ${missing.length}개</b>${soldN ? ` (최근 30일에 팔린 것 ${soldN}개)` : ''} — 마진 0원으로 계산돼 순이익이 실제보다 낮게 나옵니다. ${camps} <button class="btn primary sm" id="margin-go">마진 입력하러 가기</button></div>`;
   $('#margin-go').onclick = () => { location.hash = '#options'; showPage('options'); $('#opt-camp').value = ''; $('#opt-search').value = ''; $('#opt-filter').value = 'nomargin'; renderOptions(); $('#options-table').scrollIntoView(); };
 }
+// 매일 자동 수집 상태 → 모든 화면 맨 위에 (꺼져 있거나, 예약 시각이 지났는데 오늘 것을 아직 못 받았을 때만)
+let nudged = false;
+const hhmmOf = (t) => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function autoDiagnosis(a) {
+  const [hh, mm] = String(a.time || '13:00').split(':').map(Number); const now = new Date();
+  const at = new Date(now); at.setHours(hh, mm, 0, 0); const past = now >= at;
+  const ticks = (a.ticks || []).map(([t, k]) => ({ t, k }));
+  const around = ticks.filter((x) => x.t >= at.getTime() - 5 * 60000 && x.t <= Math.min(now.getTime(), at.getTime() + 65 * 60000));
+  const before = ticks.filter((x) => x.t < at.getTime()).pop(), after = ticks.find((x) => x.t >= at.getTime());
+  let why = '';
+  if (past && !around.length) why = `${a.time} 전후로 확장이 한 번도 깨어 있지 않았습니다 → 그 시각에 <b>크롬이 닫혀 있었거나 PC 가 절전(잠자기)</b> 상태였던 것 같습니다${before ? ` (그 전 마지막: ${hhmmOf(before.t)}` : ''}${after ? `${before ? ', ' : ' ('}그 뒤 처음: ${hhmmOf(after.t)})` : before ? ')' : ''}. 크롬 창을 모두 닫으면 확장도 멈춥니다.`;
+  else if (past && a.lastAuto && !a.lastAuto.ok && a.lastAuto.date >= a.yesterday) why = `실행은 했지만 실패했습니다: ${esc(a.lastAuto.detail || '')}${a.autoRetry && a.autoRetry.count >= 3 ? ' (오늘 3번 다 실패해서 더 시도하지 않습니다)' : ''}`;
+  else if (past) why = '예약 시각은 지났고 확장도 깨어 있었는데 아직 실행 기록이 없습니다 (곧 매시간 점검이 실행합니다)';
+  return { past, why };
+}
+async function renderAutoBanner() {
+  const box = $('#auto-banner'); if (!box) return;
+  let a = null; try { a = await chrome.runtime.sendMessage({ type: 'autoStatus' }); } catch { a = null; }
+  if (!a) { box.innerHTML = '<div class="notice" style="background:#fde2e2;border-color:#f3b4b4;color:#7a1f1f">⛔ 확장의 백그라운드가 응답하지 않습니다. <code>chrome://extensions</code> 에서 쿠팡 광고계산기 카드에 <b>오류</b> 버튼이 있으면 눌러 내용을 보내 주시고, 카드의 ↻ 를 눌러 다시 켜 주세요. 이 상태에서는 자동 수집이 돌지 않습니다.</div>'; return; }
+  if (!a.enabled) {
+    box.innerHTML = `<div class="notice" style="background:#fde2e2;border-color:#f3b4b4;color:#7a1f1f">⛔ <b>매일 자동 수집이 꺼져 있습니다.</b> 그래서 ${esc(a.time)} 에 아무것도 하지 않았습니다. ${a.installedAt ? `(${hhmmOf(a.installedAt)} 에 확장을 새로 설치해서 설정이 처음 상태로 돌아갔습니다) ` : ''}<button class="btn primary sm" id="auto-on">자동 수집 켜기</button></div>`;
+    $('#auto-on').onclick = async () => { await chrome.storage.sync.set({ autoEnabled: true }); toast?.('자동 수집을 켰습니다. 매일 ' + a.time + ' 에 수집합니다'); setTimeout(renderAutoBanner, 800); if (typeof loadSettings === 'function') loadSettings(); };
+    return;
+  }
+  const dg = autoDiagnosis(a);
+  if (a.running) { box.innerHTML = `<div class="notice">⏳ 지금 자동 수집 중입니다 (${esc(a.yesterday)} 데이터).</div>`; return; }
+  if (!dg.past || a.doneToday) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00">⚠️ <b>오늘 ${esc(a.time)} 자동 수집이 아직 안 됐습니다</b> (${esc(a.yesterday)} 데이터). ${dg.why} <button class="btn primary sm" id="auto-run-now">지금 수집</button></div>`;
+  $('#auto-run-now').onclick = async () => { $('#auto-run-now').disabled = true; chrome.runtime.sendMessage({ type: 'runAuto' }).catch(() => {}); box.innerHTML = '<div class="notice">⏳ 자동 수집을 시작했습니다. 몇 분 걸립니다.</div>'; setTimeout(renderAutoBanner, 60000); };
+  // 앱을 연 지금은 크롬이 켜져 있으니, 못 한 수집이 있으면 바로 시작한다 (실패해서 3번 다 쓴 날은 매시간 점검이 알아서 건너뜀)
+  if (!nudged && !(a.lastAuto && a.lastAuto.date >= a.yesterday)) { nudged = true; chrome.runtime.sendMessage({ type: 'nudgeAuto' }).catch(() => {}); setTimeout(renderAutoBanner, 5000); }
+}
 function renderFoot() {
   const ds = S.dates(DATA);
   $('#foot').textContent = ds.length ? `데이터 ${ds[0]} ~ ${ds[ds.length - 1]} · ${ds.length}일 · 캠페인 ${S.campaigns(DATA).length}개` : '아직 데이터가 없습니다';
   renderMarginAlert();
+  renderAutoBanner();
 }
 
 /* ===== 대시보드 ===== */
@@ -1229,10 +1262,18 @@ $('#xl-fill').onclick = async () => {
     $('#xl-result').innerHTML = lines.map((x) => `<div>${esc(x)}</div>`).join(''); xlInfo();
   } catch (err) { msg('#xl-msg', `실패: ${err.message}`, 'err'); }
 };
-$('#backup').onclick = async () => { const d = await reload(); download(`쿠팡광고계산기_백업_${localIso(today)}.json`, JSON.stringify(d), 'application/json'); };
+$('#backup').onclick = async () => { const d = await reload(); const settings = await chrome.storage.sync.get(null).catch(() => ({})); download(`쿠팡광고계산기_백업_${localIso(today)}.json`, JSON.stringify({ ...d, __settings: settings, __backupAt: new Date().toISOString() }), 'application/json'); };
 $('#restore').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
-  try { const d = JSON.parse(await f.text()); if (!d.sales || !d.ads) throw new Error('백업 파일 형식이 아닙니다'); if (confirm('현재 데이터를 백업 파일 내용으로 바꿉니다. 계속할까요?')) { await S.replaceAll(d); msg('#data-msg', '복원됨', 'ok'); refreshAll(); } }
+  try {
+    const d = JSON.parse(await f.text()); if (!d.sales || !d.ads) throw new Error('백업 파일 형식이 아닙니다');
+    if (confirm('현재 데이터를 백업 파일 내용으로 바꿉니다. 계속할까요?')) {
+      await S.replaceAll(d);
+      // 백업에 설정(자동 수집 켜기·시각·주소·계정 이름 등)이 들어 있으면 함께 되살린다. 쿠팡 비밀번호는 백업에 넣지 않으므로 다시 입력해야 한다
+      let set = false; if (d.__settings && typeof d.__settings === 'object' && Object.keys(d.__settings).length) { await chrome.storage.sync.set(d.__settings); set = true; }
+      msg('#data-msg', set ? '복원됨 (설정도 되살림 · 자동 로그인 비밀번호는 다시 넣어 주세요)' : '복원됨 (이 백업에는 설정이 없어 자동 수집 켜기 등은 직접 다시 해 주세요)', 'ok'); refreshAll(); loadSettings?.();
+    }
+  }
   catch (e) { msg('#data-msg', e.message, 'err'); }
   ev.target.value = '';
 };
@@ -1253,6 +1294,9 @@ async function loadSettings() {
     $('#auto-status').innerHTML = a.enabled
       ? `자동 수집 <span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">켜짐</b>${lg} · 매일 ${a.time} · ${today} · 다음 예정 <b>${when}</b> · 마지막 실행 ${last}`
       : `자동 수집 <span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">꺼짐</b>${lg} — 위 '자동 수집 켜기'를 체크하고 <b>설정 저장</b>을 눌러야 매일 ${a.time} 에 저장됩니다. 마지막 실행 ${last}`;
+    const tk = (a.ticks || []).slice().reverse(); const KN = { hourly: '매시간 점검', daily: '예약 알람', startup: '크롬 시작', install: '설치', update: '업데이트', app: '앱 열림', catchup: '시작 뒤 보충', 'retry-auto': '재시도', 'update-remote': '업데이트 확인', 'update-disk': '파일 확인' };
+    $('#auto-ticks').innerHTML = tk.length ? tk.slice(0, 60).map(([t, k]) => `${hhmmOf(t)} ${esc(KN[k] || k)}`).join(' · ') : '기록 없음 (이번 버전부터 기록합니다)';
+    const dg = autoDiagnosis(a); if (a.enabled && dg.past && !a.doneToday && !a.running && dg.why) $('#auto-status').innerHTML += `<br>↳ ${dg.why}`;
   } catch { $('#auto-status').textContent = ''; }
 }
 async function loadLogin() {

@@ -722,7 +722,8 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
 // 매일 자동 수집 뒤 다운로드\쿠팡광고계산기_백업\ 에 요일별 백업 파일을 남긴다 (7개를 돌려 씀). 확장이 지워져도 '복원' 으로 되살릴 수 있게
 async function autoBackup(reason = '') {
   try {
-    const d = await S.load(); const bytes = new TextEncoder().encode(JSON.stringify(d));
+    const d = await S.load(); const settings = await chrome.storage.sync.get(null).catch(() => ({}));
+    const bytes = new TextEncoder().encode(JSON.stringify({ ...d, __settings: settings, __backupAt: new Date().toISOString() }));
     const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
     const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json`;
     const saved = await downloadBytes(bytes, filename, { mime: 'application/json' });
@@ -822,12 +823,12 @@ async function testUrl(kind) {
 async function scheduleAlarm() {
   const s = await getSettings();
   await chrome.alarms.clear('daily');
-  if (!s.autoEnabled) return;
+  if (!await chrome.alarms.get('hourly').catch(() => null)) await chrome.alarms.create('hourly', { periodInMinutes: 60 });   // 자동 수집이 꺼져 있어도 매시간 점검(이른 값 정리·엑셀 자동 채우기)은 돈다
+  if (!s.autoEnabled) { await log('[자동] 매일 자동 수집이 꺼져 있습니다 (데이터 · 설정 → 매일 자동 수집 → 자동 수집 켜기)'); return; }
   const [hh, mm] = s.autoTime.split(':').map(Number);
   const next = new Date(); next.setHours(hh, mm, 0, 0);
   if (next <= new Date()) next.setDate(next.getDate() + 1);
   await chrome.alarms.create('daily', { when: next.getTime(), periodInMinutes: 24 * 60 });
-  await chrome.alarms.create('hourly', { periodInMinutes: 60 });   // 알람 하나에만 맡기지 않고 매시간 '오늘 할 일을 했나' 확인
   await log(`[자동] 매일 ${s.autoTime} 예약됨. 다음 실행 ${next.toLocaleString('ko-KR')}`);
 }
 // 매시간: 예약 시각이 지났는데 어제 것을 아직 못 받았으면 지금 한다 (PC 가 잠들었거나, 업데이트로 다시 켜지며 알람을 놓친 경우)
@@ -891,13 +892,13 @@ async function fixUrls() {
   if (Object.keys(out).length) { await chrome.storage.sync.set(out); await log(`[설정] 주소가 도메인만 있어 기본값으로 되돌렸습니다: ${Object.entries(out).map(([k, v]) => `${k}=${v}`).join(', ')}`); }
 }
 
-chrome.runtime.onInstalled.addListener((d) => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
+chrome.runtime.onInstalled.addListener((d) => { tick(d.reason === 'install' ? 'install' : 'update'); if (d.reason === 'install') chrome.storage.local.set({ installedAt: Date.now() }); fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
 async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-remote', { periodInMinutes: 60 });    // 새 버전 있는지
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }
-chrome.runtime.onStartup.addListener(() => { fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
+chrome.runtime.onStartup.addListener(() => { tick('startup'); fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
 
 // 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
 async function catchUp() {
@@ -919,6 +920,15 @@ async function retryAuto() {
   await log(`[자동] 다시 시도 (${autoRetry.count}/${RETRY_MAX}): ${autoRetry.kinds.map((k) => KIND_NAME[k]).join('·')}`);
   await runAuto(undefined, autoRetry.kinds);
 }
+// 확장이 깨어 있던 시각 기록 (최근 3일치). '13시에 왜 안 했나' 를 가리는 근거: 그 시각 전후로 기록이 없으면 크롬이 꺼져 있었거나 PC 가 잠들어 있던 것
+async function tick(kind) {
+  try {
+    const { ticks = [] } = await chrome.storage.local.get('ticks'); const now = Date.now();
+    ticks.push([now, kind]); const keep = ticks.filter(([t]) => now - t < 3 * 86400000).slice(-200);
+    await chrome.storage.local.set({ ticks: keep });
+  } catch { /* 무시 */ }
+}
+chrome.alarms.onAlarm.addListener((a) => { tick(a.name); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
@@ -997,11 +1007,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'collectReportRange') { try { sendResponse(await collectReportRange(msg.from, msg.to)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'collectReport') { try { const safe = await S.safeEndIso(); if ((msg.date || yesterdayIso()) > safe) throw new Error(`예약 시각 전이라 어제 보고서는 아직 받지 않습니다. 예약 시각 이후에 자동으로 받습니다`); sendResponse(await collectReport(msg.date)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
     else if (msg.type === 'testUrl') { try { sendResponse(await testUrl(msg.kind)); } catch (e) { sendResponse({ ok: false, error: e.message }); } }
+    else if (msg.type === 'nudgeAuto') { sendResponse({ ok: true }); tick('app'); if (!autoRunning) hourlyCheck(); }
     else if (msg.type === 'autoStatus') {
       const s = await getSettings(); const al = await chrome.alarms.get('daily').catch(() => null);
       const { lastAuto = null } = await chrome.storage.local.get('lastAuto');
       const y = yesterdayIso(); const doneToday = !!(lastAuto && lastAuto.date >= y && lastAuto.ok);
-      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto, doneToday, yesterday: y, running: autoRunning });
+      const { ticks = [], installedAt = null, autoRetry = null } = await chrome.storage.local.get(['ticks', 'installedAt', 'autoRetry']);
+      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto, doneToday, yesterday: y, running: autoRunning, ticks: ticks.slice(-80), installedAt, autoRetry });
     }
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
     else { console.log('[cc] unknown message', JSON.stringify(msg)); sendResponse({ ok: false }); }
