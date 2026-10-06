@@ -122,7 +122,14 @@ async function renderAutoBanner() {
   }
   const dg = autoDiagnosis(a);
   if (a.running) { box.innerHTML = `<div class="notice">⏳ 지금 자동 수집 중입니다 (${esc(a.yesterday)} 데이터).</div>`; return; }
-  if (!dg.past || a.doneToday) { box.innerHTML = ''; return; }
+  if (!dg.past || a.doneToday) {
+    // 문제가 없을 때도 한 줄로 상태를 보여 준다 (배너가 안 보이면 '켜져 있는지' 알 수 없어서)
+    const last = a.lastAuto && a.lastAuto.at ? ` · 마지막 실행 ${hhmmOf(a.lastAuto.at)} ${a.lastAuto.ok ? '성공' : '실패'}` : '';
+    box.innerHTML = a.doneToday
+      ? `<div class="sub" style="margin:0 0 8px">✅ 매일 자동 수집 <b style="color:#1baf7a">켜짐</b> · 오늘 수집 완료 (${esc(a.yesterday)} 데이터)${last}</div>`
+      : `<div class="sub" style="margin:0 0 8px">⏰ 매일 자동 수집 <b style="color:#1baf7a">켜짐</b> · 오늘 ${esc(a.time)} 에 ${esc(a.yesterday)} 데이터를 받습니다 (그 시각에 크롬이 켜져 있어야 합니다)${last}</div>`;
+    return;
+  }
   box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00">⚠️ <b>오늘 ${esc(a.time)} 자동 수집이 아직 안 됐습니다</b> (${esc(a.yesterday)} 데이터). ${dg.why} <button class="btn primary sm" id="auto-run-now">지금 수집</button></div>`;
   $('#auto-run-now').onclick = async () => { $('#auto-run-now').disabled = true; chrome.runtime.sendMessage({ type: 'runAuto' }).catch(() => {}); box.innerHTML = '<div class="notice">⏳ 자동 수집을 시작했습니다. 몇 분 걸립니다.</div>'; setTimeout(renderAutoBanner, 60000); };
   // 앱을 연 지금은 크롬이 켜져 있으니, 못 한 수집이 있으면 바로 시작한다 (실패해서 3번 다 쓴 날은 매시간 점검이 알아서 건너뜀)
