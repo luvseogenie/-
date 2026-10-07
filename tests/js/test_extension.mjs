@@ -935,3 +935,20 @@ console.log('extension logic: all checks passed');
   const when = d.prunedOptions[0].when; assert.equal(S.undoPrune(d, when), 2); assert.equal(d.options.length, 5);
   console.log('prune options to campaign members: all checks passed');
 }
+
+// 60. 문풍지: 광고센터에서 읽어 온 캠페인 상품 목록(73~77)대로 옵션 목록을 맞춘다 — 0번에 가 있던 73·74 는 60번으로, 목록에 없는 옵션은 뺌
+{
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', C60 = '60. 문풍지_251%_261006';
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const ids = ['96101960073', '96101960074', '96101960075', '96101960076', '96101960077'];
+  await S.replaceAll({ ignore: { ids: [], words: [] }, ignoreDefaultsApplied: true, autoLinkReverted: true, resaleRestore1: true, pruneV1: true, margins: [], sales: {},
+    options: [{ option_id: ids[0], product_name: '문풍지', campaign: C0, source: 'adreport' }, { option_id: ids[1], product_name: '문풍지', campaign: C0, source: 'adreport' },
+      { option_id: ids[2], product_name: '문풍지', campaign: C60, source: 'adreport' }, { option_id: 'OLD9', product_name: '예전 엑셀 옵션', campaign: C60, source: 'excel' }],
+    ads: { '2026-10-06': { [C0]: ad(C0, 4000), [C60]: ad(C60, 3000) } },
+    campaignOptions: { [C60]: { at: '2026-10-07', options: ids.map((x) => ({ option_id: x, name: '' })) } } });
+  await chrome.storage.local.set({ ccadrows: { '2026-10-06': [{ campaign: C0, option_id: ids[0], spend: 100 }, { campaign: C0, option_id: ids[1], spend: 100 }, { campaign: C0, option_id: 'Z1', spend: 100 }, { campaign: C0, option_id: 'Z2', spend: 100 }] } });
+  const d = await S.load(); const r = S.pruneToCampaignOptions(d);
+  const in60 = d.options.filter((o) => o.campaign === C60).map((o) => o.option_id).sort();
+  assert.deepEqual(in60, ids); assert.deepEqual(r.removed.map((x) => x.option_id), ['OLD9']);
+  console.log('campaign option list from ad center defines campaign options: all checks passed');
+}

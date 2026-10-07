@@ -517,8 +517,25 @@ async function fetchCampaignOptions(campaigns) {
         await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${opts.map((o) => o.option_id).join(', ').slice(0, 80)})`);
       } catch (e) { results[camp] = { ok: false, error: e.message }; }
     }
+    // 읽어 온 목록대로 옵션을 맞춘다: 목록에 있는 옵션은 그 캠페인으로(없으면 추가), 그 캠페인에 연결돼 있는데 목록에 없는 옵션은 뺀다 (직접 장부에 추가한 것은 그대로)
+    try {
+      const d = await S.load();   // load 가 목록의 옵션을 추가·옮김
+      const r = S.pruneToCampaignOptions(d); await S.save(d);
+      if (r.removed.length) await log(`[옵션] 광고센터 목록에 없는 옵션 ${r.removed.length}개를 옵션 목록에서 뺐습니다 (${r.removed.slice(0, 6).map((x) => x.option_id).join(', ')}${r.removed.length > 6 ? ' 외' : ''})`);
+    } catch (e) { await log(`[옵션] 옵션 목록 맞추기 실패: ${e.message}`); }
     return { ok: true, results };
   } finally { await close(); }
+}
+// 매일: 운영 중인 전용 캠페인 중 광고센터 상품 목록을 아직 안 읽었거나 7일이 지난 것을 읽어 온다 (하루 최대 8개)
+async function refreshCampaignOptions() {
+  try {
+    const d = await S.load(); const st = S.campaignStatus(d); const ca = S.catchAllCampaigns(d);
+    const old = new Date(); old.setDate(old.getDate() - 7); const oldIso = `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`;
+    const want = Object.keys(st).filter((c) => st[c] === 'running' && !ca.has(c) && (!d.campaignOptions?.[c] || (d.campaignOptions[c].at || '') < oldIso)).slice(0, 8);
+    if (!want.length) return;
+    await log(`[옵션] 광고센터에서 캠페인 옵션 목록 읽기: ${want.join(', ')}`);
+    await fetchCampaignOptions(want);
+  } catch (e) { await log(`[옵션] 캠페인 옵션 목록 읽기 실패: ${e.message}`); }
 }
 
 // ---- 제외 키워드를 광고센터 캠페인에 등록 ----
@@ -794,6 +811,7 @@ async function runAutoInner(dateOverride, kinds) {
       if (missing.length && kinds.includes('report')) { await log(`[자동] 광고 값이 없는 날 ${missing.join(', ')} → 광고 보고서로 채웁니다`); await collectReportRange(missing[0], missing[missing.length - 1]); }
     } catch (e) { await log(`[자동] 지난 날 광고 보고서 보충 실패: ${e.message}`); }
   }
+  if (!dateOverride) await refreshCampaignOptions();
   if (!dateOverride) await autoBackup('자동 수집 뒤');
   return results;
 }

@@ -957,8 +957,9 @@ function renderOptions() {
     if (sortMode !== 'campaign') return; const key = camp || '(캠페인 없음)'; if (key === lastCamp) return; lastCamp = key;
     const n = list.filter((o) => (o.campaign || '(캠페인 없음)') === key).length;
     const tr = document.createElement('tr'); tr.className = 'camphdr'; tr.dataset.camp = key;
-    tr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>📢 ${esc(key)}</b><span class="sub">옵션 ${n}개</span><span class="grow"></span>${key !== '(캠페인 없음)' ? '<button class="btn sm camp-addopt" title="쿠팡 광고에는 넣지 않고, 이 캠페인 장부에 함께 볼 옵션(윙 옵션 등)을 넣습니다. 넣기 전 판매도 모두 이 캠페인 줄에 들어갑니다">＋ 장부에 옵션 추가</button> ' : ''}<button class="btn primary sm camp-save">이 캠페인 입력한 것 저장 <span class="camp-dirty-n">0</span>개</button></div></td>`;
+    tr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>📢 ${esc(key)}</b><span class="sub">옵션 ${n}개</span><span class="grow"></span>${key !== '(캠페인 없음)' ? '<button class="btn sm camp-fetch" title="광고센터에서 이 캠페인에 넣어 둔 옵션 목록을 읽어 와 옵션 목록을 그대로 맞춥니다 (창이 떴다 닫힘)">⟳ 쿠팡에서 옵션 가져오기</button> ' : ''}${key !== '(캠페인 없음)' ? '<button class="btn sm camp-addopt" title="쿠팡 광고에는 넣지 않고, 이 캠페인 장부에 함께 볼 옵션(윙 옵션 등)을 넣습니다. 넣기 전 판매도 모두 이 캠페인 줄에 들어갑니다">＋ 장부에 옵션 추가</button> ' : ''}<button class="btn primary sm camp-save">이 캠페인 입력한 것 저장 <span class="camp-dirty-n">0</span>개</button></div></td>`;
     const addBtn = tr.querySelector('.camp-addopt'); if (addBtn) addBtn.onclick = () => toggleLedgerAdd(tr, key);
+    const fBtn = tr.querySelector('.camp-fetch'); if (fBtn) fBtn.onclick = async () => { fBtn.disabled = true; fBtn.textContent = '읽는 중…'; await fetchCampOpts([key]); };
     tr.querySelector('.camp-save').onclick = async () => {
       const rows = dirtyRows().filter((r) => (r._opt.campaign || '(캠페인 없음)') === key); if (!rows.length) { toast('이 캠페인에 바뀐 줄이 없습니다', ''); return; }
       const dd = await reload(); for (const r of rows) { applyRow(dd, r); r.classList.remove('dirty'); } await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${key}: ${rows.length}개 저장됨`);

@@ -228,7 +228,8 @@ export function unlistedSoldOptions(d, sinceIso) {
 export function campaignEvidence(d) {
   const ev = {};
   for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) (ev[r.campaign] ||= new Set()).add(String(r.option_id));
-  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) (ev[c] ||= new Set()).add(String(o.option_id));
+  // 광고센터에서 그 캠페인의 상품 목록을 읽어 왔으면 그것이 정확한 '넣어 둔 옵션' 목록이다 (AI 캠페인은 보고서에 다른 옵션도 섞이므로)
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) if ((v.options || []).length) ev[c] = new Set(v.options.map((o) => String(o.option_id)));
   return ev;
 }
 // 옵션 목록 정리: 쿠팡 광고 캠페인에 들어 있지 않은 옵션은 목록에서 뺀다 (직접 '장부에 옵션 추가' 한 것은 그대로).
