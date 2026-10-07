@@ -873,3 +873,24 @@ console.log('extension logic: all checks passed');
   assert.equal(row(C0).days['2026-10-03'].spend, 4000); assert.equal(row(C0).days['2026-10-03'].actual_qty || 0, 0);
   console.log('wing option advertised by AI campaign goes to the product campaign ledger: all checks passed');
 }
+
+// 반품·재판매 옵션은 자동으로 넣지 않는다 (새 제품 옵션만). 이미 자동으로 들어간 것은 뺀다
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', C60 = '60. 압축 공병_250%', G = '96069955685', W = '96069955684';
+  const s = (id, q, unit, name = '압축 공병, 50ml', type = '로켓그로스') => ({ option_id: id, option_name: name, product_name: '압축 공병', product_id: '15999', sales_type: type, quantity: q, revenue: q * unit });
+  await S.replaceAll({ ignore: { ids: [], words: [] }, ignoreDefaultsApplied: true,
+    options: [{ option_id: G, product_name: '압축 공병, 50ml', campaign: C60, sort_order: 1 }, { option_id: W, product_name: '압축 공병, 50ml', campaign: C0, source: 'adreport', sort_order: 2 },
+      { option_id: 'R1', product_name: '압축 공병, 50ml', campaign: C0, source: 'adreport', sort_order: 3 },   // 예전에 자동으로 들어간 반품 옵션 (싸게 팔림)
+      { option_id: 'R2', product_name: '압축 공병, 50ml, 최상', campaign: C60, source: 'wing-link', sort_order: 4 }, { option_id: 'X1', product_name: 'x', campaign: C0, source: 'adreport', sort_order: 5 }, { option_id: 'X2', product_name: 'y', campaign: C0, source: 'adreport', sort_order: 6 }],
+    margins: [{ option_id: G, effective_from: '', margin: 2500 }],
+    ads: { '2026-10-05': { [C0]: ad(C0, 4000), [C60]: ad(C60, 3000) } },
+    sales: { '2026-10-05': { [G]: s(G, 2, 6000), [W]: s(W, 30, 6000, '압축 공병, 50ml', '판매자배송'), R1: s('R1', 3, 4200), R2: s('R2', 1, 6000, '압축 공병, 50ml, 최상'), R3: s('R3', 2, 3900), X1: { option_id: 'X1', product_id: 'x', quantity: 1, revenue: 1 }, X2: { option_id: 'X2', product_id: 'y', quantity: 1, revenue: 1 } } } });
+  const d = await S.load();
+  const ids = d.options.map((o) => o.option_id);
+  assert.ok(ids.includes(W) && d.options.find((o) => o.option_id === W).campaign === C60);   // 윙 새 제품 → 60번
+  assert.ok(!ids.includes('R1') && !ids.includes('R2') && !ids.includes('R3'));   // 반품(싸게 팔림·등급 표시)은 빠지고, 목록에 없던 반품도 안 들어감
+  assert.deepEqual(d.removedResale.map((r) => r.option_id).sort(), ['R1', 'R2']);
+  const un = S.unlistedSoldOptions(d, '2026-10-01'); const r3 = un.find((u) => u.option_id === 'R3'); assert.ok(r3 && r3.resale);   // 목록에 없는 옵션 화면에는 '반품·재판매로 보임'
+  console.log('resale options are never auto-added: all checks passed');
+}

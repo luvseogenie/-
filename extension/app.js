@@ -867,12 +867,14 @@ function renderOptions() {
   const todayRel = todayAll.filter((r) => r.why !== 'sibling'); const todaySib = todayAll.filter((r) => r.why === 'sibling');
   const todayAdd = (d.autoAdded || []).filter((r) => r.when === todayIso);
   const todayLink = (d.autoLinked || []).filter((r) => r.when === todayIso);
-  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+  const todayResale = (d.removedResale || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
       const parts = [];
       if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
       if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
       if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       if (todaySib.length) { const by = {}; for (const r of todaySib) { const k = `${r.from || '(없음)'} → ${r.to}`; by[k] = (by[k] || 0) + 1; } parts.push(`🔗 오늘 같은 상품의 옵션 ${todaySib.length}개를 그 상품 전용 캠페인 장부로 옮겼습니다 (쿠팡 광고는 그대로, 윙 옵션 등): ` + Object.entries(by).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 따로 넣어 주세요</span>'); }
+      if (todayResale.length) parts.push(`🧹 오늘 자동으로 들어갔던 반품·재판매 옵션 ${todayResale.length}개를 목록에서 뺐습니다 (마진을 넣은 것·직접 넣은 것은 그대로): ` + todayResale.slice(0, 8).map((r) => `${esc(r.option_id)} ${esc(String(r.name || '').slice(0, 30))} (${esc(r.why)})`).join(' · ') + (todayResale.length > 8 ? ' 외' : '') + ' <span class="sub">— 새 제품인데 빠졌으면 \'팔렸지만 목록에 없는 옵션\'에서 직접 넣으세요</span>');
       relBox.innerHTML = parts.join('<br>'); } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
@@ -1069,9 +1071,9 @@ function renderUnlisted() {
   for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
     const tr = document.createElement('tr');
     const camps = S.sortCampaigns(S.campaigns(DATA)); const sg = u.suggest;
-    const sel = `<select data-k="camp" style="max-width:190px"><option value="">(캠페인 고르기)</option>${camps.map((c) => `<option value="${esc(c)}" ${sg && sg.campaign === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+    const sel = `<select data-k="camp" style="max-width:190px"><option value="">(캠페인 고르기)</option>${camps.map((c) => `<option value="${esc(c)}" ${sg && !u.resale && sg.campaign === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
     tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="l sub">${esc(u.sales_type || '')}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td>`
-      + `<td class="l">${sel} <input type="number" data-k="margin" placeholder="마진(원)" style="width:80px"> <button class="btn primary sm" data-link>장부에 넣기</button>${sg ? `<div class="sub">추천: ${esc(sg.campaign)} (${esc(sg.via)})</div>` : ''}</td>`
+      + `<td class="l">${sel} <input type="number" data-k="margin" placeholder="마진(원)" style="width:80px"> <button class="btn primary sm" data-link>장부에 넣기</button>${u.resale ? `<div class="neg sub">반품·재판매로 보임 (${esc(u.resale)}) — 새 제품이면 직접 넣으세요</div>` : sg ? `<div class="sub">추천: ${esc(sg.campaign)} (${esc(sg.via)})</div>` : ''}</td>`
       + `<td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button> <button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
     tr.querySelector('[data-link]').onclick = async () => {
       const camp = tr.querySelector('[data-k=camp]').value; const mg = tr.querySelector('[data-k=margin]').value;
@@ -1091,12 +1093,12 @@ function renderUnlisted() {
 // 윙 옵션 등 목록에 없는 옵션을 캠페인 장부에 넣는다 (쿠팡 광고에는 넣지 않음). 추천의 기준이 된 옵션을 기억해 두어, 그 옵션이 새 캠페인으로 옮겨 가면 함께 옮긴다
 function linkToCampaign(dd, u, camp, margin) {
   S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name || '', product: u.product || '', campaign: camp, source: 'wing-link' });
-  const o = dd.options.find((x) => x.option_id === String(u.option_id)); if (o && u.suggest && u.suggest.campaign === camp) o.ref = u.suggest.option_id;
+  const o = dd.options.find((x) => x.option_id === String(u.option_id)); if (o) { o.manual = true; if (u.suggest && u.suggest.campaign === camp) o.ref = u.suggest.option_id; }   // 직접 넣은 것은 반품 정리에서 빼지 않는다
   if (margin !== '' && margin != null && !isNaN(Number(margin))) S.setMargin(dd, u.option_id, Number(margin), '', '윙 옵션 (장부에 넣기)');
 }
 $('#unlisted-link-all').onclick = async () => {
   const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
-  const dd = await reload(); const list = S.unlistedSoldOptions(dd, since).filter((u) => u.suggest);
+  const dd = await reload(); const list = S.unlistedSoldOptions(dd, since).filter((u) => u.suggest && !u.resale);   // 반품·재판매로 보이는 것은 빼고
   if (!list.length) { msg('#unlisted-link-msg', '추천 캠페인이 있는 옵션이 없습니다', 'err'); return; }
   if (!confirm(`${list.length}개 옵션을 추천 캠페인 장부에 넣습니다 (쿠팡 광고에는 넣지 않음). 마진은 옵션 목록에서 따로 넣어야 합니다. 계속할까요?`)) return;
   for (const u of list) linkToCampaign(dd, u, u.suggest.campaign, '');
