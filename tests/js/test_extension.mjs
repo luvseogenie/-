@@ -849,3 +849,27 @@ console.log('extension logic: all checks passed');
   d.campaignKinds = { [C0]: 'dedicated' }; assert.ok(!S.catchAllCampaigns(d).has(C0));   // 직접 정할 수 있음
   console.log('catch-all campaign → dedicated campaign gets earlier sales: all checks passed');
 }
+
+// 60번: 그로스 옵션(96069955685)만 광고에 넣었고, 윙 옵션(96069955684)은 AI 광고(0번)로 돌아가 0번 옵션으로 잡혀 있음 → 윙도 60번 장부에
+{
+  const { computeLedger: CL } = await import('../../extension/lib/ledger.js');
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', C60 = '60. 압축 공병_250%', G = '96069955685', W = '96069955684';
+  const s = (id, q, type) => ({ option_id: id, option_name: '압축 공병, 50ml', product_name: '압축 공병', product_id: '15999', sales_type: type, quantity: q, revenue: q * 6000 });
+  const d = { legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, relinks: [], campaignOptions: {}, ignore: { ids: [], words: [] },
+    options: [{ option_id: G, product_name: '압축 공병, 50ml', campaign: C60, sort_order: 1 }, { option_id: W, product_name: '압축 공병, 50ml', campaign: C0, source: 'adreport', sort_order: 2 }, { option_id: 'X', product_name: '다른 상품', campaign: C0, source: 'adreport', sort_order: 3 }],
+    margins: [{ option_id: G, effective_from: '', margin: 2500 }, { option_id: W, effective_from: '', margin: 1200 }],
+    ads: { '2026-10-03': { [C0]: ad(C0, 4000), [C60]: ad(C60, 3000) }, '2026-10-06': { [C0]: ad(C0, 4000), [C60]: ad(C60, 0) } },
+    adrows: { '2026-10-03': [{ campaign: C0, option_id: W, spend: 900 }, { campaign: C0, option_id: 'X', spend: 900 }, { campaign: C60, option_id: G, spend: 3000 }], '2026-10-06': [{ campaign: C0, option_id: W, spend: 900 }] },
+    sales: { '2026-10-03': { [G]: s(G, 2, '로켓그로스'), [W]: s(W, 30, '판매자배송') }, '2026-10-06': { [W]: s(W, 25, '판매자배송') } } };
+  const moved = S.relinkOptions(d);
+  assert.deepEqual(moved.map((m) => [m.option_id, m.from, m.to]), [[W, C0, C60]]);
+  const w = d.options.find((o) => o.option_id === W); assert.equal(w.source, 'wing-link'); assert.equal(w.ref, G);
+  assert.equal(d.options.find((o) => o.option_id === 'X').campaign, C0);   // 다른 상품은 그대로 0번
+  assert.deepEqual(S.relinkOptions(d), []);   // 0번이 계속 광고해도 0번으로 되돌아가지 않음
+  const led = CL(d, '2026-10-03', '2026-10-06'); const row = (n) => led.campaigns.find((c) => c.campaign === n);
+  assert.equal(row(C60).days['2026-10-03'].actual_qty, 32); assert.equal(row(C60).days['2026-10-03'].margin_total, 2 * 2500 + 30 * 1200);
+  assert.equal(row(C60).days['2026-10-06'].actual_qty, 25);
+  assert.equal(row(C0).days['2026-10-03'].spend, 4000); assert.equal(row(C0).days['2026-10-03'].actual_qty || 0, 0);
+  console.log('wing option advertised by AI campaign goes to the product campaign ledger: all checks passed');
+}

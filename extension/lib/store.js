@@ -92,19 +92,31 @@ export function relinkOptions(d) {
   for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (ev[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
   const moved = []; const ca = catchAllCampaigns(d);
   for (const o of d.options) {
+    if (o.source === 'wing-link') continue;   // 장부에만 넣은 옵션은 아래에서 기준 옵션을 따라간다
     const m = ev[o.option_id]; if (!m) continue;
     // 전용 캠페인을 모음(AI) 캠페인보다 먼저, 그 안에서는 최근 근거 순
     const running = Object.entries(m).filter(([c]) => st[c] === 'running').sort((a, b) => (ca.has(a[0]) - ca.has(b[0])) || b[1].localeCompare(a[1]));
     if (!running.length) continue;
     const [best, at] = running[0];
     if (best === o.campaign) continue;
+    if (ca.has(best) && o.campaign && !ca.has(o.campaign)) continue;   // 전용 캠페인 → 모음(AI) 캠페인으로는 옮기지 않는다
     if (st[o.campaign] === 'running' && m[o.campaign] && !(ca.has(o.campaign) && !ca.has(best))) continue;   // 지금 캠페인도 운영 중이고 근거가 있으면 그대로 (단, 모음 캠페인 → 새 전용 캠페인은 옮김)
     moved.push({ option_id: o.option_id, from: o.campaign, to: best, at });
     o.campaign = best;
   }
+  // 모음(AI) 캠페인에 잡혀 있거나 캠페인이 없는 옵션인데, 같은 등록상품·같은 옵션 이름의 옵션이 전용 캠페인에 있으면 그 캠페인 장부로
+  // (예: 60번에는 그로스 옵션만 광고로 넣고, 윙 옵션은 AI 광고(0번)로 돌아가는 경우 → 윙 옵션도 60번 장부에). 쿠팡 광고는 그대로
+  const sug = campaignSuggester(d); const infoOf = {};
+  for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) infoOf[r.option_id] = { product_id: r.product_id || infoOf[r.option_id]?.product_id || '', option_name: r.option_name || infoOf[r.option_id]?.option_name || '', product: r.product_name || infoOf[r.option_id]?.product || '' };
+  for (const o of d.options) {
+    if (o.source === 'wing-link' || (o.campaign && !ca.has(o.campaign))) continue;
+    const i = infoOf[o.option_id] || {}; const g = sug({ option_id: o.option_id, product_id: i.product_id, option_name: i.option_name || o.product_name, product: i.product || o.product });
+    if (!g || g.via === '같은 상품명' || g.campaign === o.campaign) continue;
+    moved.push({ option_id: o.option_id, from: o.campaign, to: g.campaign, at: '', why: 'sibling' }); o.campaign = g.campaign; o.ref = g.option_id; o.source = 'wing-link';
+  }
   // 장부에만 넣은 윙 옵션은 기준 옵션(같은 상품의 그로스 옵션)이 옮겨 간 캠페인으로 함께 옮긴다
   const byId = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
-  for (const o of d.options) if (o.source === 'wing-link' && o.ref && byId[o.ref] && byId[o.ref].campaign && byId[o.ref].campaign !== o.campaign) { moved.push({ option_id: o.option_id, from: o.campaign, to: byId[o.ref].campaign, at: '' }); o.campaign = byId[o.ref].campaign; }
+  for (const o of d.options) if (o.source === 'wing-link' && o.ref && byId[o.ref] && byId[o.ref].campaign && byId[o.ref].campaign !== o.campaign) { moved.push({ option_id: o.option_id, from: o.campaign, to: byId[o.ref].campaign, at: '', why: 'sibling' }); o.campaign = byId[o.ref].campaign; }
   if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, when }))].slice(-300); }
   return moved;
 }
@@ -203,8 +215,9 @@ export function campaignSuggester(d) {
   const nm = (x) => String(x || '').replace(/[\s,·_()\[\]-]/g, '').toLowerCase();
   const byPid = {}, byName = {}, byProd = {};
   const st = campaignStatus(d); const rank = (c) => (st[c] === 'running' ? 0 : st[c] === 'paused' ? 1 : st[c] ? 2 : 1);
+  const ca = catchAllCampaigns(d);   // 모음(AI) 캠페인은 추천하지 않는다 (같은 상품의 전용 캠페인으로 보내려는 것이므로)
   for (const o of d.options) {
-    if (!o.campaign || o.source === 'wing-link') continue; const i = info[o.option_id] || {};
+    if (!o.campaign || o.source === 'wing-link' || ca.has(o.campaign)) continue; const i = info[o.option_id] || {};
     const add = (map, k) => { if (!k) return; const cur = map[k]; if (!cur || rank(o.campaign) < rank(cur.campaign)) map[k] = { campaign: o.campaign, option_id: o.option_id }; };
     add(byPid, String(i.product_id || '')); add(byName, nm(i.option_name || o.product_name)); add(byProd, nm(i.product || o.product));
   }
