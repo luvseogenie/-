@@ -225,7 +225,7 @@
           <select id="opt-camp" title="캠페인별로 보기" style="min-width:220px"><option value="">모든 캠페인</option></select>
           <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">⚠️ 마진 없음 (광고 캠페인 옵션)</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
           <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
-          <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select><button class="btn sm" id="opt-prune" title="쿠팡 광고 캠페인에 들어 있지 않은 옵션(직접 장부에 추가한 것 제외)을 목록에서 뺍니다. 마진 이력은 남깁니다">🧽 캠페인에 없는 옵션 정리</button>
+          <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select><button class="btn sm" id="opt-clean-auto" title="프로그램이 자동으로 넣었고 마진이 없는 옵션(노란 줄)을 뺍니다. 엑셀·직접 넣은 것·광고센터 목록에 있는 것·마진을 넣은 것은 그대로">🧹 자동으로 들어간 노란 줄 지우기</button><button class="btn sm" id="opt-prune" title="쿠팡 광고 캠페인에 들어 있지 않은 옵션(직접 장부에 추가한 것 제외)을 목록에서 뺍니다. 마진 이력은 남깁니다">🧽 캠페인에 없는 옵션 정리</button>
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
           <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>
@@ -244,7 +244,7 @@
           <button class="btn primary sm" id="opt-bulk-save">일괄 저장</button><span class="sub">위의 검색·캠페인·필터로 걸러진 옵션 전부에 같은 마진을 시작일부터 적용합니다. 시작일을 비우면 처음부터.</span>
         </div>
         <div id="opt-camp-card" style="display:none;margin-bottom:10px"></div>
-        <div class="row" id="opt-dirtybar" style="display:none"><b>입력만 하고 아직 저장 안 한 줄 <span id="opt-dirty-n">0</span>개</b><button class="btn primary sm" id="opt-save-all">입력한 0개 모두 저장</button><button class="btn sm" id="opt-dirty-cancel">입력 취소</button><span class="sub">줄마다 '저장'을 누르지 않아도 한 번에 저장됩니다.</span></div>
+        <div class="row" id="opt-dirtybar" style="display:none"><b>입력만 하고 아직 저장 안 한 줄 <span id="opt-dirty-n">0</span>개</b><button class="btn primary sm" id="opt-save-all">입력한 0개 모두 저장</button><button class="btn sm" id="opt-dirty-cancel">입력 취소</button><span class="sub">줄마다 '저장'을 누르지 않아도 한 번에 저장됩니다 (Ctrl+S).</span></div>
         <div class="tablewrap" style="max-height:70vh"><table class="form-table" id="options-table"><thead><tr><th class="l">옵션ID</th><th class="l">상품명</th><th class="l">광고 캠페인</th><th>현재 마진</th><th class="l">마진 이력</th><th class="l" title="새 마진은 시작일부터 적용되고 이전 날짜는 그대로입니다. 첫 마진은 시작일을 비우면 처음부터 적용됩니다.">마진 변경 (새 마진 · 시작일 · 사유)</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="row" style="margin-top:12px"><button class="btn primary sm" id="copt-fetch-all">⟳ 모든 캠페인 옵션 쿠팡에서 가져오기</button><span class="sub">운영 중인 캠페인마다 광고센터에 넣어 둔 옵션 목록을 읽어 옵니다 (캠페인 하나에 10초쯤, 작은 창이 떴다 닫힘). 읽은 목록을 확인하고 <b>모두 이 목록대로 맞추기</b>를 누르면 넣지 않은 옵션은 빠지고 이름도 광고센터 이름으로 맞춰집니다.</span></div>

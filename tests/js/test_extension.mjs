@@ -478,7 +478,7 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(led1.noad_options.map((n) => [n.option_id, n.qty, n.margin]), [['C', 1, 0]]);
   // 두 운영 캠페인이 같은 옵션을 광고하면 지금 연결 유지
   d.ads['2026-09-11']['3. 담요'] = ad('3. 담요', 500); d.options[0].campaign = '3. 담요';
-  d.adrows['2026-09-11'].push({ date: '2026-09-11', campaign: '3. 담요', option_id: 'A', spend: 500, keyword: 'y' });
+  d.adrows['2026-09-11'].push({ date: '2026-09-11', campaign: '3. 담요', option_id: 'A', spend: 500, keyword: 'y' }); S.bumpAdrows(d.adrows);
   assert.deepEqual(S.relinkOptions(d), []); assert.equal(d.options[0].campaign, '3. 담요');
   // 광고 목록을 한 번도 안 읽었으면 아무것도 안 옮김
   assert.deepEqual(S.relinkOptions({ ...d, ads: {} }), []);
@@ -892,9 +892,9 @@ console.log('extension logic: all checks passed');
     sales: { '2026-10-05': { [G]: s(G, 2, 6000), [W]: s(W, 30, 6000, '압축 공병, 50ml', '판매자배송'), R1: s('R1', 3, 4200), R2: s('R2', 1, 6000, '압축 공병, 50ml, 최상'), R3: s('R3', 2, 3900), X1: { option_id: 'X1', product_id: 'x', quantity: 1, revenue: 1 }, X2: { option_id: 'X2', product_id: 'y', quantity: 1, revenue: 1 } } } });
   const d = await S.load();
   const ids = d.options.map((o) => o.option_id);
-  assert.ok(ids.includes(W) && d.options.find((o) => o.option_id === W).campaign === C0);   // 윙 새 제품은 자동으로 옮기지 않음 (직접 추가)
+  assert.ok(!ids.includes(W) && ids.includes(G));   // 자동으로 들어간 마진 없는 옵션은 지움 (진짜 캠페인 옵션이면 광고센터 목록을 읽을 때 다시 들어옴), 마진 있는 G 는 그대로
   assert.ok(!ids.includes('R2') && !ids.includes('R3'));   // 이름에 등급 표시가 있는 것은 빠지고, 목록에 없던 것은 자동으로 안 들어감
-  assert.ok(ids.includes('R1'));   // 값이 싸다는 것만으로는 자동으로 빼지 않는다 (윙이 그로스보다 비싼 경우 그로스가 잘못 빠졌음)
+  assert.ok(!ids.includes('R1'));   // 자동으로 들어간 마진 없는 옵션이라 지움
   const c = S.ledgerOptionCandidates(d, C60); assert.ok(c.find((x) => x.option_id === 'R3').resale); assert.ok(!c.find((x) => x.option_id === W).resale);
   const un = S.unlistedSoldOptions(d, '2026-10-01'); const r3 = un.find((u) => u.option_id === 'R3'); assert.ok(r3 && r3.resale);   // 목록에 없는 옵션 화면에는 '반품·재판매로 보임'
   console.log('resale options are never auto-added: all checks passed');
@@ -905,7 +905,7 @@ console.log('extension logic: all checks passed');
   const C60 = '60. 압축 공병_250%', G = '96069955685', W = '96069955684';
   const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
   const s2 = (id, q, unit, type) => ({ option_id: id, option_name: '압축 공병, 50ml', product_name: '압축 공병', product_id: '15999', sales_type: type, quantity: q, revenue: q * unit });
-  await S.replaceAll({ ignore: { ids: [], words: [] }, ignoreDefaultsApplied: true, autoLinkReverted: true,
+  await S.replaceAll({ ignore: { ids: [], words: [] }, ignoreDefaultsApplied: true, autoLinkReverted: true, autoNoMargin1: true,
     options: [{ option_id: 'Z', product_name: 'z', campaign: C60, source: 'manual', sort_order: 1 }],
     removedResale: [{ option_id: G, campaign: C60, name: '압축 공병, 50ml', why: '같은 옵션보다 25% 쌈', when: '2026-10-07' }],
     margins: [], ads: { '2026-10-05': { [C60]: ad(C60, 3000) } },
@@ -1001,4 +1001,25 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(S.autoAddOptions(d), []);
   assert.equal(S.normalizeOptionNames(d), 1); assert.equal(d.options[0].product_name, 'DUGNSTUDIO 타이머, 1개, 화이트');
   console.log('no auto-add from ad report rows, option names normalized: all checks passed');
+}
+
+// 광고센터 목록: 추가만 하는 경우(새 캠페인)는 '안전' → 바로 반영, 빠지는 옵션이 있으면 확인 대기
+{
+  const C0 = '0. AI', C61 = '61. 새 캠페인';
+  const d = { options: [{ option_id: 'A', campaign: C0, source: 'adreport' }, { option_id: 'K', campaign: '59. 타이머', source: 'excel' }, { option_id: 'X', campaign: '59. 타이머', source: 'excel' }], margins: [], sales: {}, adrows: {}, ads: {}, campaignOptions: {},
+    pendingCampaignOptions: { [C61]: { at: '2026-10-08', options: [{ option_id: 'A' }, { option_id: 'N' }] }, '59. 타이머': { at: '2026-10-08', options: [{ option_id: 'K' }] } } };
+  assert.deepEqual(S.pendingImpact(d, C61), { adds: 1, moves: 1, removals: 0, safe: true });   // 0번(AI)에서 옮겨 오고 하나 추가 → 바로 반영
+  assert.deepEqual(S.pendingImpact(d, '59. 타이머'), { adds: 0, moves: 0, removals: 1, safe: false });   // X 가 빠짐 → 확인 필요
+  console.log('pending impact (auto-apply only when nothing is removed): all checks passed');
+}
+
+// 노란 줄 정리: 자동으로 들어간 마진 없는 옵션만 지운다 (엑셀·직접 넣은 것·광고센터 목록에 있는 것·마진 있는 것은 그대로)
+{
+  const C56 = '56. 자석 커튼 홀더_250%_261005';
+  const d = { options: [{ option_id: '95759091932', campaign: C56, source: 'excel' }, { option_id: '93877161249', campaign: C56, source: 'adreport' }, { option_id: '95960002749', campaign: C56, source: 'restored' },
+      { option_id: 'M', campaign: C56, source: 'wing-link', manual: true }, { option_id: 'L', campaign: C56, source: 'adcenter' }, { option_id: 'P', campaign: C56, source: 'adreport' }],
+    margins: [{ option_id: 'P', effective_from: '', margin: 100 }], campaignOptions: { [C56]: { at: '2026-10-07', options: [{ option_id: 'L' }] } } };
+  assert.deepEqual(S.removeAutoNoMargin(d).map((x) => x.option_id), ['93877161249', '95960002749']);
+  assert.deepEqual(d.options.map((o) => o.option_id), ['95759091932', 'M', 'L', 'P']);
+  console.log('remove auto-added no-margin options: all checks passed');
 }

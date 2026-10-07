@@ -515,8 +515,12 @@ async function fetchCampaignOptions(campaigns) {
         if (!opts.length && lastR?.diag) { const g = lastR.diag; await log(`[옵션] ${camp} 상품 목록을 못 읽음 — 주소 ${g.url} · 제목 ${g.title} · 'ID' 글자: ${(g.bits || []).join(' / ').slice(0, 300)} · 표 제목: ${(g.heads || []).join(' ; ').slice(0, 200)} · 받은 데이터 ${g.responses}건, 옵션 ${g.sniffed}개 · 데이터 키: ${(g.keys || '').slice(0, 300)}`); }
         if (!opts.length) { const st = await tabState(tab.id); results[camp] = { ok: false, diag: lastR?.diag || null, error: `상품 목록(옵션ID)을 찾지 못했습니다 — ${how}, 지금 주소 ${st.url.slice(0, 80)}, 줄 구조 ${rl?.rowTag || '?'} 링크 ${(rl?.anchors || []).join(', ').slice(0, 120) || '없음'}, 이름 요소 ${rl?.html || ''}` }; continue; }
         // 바로 반영하지 않고 '확인 대기'로 둔다 → 앱에서 목록을 보여 주고 사용자가 '이대로 맞추기' 를 누르면 반영
-        const d = await S.load(); d.pendingCampaignOptions = { ...(d.pendingCampaignOptions || {}), [camp]: { at: new Date().toISOString().slice(0, 10), via, options: opts.map((o) => ({ option_id: String(o.option_id), name: String(o.name || '') })) } }; await S.save(d);
-        results[camp] = { ok: true, options: opts, via };
+        const d = await S.load(); d.pendingCampaignOptions = { ...(d.pendingCampaignOptions || {}), [camp]: { at: new Date().toISOString().slice(0, 10), via, options: opts.map((o) => ({ option_id: String(o.option_id), name: String(o.name || '') })) } };
+        // 추가만 하는 경우(새 캠페인 등, 빠지는 옵션 없음)는 바로 반영. 빠지거나 다른 캠페인에서 옮겨 오는 옵션이 있으면 앱에서 확인 후 반영
+        const imp = S.pendingImpact(d, camp); let applied = null;
+        if (imp?.safe) { const r = S.applyPendingCampaignOptions(d, camp); applied = { added: r.added.length, moved: r.moved.length }; await log(`[옵션] ${camp}: 광고센터 목록대로 바로 반영 (추가 ${r.added.length}, 옮김 ${r.moved.length})`); }
+        await S.save(d);
+        results[camp] = { ok: true, options: opts, via, applied };
         await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${via === 'data' ? '화면 데이터' : '화면 글자'}에서, 확인 대기) ${opts.map((o) => o.option_id).join(', ').slice(0, 120)}`);
       } catch (e) { results[camp] = { ok: false, error: e.message }; }
     }
@@ -859,7 +863,7 @@ async function purgeEarlyYesterday() {
     if (lastAuto.at >= okFrom.getTime()) return;
     const date = lastAuto.date; const d = await S.load();
     const n = Object.keys(d.sales[date] || {}).length + Object.keys(d.ads[date] || {}).length + ((d.adrows || {})[date] || []).length;
-    delete d.sales[date]; delete d.ads[date]; if (d.adrows && d.adrows[date]) delete d.adrows[date];
+    delete d.sales[date]; delete d.ads[date]; if (d.adrows && d.adrows[date]) { delete d.adrows[date]; S.bumpAdrows(d.adrows); }
     await S.save(d); await chrome.storage.local.remove('lastAuto');
     await log(`[자동] ${date} 판매·광고 값 ${n}건을 지웠습니다: 예약 시각(${s.autoTime}) 전인 ${new Date(lastAuto.at).toLocaleString('ko-KR')} 에 받은 덜 잡힌 숫자라서. 예약 시각 이후 자동 수집에서 다시 받습니다`);
   } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }

@@ -137,7 +137,9 @@ async function renderAutoBanner() {
   // 앱을 연 지금은 크롬이 켜져 있으니, 못 한 수집이 있으면 바로 시작한다 (실패해서 3번 다 쓴 날은 매시간 점검이 알아서 건너뜀)
   if (!nudged && !(a.lastAuto && a.lastAuto.date >= a.yesterday)) { nudged = true; chrome.runtime.sendMessage({ type: 'nudgeAuto' }).catch(() => {}); setTimeout(renderAutoBanner, 5000); }
 }
+let lastLocalRefresh = 0;
 function renderFoot() {
+  lastLocalRefresh = Date.now();
   const ds = S.dates(DATA);
   $('#foot').textContent = ds.length ? `데이터 ${ds[0]} ~ ${ds[ds.length - 1]} · ${ds.length}일 · 캠페인 ${S.campaigns(DATA).length}개` : '아직 데이터가 없습니다';
   renderMarginAlert();
@@ -799,6 +801,7 @@ $('#lg-csv').onclick = () => {
 $('#opt-search').oninput = () => renderOptions(); $('#opt-filter').onchange = () => renderOptions();
 $('#opt-new-toggle').onclick = () => { $('#new-option').style.display = 'flex'; $('#no-id').focus(); };
 $('#opt-save-all').onclick = saveAllDirty;
+document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && location.hash.startsWith('#options')) { e.preventDefault(); saveAllDirty(); } });
 $('#opt-dirty-cancel').onclick = () => renderOptions();
 $('#opt-help-toggle').onclick = (e) => { e.preventDefault(); const h = $('#opt-help'); h.style.display = h.style.display === 'none' ? '' : 'none'; };
 $('#opt-bulk-toggle').onclick = () => { const b = $('#opt-bulk'); b.style.display = b.style.display === 'none' ? 'flex' : 'none'; b.closest('.card').querySelector('details.inline').open = false; };
@@ -833,6 +836,12 @@ function applyRow(dd, tr) {
   if (g('margin') !== '') { S.setMargin(dd, o.option_id, parseNumber(g('margin')) || 0, g('effective_from') || '', g('note')); parts.push(`마진 ${fmtInt(parseNumber(g('margin')) || 0)}원${g('effective_from') ? ' ' + g('effective_from') + '부터' : ''}`); }
   return parts.join(' · ');
 }
+// 저장한 줄을 다시 그린 뒤 초록색으로 잠깐 표시 (적용됐는지 바로 보이게)
+function flashSaved(ids) {
+  const set = new Set(ids.map(String)); let first = null;
+  for (const tr of $$('#options-table tbody tr')) { if (!tr._opt || !set.has(String(tr._opt.option_id))) continue; tr.classList.add('saved'); const c = tr.querySelector('td'); if (c && !c.querySelector('.saved-badge')) c.insertAdjacentHTML('beforeend', '<div class="saved-badge">✓ 저장됨</div>'); first ||= tr; setTimeout(() => tr.classList.remove('saved'), 2500); }
+  return first;
+}
 function dirtyRows() { return $$('#options-table tbody tr.dirty'); }
 function updateDirtyBar() {
   const rows = dirtyRows(); const n = rows.length; const bar = $('#opt-dirtybar'); if (!bar) return;
@@ -844,7 +853,7 @@ async function saveAllDirty() {
   const rows = dirtyRows(); if (!rows.length) { toast('바뀐 줄이 없습니다', ''); return; }
   const dd = await reload(); const ids = [];
   for (const tr of rows) { applyRow(dd, tr); ids.push(tr._opt.option_id); tr.classList.remove('dirty'); }
-  await S.save(dd); await reload(); renderOptions(); renderFoot();
+  await S.save(dd); await reload(); renderOptions(); renderFoot(); flashSaved(ids);
   toast(`${ids.length}개 저장됨`); msg('#opt-msg', `${ids.length}개 저장됨: ${ids.join(', ')}`, 'ok');
 }
 function renderOptions() {
@@ -878,7 +887,7 @@ function renderOptions() {
       if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       if (todaySib.length) { const by = {}; for (const r of todaySib) { const k = `${r.from || '(없음)'} → ${r.to}`; by[k] = (by[k] || 0) + 1; } parts.push(`🔗 오늘 같은 상품의 옵션 ${todaySib.length}개를 그 상품 전용 캠페인 장부로 옮겼습니다 (쿠팡 광고는 그대로, 윙 옵션 등): ` + Object.entries(by).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 따로 넣어 주세요</span>'); }
       if (todayRestP.length) parts.push(`↩️ 지난 버전이 광고 보고서만 보고 뺀 옵션 ${todayRestP.length}개를 되살렸습니다 (보고서에는 클릭이 난 옵션만 있어 76·77 같은 옵션이 잘못 빠졌음). 캠페인 옵션은 머리줄의 <b>⟳ 쿠팡에서 옵션 가져오기</b> 로 광고센터 목록을 읽어 확인한 뒤 맞춥니다`);
-      if (todayPrune.length) { const by = {}; for (const r of todayPrune) by[r.campaign || '(캠페인 없음)'] = (by[r.campaign || '(캠페인 없음)'] || 0) + 1; parts.push(`🧽 옵션 목록을 정리했습니다: 광고센터 캠페인 목록에 없는 옵션 ${todayPrune.length}개를 뺐습니다 (마진 이력은 남겨 둠) — ` + Object.entries(by).slice(0, 10).map(([c, n]) => `${esc(c)} ${n}개`).join(' · ') + (Object.keys(by).length > 10 ? ' 외' : '') + ` <button class="btn sm" id="prune-undo">되돌리기</button>`); }
+      if (todayPrune.length) { const by = {}; for (const r of todayPrune) by[r.campaign || '(캠페인 없음)'] = (by[r.campaign || '(캠페인 없음)'] || 0) + 1; parts.push(`🧽 옵션 목록을 정리했습니다: 광고센터 목록에 없거나 자동으로 들어간 마진 없는 옵션 ${todayPrune.length}개를 뺐습니다 (마진 이력은 남겨 둠) — ` + Object.entries(by).slice(0, 10).map(([c, n]) => `${esc(c)} ${n}개`).join(' · ') + (Object.keys(by).length > 10 ? ' 외' : '') + ` <button class="btn sm" id="prune-undo">되돌리기</button>`); }
       if ((d.pruneUnverified || []).length) parts.push(`<span class="sub">광고 보고서·광고센터 상품 목록이 없어 확인하지 못한 캠페인은 그대로 두었습니다: ${d.pruneUnverified.slice(0, 8).map(esc).join(', ')}${d.pruneUnverified.length > 8 ? ' 외' : ''}</span>`);
       if (todayRev.length) parts.push(`↩️ 예전 버전이 같은 상품이라고 자동으로 캠페인 장부에 넣었던 옵션 ${todayRev.length}개(마진 안 넣은 것)를 되돌렸습니다. 장부에 함께 볼 옵션은 각 캠페인 머리줄의 <b>＋ 장부에 옵션 추가</b> 로 직접 넣어 주세요 (넣기 전 판매도 모두 반영)`);
       if (todayResale.length) parts.push(`🧹 오늘 자동으로 들어갔던 반품·재판매 옵션 ${todayResale.length}개를 목록에서 뺐습니다 (마진을 넣은 것·직접 넣은 것은 그대로): ` + todayResale.slice(0, 8).map((r) => `${esc(r.option_id)} ${esc(String(r.name || '').slice(0, 30))} (${esc(r.why)})`).join(' · ') + (todayResale.length > 8 ? ' 외' : '') + ' <span class="sub">— 새 제품인데 빠졌으면 \'팔렸지만 목록에 없는 옵션\'에서 직접 넣으세요</span>');
@@ -948,7 +957,7 @@ function renderOptions() {
     const [save, del] = tr.querySelectorAll('button');
     tr._opt = o;
     tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', () => { tr.classList.add('dirty'); updateDirtyBar(); }));
-    save.onclick = async () => { const dd = await reload(); const what = applyRow(dd, tr); await S.save(dd); tr.classList.remove('dirty'); await reload(); renderOptions(); renderFoot(); toast(`${o.option_id} 저장됨${what ? ' (' + what + ')' : ''}`); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); };
+    save.onclick = async () => { save.disabled = true; save.textContent = '저장 중…'; const dd = await reload(); const what = applyRow(dd, tr); await S.save(dd); tr.classList.remove('dirty'); await reload(); renderOptions(); renderFoot(); flashSaved([o.option_id]); toast(`${o.option_id} 저장됨${what ? ' (' + what + ')' : ''}`); msg('#opt-msg', `${o.option_id} 저장됨`, 'ok'); };
     del.onclick = async () => { if (confirm(`옵션 ${o.option_id} 를 목록에서 삭제할까요? (마진 이력도 삭제)`)) { const dd = await reload(); S.deleteOption(dd, o.option_id); await S.save(dd); refreshAll(); } };
     tr.querySelectorAll('a[data-del]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); if (confirm('이 마진 이력을 삭제할까요?')) { const dd = await reload(); S.deleteMargin(dd, o.option_id, a.dataset.del); await S.save(dd); await reload(); renderOptions(); } });
     tr.querySelectorAll('a[data-sug]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const dd = await reload(); const oo = dd.options.find((x) => x.option_id === a.dataset.sug); S.upsertOption(dd, { ...oo, campaign: sug[oo.option_id] }); await S.save(dd); await reload(); renderOptions(); });
@@ -966,7 +975,7 @@ function renderOptions() {
     const fBtn = tr.querySelector('.camp-fetch'); if (fBtn) fBtn.onclick = async () => { fBtn.disabled = true; fBtn.textContent = '읽는 중…'; await fetchCampOpts([key]); };
     tr.querySelector('.camp-save').onclick = async () => {
       const rows = dirtyRows().filter((r) => (r._opt.campaign || '(캠페인 없음)') === key); if (!rows.length) { toast('이 캠페인에 바뀐 줄이 없습니다', ''); return; }
-      const dd = await reload(); for (const r of rows) { applyRow(dd, r); r.classList.remove('dirty'); } await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${key}: ${rows.length}개 저장됨`);
+      const ids = rows.map((r) => r._opt.option_id); const dd = await reload(); for (const r of rows) { applyRow(dd, r); r.classList.remove('dirty'); } await S.save(dd); await reload(); renderOptions(); renderFoot(); flashSaved(ids); toast(`${key}: ${rows.length}개 저장됨`);
     };
     tb.appendChild(tr);
   };
@@ -1036,6 +1045,8 @@ async function fetchCampOpts(camps) {
   if (!r?.ok) for (const c of camps) coptFails[c] = { error: r?.error || '응답 없음' };
   else for (const [c, x] of Object.entries(r.results || {})) if (!x.ok) coptFails[c] = { error: x.error, diag: x.diag };
   await reload(); renderOptions(); msg('#newcamp-msg', '');
+  const done = Object.entries(r?.results || {}).filter(([, x]) => x.ok && x.applied);
+  if (done.length) toast(done.map(([c, x]) => `${c}: 옵션 ${x.applied.added}개 추가${x.applied.moved ? `, ${x.applied.moved}개 옮김` : ''}`).join(' · '));
   $('#copt-review')?.scrollIntoView({ block: 'center' });
 }
 // 광고센터에서 읽은 캠페인 옵션 목록 확인 → '이대로 맞추기' 를 눌러야 반영 (잘못 읽은 번호로 옵션이 바뀌지 않게)
@@ -1204,6 +1215,12 @@ function toggleLedgerAdd(hdr, camp) {
   };
   row.querySelector('.la-q').oninput = draw; row.querySelector('.la-close').onclick = () => row.remove(); draw(); row.querySelector('.la-q').focus();
 }
+$('#opt-clean-auto').onclick = async () => {
+  const dd = await reload(); const before = dd.options.length; const r = S.removeAutoNoMargin(dd);
+  if (!r.length) { toast('지울 노란 줄이 없습니다', ''); return; }
+  if (!confirm(`프로그램이 자동으로 넣었고 마진이 없는 옵션 ${r.length}개를 지웁니다 (엑셀·직접 넣은 것·광고센터 목록에 있는 것은 그대로). 옵션 탭 위 되돌리기로 되돌릴 수 있습니다. 계속할까요?`)) return;
+  await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${before - dd.options.length}개 지웠습니다`);
+};
 $('#opt-prune').onclick = async () => {
   const dd = await reload(); const ev = S.campaignEvidence(dd);
   const n = dd.options.filter((o) => !o.manual && (!o.campaign || (ev[o.campaign] && !ev[o.campaign].has(o.option_id)))).length;
@@ -1690,7 +1707,8 @@ async function migrateEndDateBug() {
   if (hash === 'import' || hash === 'range' || hash === 'paste' || hash === 'update') { showPage(hash === 'paste' ? 'ads' : 'data'); if (hash === 'paste') $('#paste-details').open = true; if (hash === 'update') setTimeout(() => $('#update-card').scrollIntoView(), 100); }
   else showPage(hash || 'dash');
   snapshotPages();
-  chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && (ch.ccdata || ch.ccadrows)) { reload().then(() => { renderFoot(); renderCurrent(); }); } });
+  // 백그라운드(자동 수집 등)가 바꾼 것만 다시 그린다. 이 화면이 방금 저장해서 이미 다시 그렸으면 건너뜀 (두 번 그려 느려지던 것)
+  chrome.storage.onChanged.addListener((ch, area) => { if (area !== 'local' || !(ch.ccdata || ch.ccadrows)) return; const at = Date.now(); setTimeout(() => { if (lastLocalRefresh >= at - 50) return; reload().then(() => { renderFoot(); renderCurrent(); }); }, 700); });
   // 다른 탭에서 저장하고 이 탭으로 돌아왔을 때도 최신 데이터로 다시 그린다
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 })();

@@ -1,5 +1,5 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots, ignoreRules, isIgnoredRow, catchAllCampaigns } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots, ignoreRules, isIgnoredRow, catchAllCampaigns, adIndex } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
@@ -56,12 +56,8 @@ export function computeLedger(d, start, end) {
   const campaignOf = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
   const handPicked = new Set(d.options.filter((o) => o.manual || o.source === 'manual').map((o) => o.option_id));   // 직접 넣은 옵션: 언제 팔렸든 그 캠페인 줄
   // 그날 실제로 이 옵션을 광고한 캠페인 (광고 보고서 행), 그리고 옵션별로 광고한 적 있는 캠페인들(최근순)
-  const adOpt = {}; const everAt = {};
-  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) {
-    if (!r.option_id || !r.campaign) continue;
-    const k = date + '|' + r.option_id; if (!adOpt[k] || (adOpt[k].spend || 0) < (r.spend || 0)) adOpt[k] = r;
-    const m = (everAt[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date;
-  }
+  const idx = adIndex(d); const adOpt = idx.adOpt; const everAt = {};   // 광고 보고서 색인은 한 번 만들어 다시 쓴다 (1년치 수십만 줄)
+  for (const [oid, m] of Object.entries(idx.everAt)) everAt[oid] = { ...m };
   for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (everAt[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
   for (const r of d.relinks || []) if (r.from && r.option_id) { const m = (everAt[r.option_id] ||= {}); m[r.from] ||= '0000'; }   // 예전에 연결돼 있던 캠페인 (옮기기 전 기간의 판매용)
   const ever = Object.fromEntries(Object.entries(everAt).map(([oid, m]) => [oid, Object.entries(m).sort((a, b) => b[1].localeCompare(a[1])).map((x) => x[0])]));
@@ -69,7 +65,7 @@ export function computeLedger(d, start, end) {
   // 캠페인이 처음 보인 날 (광고 목록 또는 광고 보고서). 광고 없이 팔린 날, 그 날 이미 있던 캠페인 중 가장 최근에 만든 것을 고르는 데 쓴다
   const firstSeen = {};
   for (const [date, day] of Object.entries(d.ads || {})) for (const c of Object.keys(day || {})) if (!firstSeen[c] || firstSeen[c] > date) firstSeen[c] = date;
-  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) if (r.campaign && (!firstSeen[r.campaign] || firstSeen[r.campaign] > date)) firstSeen[r.campaign] = date;
+  for (const [c, date] of Object.entries(idx.firstSeen)) if (!firstSeen[c] || firstSeen[c] > date) firstSeen[c] = date;
   // 옵션의 판매를 어느 캠페인 줄에 넣을지: 그날 광고 목록이 없으면 연결대로, 보고서에 그날 이 옵션이 있으면 그 캠페인,
   // 연결 캠페인이 그날 광고비를 썼으면 연결 캠페인, 이 옵션을 광고한 적 있는 다른 캠페인이 그날 광고비를 썼으면 그 캠페인,
   // 그날 광고가 없었으면(광고를 껐거나 목록에서 사라졌어도) 그 날 이미 있던 캠페인(연결 + 이 옵션을 광고한 적 있는 것) 중 가장 최근에 만든 캠페인 줄에 넣는다.

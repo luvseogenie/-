@@ -7,19 +7,34 @@ import { cleanCampaignName } from './parse.js';
 const KEY = 'ccdata';
 const KEY_ADROWS = 'ccadrows';   // 광고 보고서 행(adrows)은 덩치가 커서 따로 저장 — 다른 데이터를 저장할 때마다 같이 쓰지 않게
 const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {} });
-// adrows 가 바뀌었는지 싸게 알아내는 지문 (날짜 수·행 수·캠페인 이름 합). 이름만 바뀌는 정리도 잡히게 캠페인 이름을 넣는다
-const adrowsSig = (a) => { let n = 0, h = 0; for (const [date, rows] of Object.entries(a || {})) { n += rows.length; for (const r of rows) { const c = r.campaign || ''; for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) >>> 0; } h = (h + date.length) >>> 0; } return `${Object.keys(a || {}).length}|${n}|${h}`; };
-let loadedAdrowsSig = null;
+// adrows 가 바뀌었는지: 큰 데이터를 매번 훑지 않도록 바꾸는 곳(upsertAdRows·이름 정리·날짜 삭제)에서 버전 번호를 올린다
+const adV = (a) => (a && a.__v) || 0;
+export function bumpAdrows(a) { if (a && typeof a === 'object') Object.defineProperty(a, '__v', { value: adV(a) + 1, writable: true, configurable: true, enumerable: false }); }
+let savedRef = null, savedV = 0;
+// 광고 보고서 색인 (캠페인별 옵션, 옵션별 캠페인·최근 날짜, 날짜×옵션의 대표 행, 캠페인이 처음 보인 날) — adrows 버전이 같으면 다시 만들지 않는다
+const adIdxCache = new WeakMap();
+export function adIndex(d) {
+  const a = d.adrows || {}; const c = adIdxCache.get(a); if (c && c.v === adV(a)) return c.idx;
+  const byCamp = {}, everAt = {}, adOpt = {}, firstSeen = {};
+  for (const date of Object.keys(a)) for (const r of a[date]) {
+    if (!r || !r.campaign) continue; if (!firstSeen[r.campaign] || firstSeen[r.campaign] > date) firstSeen[r.campaign] = date;
+    if (!r.option_id) continue; const oid = String(r.option_id);
+    (byCamp[r.campaign] ||= new Set()).add(oid);
+    const m = (everAt[oid] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date;
+    const k = date + '|' + oid; if (!adOpt[k] || (adOpt[k].spend || 0) < (r.spend || 0)) adOpt[k] = r;
+  }
+  const idx = { byCamp, everAt, adOpt, firstSeen }; adIdxCache.set(a, { v: adV(a), idx }); return idx;
+}
 // adrows 는 한 번 읽으면 메모리에 두고, 다른 곳(백그라운드 수집)에서 바뀌면 onChanged 로 받은 새 값으로 갈아 끼운다 — 매번 큰 데이터를 다시 읽지 않게
 let adrowsCache = null;
-try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY_ADROWS]) { adrowsCache = ch[KEY_ADROWS].newValue || {}; } }); } catch { /* 테스트 환경 */ }
+try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY_ADROWS]) { adrowsCache = ch[KEY_ADROWS].newValue || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); } }); } catch { /* 테스트 환경 */ }
 
 export async function load() {
   const r = await chrome.storage.local.get(adrowsCache ? [KEY] : [KEY, KEY_ADROWS]);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
-  if (adrowsCache) { d.adrows = adrowsCache; loadedAdrowsSig = adrowsSig(d.adrows); }
-  else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; loadedAdrowsSig = adrowsSig(d.adrows); }
-  else { loadedAdrowsSig = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
+  if (adrowsCache) { d.adrows = adrowsCache; }
+  else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; savedRef = d.adrows; savedV = adV(d.adrows); }
+  else { savedRef = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
   for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
   // 오늘·미래 날짜로 잘못 들어간 판매·광고 값은 지운다 (하루가 안 끝난 값)
   let futureChanged = false; { const y = yesterdayLocal(); for (const k of ['sales', 'ads']) for (const date of Object.keys(d[k] || {})) if (date > y) { delete d[k][date]; futureChanged = true; } }
@@ -37,12 +52,13 @@ export async function load() {
   let restored = [], restFlag = false; if (!d.resaleRestore1) { restored = restoreWrongResale(d); d.resaleRestore1 = true; restFlag = true; }
   // 옵션 이름 통일 (한 번): 엑셀·광고 보고서·판매 리포트에서 온 이름이 섞여 있어 판매 리포트의 '상품명, 옵션' 이름으로 맞춘다
   let nameFlag = false; if (!d.nameNorm1) { normalizeOptionNames(d); d.nameNorm1 = true; nameFlag = true; }
+  let autoNmFlag = false; if (!d.autoNoMargin1) { removeAutoNoMargin(d); d.autoNoMargin1 = true; autoNmFlag = true; }
   const removedResale = removeAutoResale(d);
   // 옵션 목록 = 쿠팡 광고 캠페인에 실제로 들어 있는 옵션 + 직접 '장부에 옵션 추가' 한 옵션. 나머지는 지운다 (한 번, 이후는 옵션 탭의 정리 버튼)
   let pruneFlag = false; if (!d.pruneFix1) { const back = restoreReportPrune(d); d.pruneFix1 = true; d.pruneV1 = true; pruneFlag = true; if (back.length) { const when = new Date().toISOString().slice(0, 10); d.restoredPrune = [...(d.restoredPrune || []), ...back.map((x) => ({ option_id: x.option_id, campaign: x.campaign, when }))].slice(-500); } }
   // 같은 상품 옵션을 자동으로 캠페인 장부에 넣던 것은 그만두고(헷갈림), 캠페인마다 직접 '장부에 옵션 추가' 로 넣는다. 예전에 자동으로 넣은 것 중 마진을 안 넣은 것은 되돌린다 (한 번)
   const linkedAuto = []; let reverted = [], revFlag = false; if (!d.autoLinkReverted) { reverted = revertAutoLinks(d); d.autoLinkReverted = true; revFlag = true; }
-  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || nameFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
+  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || nameFlag || autoNmFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -98,11 +114,12 @@ export function catchAllCampaigns(d) {
   // 상품 단위로 센다: 판매 리포트의 등록상품ID(없으면 상품명). 옵션 이름(색·사이즈가 붙은 이름)으로 세면 한 상품의 옵션 3개가 '3가지 상품' 이 되어 잘못 걸린다
   const pid = {}; for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) if (r.product_id || r.product_name) pid[r.option_id] = String(r.product_id || r.product_name).replace(/\s/g, '');
   const prods = {}; const add = (c, oid, prodName) => { if (!c) return; const k = pid[oid] || String(prodName || '').replace(/\s/g, '') || null; if (k) (prods[c] ||= new Set()).add(k); };
-  for (const rows of Object.values(d.adrows || {})) for (const r of rows) add(r.campaign, String(r.option_id || ''), null);
+  for (const [c, set] of Object.entries(adIndex(d).byCamp)) for (const oid of set) add(c, oid, null);
   for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) add(c, String(o.option_id), null);
   for (const o of d.options || []) if (o.source !== 'wing-link' && !o.manual) add(o.campaign, o.option_id, o.product);
   const out = new Set(); const kinds = d.campaignKinds || {};
   const names = new Set([...Object.keys(prods), ...Object.keys(kinds)]); for (const day of Object.values(d.ads || {})) for (const c of Object.keys(day || {})) names.add(c);
+  for (const o of d.options || []) if (o.campaign) names.add(o.campaign);
   for (const c of names) { if (kinds[c] === 'dedicated') continue; if (kinds[c] === 'catchall' || /^\s*0\s*[.\-_)]/.test(c) || (prods[c] && prods[c].size >= 3)) out.add(c); }
   return out;
 }
@@ -130,7 +147,7 @@ export const isRunning = (status, c) => !Object.keys(status).length || status[c]
 export function relinkOptions(d) {
   const st = campaignStatus(d); if (!Object.keys(st).length) return [];
   const ev = {};
-  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) { const m = (ev[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date; }
+  for (const [oid, m0] of Object.entries(adIndex(d).everAt)) ev[oid] = { ...m0 };
   for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (ev[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
   const moved = []; const ca = catchAllCampaigns(d);
   for (const o of d.options) {
@@ -181,19 +198,19 @@ export function cleanCampaignNames(d) {
   merge(d.campaignOptions || {}, (a, b) => (a.at >= b.at ? a : b));
   merge(d.excludes || {}, (a, b) => [...a, ...b.filter((x) => !a.some((y) => y.keyword === x.keyword))]);
   for (const o of d.options || []) if (o.campaign) o.campaign = fix(o.campaign);
-  for (const date of Object.keys(d.adrows || {})) for (const r of d.adrows[date]) if (r.campaign) r.campaign = fix(r.campaign);
+  let renamed = false; for (const date of Object.keys(d.adrows || {})) for (const r of d.adrows[date]) if (r.campaign) { const f = fix(r.campaign); if (f !== r.campaign) { r.campaign = f; renamed = true; } }
+  if (renamed) bumpAdrows(d.adrows);
   cleanCampaignNames.last = map;   // { 원래 이름: 정리된 이름 } (화면 안내용)
   return Object.keys(map).length > 0;
 }
 const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
 export async function save(d) {
   const { adrows, ...rest } = d;
-  const sig = adrowsSig(adrows);
   const out = { [KEY]: rest };
-  if (sig !== loadedAdrowsSig) out[KEY_ADROWS] = adrows || {};
-  await chrome.storage.local.set(out); loadedAdrowsSig = sig; adrowsCache = adrows || {};
+  if (adrows !== savedRef || adV(adrows) !== savedV) out[KEY_ADROWS] = adrows || {};
+  await chrome.storage.local.set(out); savedRef = adrows || null; savedV = adV(adrows); adrowsCache = adrows || {};
 }
-export async function replaceAll(d) { const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); loadedAdrowsSig = adrowsSig(adrows); adrowsCache = adrows || {}; }
+export async function replaceAll(d) { const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); adrowsCache = adrows || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); }
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 export const cleanIdPublic = (v) => cleanId(v);
@@ -228,6 +245,18 @@ export function unlistedSoldOptions(d, sinceIso) {
   return Object.values(out).map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
 }
 // 캠페인별 '쿠팡 광고에 들어 있는 옵션' 근거: 광고센터 캠페인 상품 목록(campaignOptions) + 광고 보고서에서 그 캠페인이 광고한 옵션(adrows)
+// 프로그램이 자동으로 넣은 옵션 중 마진이 없는 것(장부에 노란 줄)을 뺀다: 광고 보고서·되살리기 등으로 들어왔고 광고센터 목록에서 확인되지 않은 것.
+// 엑셀에서 온 것, 직접 넣은 것, 광고센터 목록에 있는 것, 마진을 넣은 것은 그대로. 진짜 캠페인 옵션이면 광고센터 목록을 읽을 때 다시 들어온다
+export function removeAutoNoMargin(d) {
+  const ev = campaignEvidence(d); const out = [];
+  d.options = d.options.filter((o) => {
+    if (o.manual || !['adreport', 'restored', 'wing-link'].includes(o.source) || marginHistory(d, o.option_id).length) return true;   // 자동으로 넣은 출처가 분명한 것만 (출처가 없는 옛 옵션·엑셀·직접 넣은 것은 그대로)
+    if (o.campaign && ev[o.campaign]?.has(o.option_id)) return true;
+    out.push({ option_id: o.option_id, campaign: o.campaign || '', name: o.product_name, why: '자동으로 들어간 마진 없는 옵션' }); return false;
+  });
+  if (out.length) { const when = new Date().toISOString().slice(0, 10); d.prunedOptions = [...(d.prunedOptions || []), ...out.map((x) => ({ ...x, when }))].slice(-2000); }
+  return out;
+}
 export function normalizeOptionNames(d) {
   const facts = optionFacts(d); const ad = {}; for (const v of Object.values(d.campaignOptions || {})) for (const o of v.options || []) if (o.name) ad[o.option_id] = o.name;
   let n = 0; for (const o of d.options) { const nm = facts[o.option_id]?.option_name || ad[o.option_id]; if (nm && nm !== o.product_name) { o.product_name = nm; n++; } if (!o.product && facts[o.option_id]?.product) o.product = facts[o.option_id].product; }
@@ -257,6 +286,16 @@ export function applyPendingCampaignOptions(d, camp) {
   if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, at: '', when, why: 'adcenter' }))].slice(-300); }
   const pr = pruneToCampaignOptions(d, camp);
   return { moved, added, removed: pr.removed };
+}
+// 확인 대기 목록을 반영하면 무엇이 바뀌는지 (미리 보기). 빠지는 옵션이 없고, 옮기는 것도 모음(AI) 캠페인·캠페인 없음에서 오는 것뿐이면 '안전' → 바로 반영해도 된다
+export function pendingImpact(d, camp) {
+  const p = d.pendingCampaignOptions?.[camp]; if (!p) return null;
+  const ids = new Set(p.options.map((o) => String(o.option_id))); const ca = catchAllCampaigns(d); const byId = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
+  const adds = p.options.filter((o) => !byId[o.option_id]).length;
+  const moves = p.options.filter((o) => byId[o.option_id] && byId[o.option_id].campaign !== camp && !byId[o.option_id].manual);
+  const removals = d.options.filter((o) => o.campaign === camp && !o.manual && !ids.has(o.option_id)).length;
+  const safe = removals === 0 && moves.every((o) => !byId[o.option_id].campaign || ca.has(byId[o.option_id].campaign));
+  return { adds, moves: moves.length, removals, safe };
 }
 // v0.53.0 이 광고 보고서 기준으로 뺀 옵션 되살리기 (한 번): 광고센터 목록을 아직 안 읽은 캠페인의 것만
 export function restoreReportPrune(d) {
@@ -342,7 +381,7 @@ export function removeAutoResale(d) {
   const byBase = {}; for (const o of d.options) { if (o.source === 'adreport' || o.source === 'wing-link') continue; const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k && !byBase[k]) byBase[k] = o.option_id; }
   for (const o of d.options) if (o.source === 'adreport' || o.source === 'wing-link') { const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k && !byBase[k] && !resale(o.option_id, null, o.product_name)) byBase[k] = o.option_id; }
   const out = []; const ca = catchAllCampaigns(d); const own = new Set();   // 전용 캠페인이 실제로 광고한 옵션 (그 캠페인에 등록된 옵션)
-  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign && !ca.has(r.campaign)) own.add(String(r.option_id));
+  for (const [c, set] of Object.entries(adIndex(d).byCamp)) if (!ca.has(c)) for (const oid of set) own.add(oid);
   for (const [c, v] of Object.entries(d.campaignOptions || {})) if (!ca.has(c)) for (const o of v.options || []) own.add(String(o.option_id));
   d.options = d.options.filter((o) => {
     if (!(o.source === 'adreport' || o.source === 'wing-link') || o.manual || marginHistory(d, o.option_id).length || own.has(o.option_id)) return true;
@@ -526,7 +565,7 @@ export function upsertAdRows(d, rows) {
   let n = 0;
   for (const [date, list] of Object.entries(byDate)) {
     const keep = (d.adrows[date] || []).filter((r) => !touched.has(date + '|' + r.campaign));
-    d.adrows[date] = keep.concat(list); n += list.length;
+    d.adrows[date] = keep.concat(list); n += list.length; bumpAdrows(d.adrows);
   }
   return n;
 }
