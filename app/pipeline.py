@@ -590,8 +590,9 @@ class JobController:
                 fails = 0
             except wing.WingLoginRequired:
                 self.paused = True
+                bname = {"msedge": "엣지", "chrome": "크롬", "whale": "웨일"}.get(getattr(bt, "channel", None) or "", "프로그램이 띄운 브라우저")
                 self.message = ("윙 로그인이 풀렸습니다. 다른 브라우저나 탭에서 같은 계정으로 윙에 로그인하면 이쪽이 끊깁니다. "
-                                "열린 크롬 창에서 윙에 다시 로그인한 뒤 [재개]를 눌러주세요.")
+                                f"프로그램이 띄운 {bname} 창의 윙 탭에서 다시 로그인한 뒤 [재개]를 눌러주세요.")
                 log.warn(self.message)
                 try:
                     wing.open_login(bt)
