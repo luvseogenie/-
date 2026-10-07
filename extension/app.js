@@ -88,7 +88,7 @@ function renderMarginAlert() {
   const d = DATA; const st = S.campaignStatus(d); const lookup = S.marginLookup(d); const todayIso = localIso(today);
   const since = addDays(localIso(yday), -29); const sold = {};
   for (const [date, day] of Object.entries(d.sales)) if (date >= since) for (const r of Object.values(day)) if (r.quantity > 0) sold[r.option_id] = (sold[r.option_id] || 0) + r.quantity;
-  const missing = d.options.filter((o) => o.campaign && S.isRunning(st, o.campaign) && !lookup(o.option_id, todayIso));
+  const missing = d.options.filter((o) => o.campaign && (S.isRunning(st, o.campaign) || sold[o.option_id]) && !lookup(o.option_id, todayIso));   // 광고를 꺼 둔 캠페인도 최근에 팔린 옵션은 알림
   const byCamp = {}; for (const o of missing) byCamp[o.campaign] = (byCamp[o.campaign] || 0) + 1;
   const soldN = missing.filter((o) => sold[o.option_id]).length;
   const box = $('#margin-banner'); if (!box) return;
@@ -645,7 +645,7 @@ function renderNoAd() {
   $('#noad-count').textContent = list.length ? `— ${list.length}개 · 판매 ${fmtInt(list.reduce((a, n) => a + n.qty, 0))}개${noMargin ? ` · 마진 없음 ${noMargin}개` : ''}` : '— 없음';
   const tb = $('#noad-table tbody'); tb.innerHTML = '';
   for (const n of list.slice(0, 300)) {
-    const why = n.reason === UNMAPPED ? (n.listed ? '캠페인에 연결되지 않은 옵션' : '옵션 목록에 없는 옵션 (윙 판매 등)') : `연결 캠페인 ${esc(n.linked)} 이(가) 그날 광고비를 안 씀 (중단·삭제)`;
+    const why = n.reason === UNMAPPED ? (n.listed ? '캠페인에 연결되지 않은 옵션' : '옵션 목록에 없는 옵션 (윙 판매 등)') : `연결 캠페인 ${esc(n.linked)} 이(가) 광고센터 목록에서 사라짐 (삭제)`;
     const tr = document.createElement('tr'); if (!n.margin) tr.className = 'warnrow';
     tr.innerHTML = `<td class="l num">${esc(n.option_id)}</td><td class="l">${esc(n.product || names[n.option_id] || '')}${n.name ? `<div class="sub">${esc(n.name)}</div>` : ''}</td><td class="l sub">${why}</td><td class="num">${fmtInt(n.qty)}</td><td class="num">${fmtWon(n.revenue)}</td><td class="num ${n.margin ? '' : 'neg'}">${n.margin ? fmtWon(n.margin) : '마진 없음'}</td><td class="num">${n.last.slice(5).replace('-', '/')}</td><td><button class="btn sm ${n.margin ? '' : 'primary'}" data-go="${esc(n.option_id)}" data-listed="${n.listed ? 1 : 0}">${n.listed ? '마진 입력' : '목록에 추가'}</button></td>`;
     tr.querySelector('button').onclick = () => {
@@ -681,14 +681,15 @@ function renderLedgerTable() {
   const byName = Object.fromEntries(led.campaigns.map((c) => [c.campaign, c]));
   const allCamps = S.sortCampaigns([...new Set([...S.campaigns(DATA), ...led.campaigns.map((c) => c.campaign)])]);   // '(캠페인 없음)'·'(광고 없는 판매)' 줄 포함
   // 캠페인 선택 목록 (표시되는 캠페인만)
-  // 자동 표시: 기간 안에 광고비를 쓴(또는 엑셀 확정값이 있는) 캠페인만. 중단·삭제된 캠페인은 숨기고, 그 옵션의 판매는 '(광고 없는 판매)' 줄에 들어간다
+  // 자동 표시: 기간 안에 광고비를 썼거나(또는 엑셀 확정값) 판매가 있는 캠페인. 광고를 꺼 둔 캠페인도 판매가 있으면 보이고, 삭제된 캠페인의 판매는 '(광고 없는 판매)' 줄에 들어간다
   const ranIn = (c) => !!c && Object.keys(c.days).some((dd) => dates.includes(dd) && (c.days[dd].spend > 0 || c.days[dd].spend_vat > 0 || c.days[dd].legacy));
   const hasIn = (c) => !!c && Object.keys(c.days).some((dd) => dates.includes(dd));
-  const autoShow = (name) => { const c = byName[name]; return name === UNMAPPED || name === ORGANIC ? hasIn(c) : ranIn(c); };
+  const soldIn = (c) => !!c && Object.keys(c.days).some((dd) => dates.includes(dd) && c.days[dd].actual_qty > 0);   // 광고를 꺼도 판매가 있으면 보인다
+  const autoShow = (name) => { const c = byName[name]; return name === UNMAPPED || name === ORGANIC ? hasIn(c) : ranIn(c) || soldIn(c); };
   const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; return v === 'always' || (showHidden ? hasIn(byName[name]) : autoShow(name)); });
   const idleN = allCamps.filter((name) => visOf(name) === 'auto' && !autoShow(name) && hasIn(byName[name])).length;
   if (led.ignored_qty) $('#lg-warn').innerHTML += `<div class="notice sub">기록하지 않기로 한 판매(재판매·리퍼 등) ${fmtInt(led.ignored_qty)}개는 이 기간 장부에서 뺐습니다. 캠페인·옵션 탭 → 팔렸지만 목록에 없는 옵션 → 무시 중인 판매 옵션에서 되돌릴 수 있습니다.</div>`;
-  if (idleN && !showHidden) $('#lg-warn').innerHTML += `<div class="notice sub">이 기간에 광고비를 쓰지 않은(중단·삭제된) 캠페인 ${idleN}개는 표시하지 않습니다. 그 옵션의 판매 마진은 '(광고 없는 판매)' 줄과 합계에 들어 있습니다. 보려면 '숨긴 캠페인 보기'를 켜세요.</div>`;
+  if (idleN && !showHidden) $('#lg-warn').innerHTML += `<div class="notice sub">이 기간에 광고비도 판매도 없는 캠페인 ${idleN}개는 표시하지 않습니다. 보려면 '숨긴 캠페인 보기'를 켜세요.</div>`;
   const sel = $('#lg-camp'); const cur = sel.value;
   sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
   if (cur && !visibleCamps.includes(cur)) sel.value = '';
@@ -1051,8 +1052,18 @@ function renderUnlisted() {
   const tb = $('#unlisted-table tbody'); tb.innerHTML = '';
   for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td><td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button> <button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
-    const [one, all, ign] = tr.querySelectorAll('button');
+    const camps = S.sortCampaigns(S.campaigns(DATA)); const sg = u.suggest;
+    const sel = `<select data-k="camp" style="max-width:190px"><option value="">(캠페인 고르기)</option>${camps.map((c) => `<option value="${esc(c)}" ${sg && sg.campaign === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+    tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="l sub">${esc(u.sales_type || '')}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td>`
+      + `<td class="l">${sel} <input type="number" data-k="margin" placeholder="마진(원)" style="width:80px"> <button class="btn primary sm" data-link>장부에 넣기</button>${sg ? `<div class="sub">추천: ${esc(sg.campaign)} (${esc(sg.via)})</div>` : ''}</td>`
+      + `<td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button> <button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
+    tr.querySelector('[data-link]').onclick = async () => {
+      const camp = tr.querySelector('[data-k=camp]').value; const mg = tr.querySelector('[data-k=margin]').value;
+      if (!camp) { toast('넣을 캠페인을 골라 주세요', 'err'); return; }
+      const dd = await reload(); linkToCampaign(dd, u, camp, mg); await S.save(dd); await reload(); renderOptions(); refreshAll();
+      toast(`${u.option_id} → ${camp} 장부에 넣음${mg ? '' : ' (마진을 꼭 넣어 주세요)'}`);
+    };
+    const [one, all, ign] = tr.querySelectorAll('button:not([data-link])');
     one.onclick = async () => { const dd = await reload(); S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name, product: u.product, source: 'manual' }); await S.save(dd); await reload(); renderOptions(); };
     all.onclick = async () => { const dd = await reload(); let k = 0; for (const x of list) if (x.product === u.product) { S.upsertOption(dd, { option_id: x.option_id, product_name: x.option_name, product: x.product, source: 'manual' }); k++; } await S.save(dd); await reload(); renderOptions(); msg('#opt-msg', `${k}개 옵션 추가`, 'ok'); };
     ign.onclick = async () => { const dd = await reload(); S.ignoreOption(dd, u.option_id, true); await S.save(dd); await reload(); renderOptions(); toast(`${u.option_id} 무시 (기록 안 함)`); };
@@ -1061,6 +1072,21 @@ function renderUnlisted() {
   renderIgnored(since);
   return list.length;
 }
+// 윙 옵션 등 목록에 없는 옵션을 캠페인 장부에 넣는다 (쿠팡 광고에는 넣지 않음). 추천의 기준이 된 옵션을 기억해 두어, 그 옵션이 새 캠페인으로 옮겨 가면 함께 옮긴다
+function linkToCampaign(dd, u, camp, margin) {
+  S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name || '', product: u.product || '', campaign: camp, source: 'wing-link' });
+  const o = dd.options.find((x) => x.option_id === String(u.option_id)); if (o && u.suggest && u.suggest.campaign === camp) o.ref = u.suggest.option_id;
+  if (margin !== '' && margin != null && !isNaN(Number(margin))) S.setMargin(dd, u.option_id, Number(margin), '', '윙 옵션 (장부에 넣기)');
+}
+$('#unlisted-link-all').onclick = async () => {
+  const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
+  const dd = await reload(); const list = S.unlistedSoldOptions(dd, since).filter((u) => u.suggest);
+  if (!list.length) { msg('#unlisted-link-msg', '추천 캠페인이 있는 옵션이 없습니다', 'err'); return; }
+  if (!confirm(`${list.length}개 옵션을 추천 캠페인 장부에 넣습니다 (쿠팡 광고에는 넣지 않음). 마진은 옵션 목록에서 따로 넣어야 합니다. 계속할까요?`)) return;
+  for (const u of list) linkToCampaign(dd, u, u.suggest.campaign, '');
+  await S.save(dd); await reload(); renderOptions(); refreshAll();
+  msg('#unlisted-link-msg', `${list.length}개 넣음 — 마진 없는 옵션은 화면 위 노란 알림에서 바로 넣을 수 있습니다`, 'ok');
+};
 function renderIgnored(since) {
   const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
   const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';

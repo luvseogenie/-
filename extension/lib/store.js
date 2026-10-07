@@ -83,6 +83,9 @@ export function relinkOptions(d) {
     moved.push({ option_id: o.option_id, from: o.campaign, to: best, at });
     o.campaign = best;
   }
+  // 장부에만 넣은 윙 옵션은 기준 옵션(같은 상품의 그로스 옵션)이 옮겨 간 캠페인으로 함께 옮긴다
+  const byId = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
+  for (const o of d.options) if (o.source === 'wing-link' && o.ref && byId[o.ref] && byId[o.ref].campaign && byId[o.ref].campaign !== o.campaign) { moved.push({ option_id: o.option_id, from: o.campaign, to: byId[o.ref].campaign, at: '' }); o.campaign = byId[o.ref].campaign; }
   if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, when }))].slice(-300); }
   return moved;
 }
@@ -156,8 +159,30 @@ export function ignoredSoldOptions(d, sinceIso) {
 }
 export function unlistedSoldOptions(d, sinceIso) {
   const listed = new Set(d.options.map((o) => o.option_id)); const out = {}; const rules = ignoreRules(d);
-  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
-  return Object.values(out).sort((a, b) => b.qty - a.qty);
+  for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, product_id: r.product_id || '', sales_type: r.sales_type || '', qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) { o.last = date; if (r.sales_type) o.sales_type = r.sales_type; if (r.product_id) o.product_id = r.product_id; } } }
+  const sug = campaignSuggester(d);
+  return Object.values(out).map((o) => ({ ...o, suggest: sug(o) })).sort((a, b) => b.qty - a.qty);
+}
+// 목록에 없는 옵션(윙 판매 등)을 어느 캠페인 장부에 넣으면 될지 추천: 같은 등록상품ID → 같은 옵션 이름 → 같은 상품명 순으로,
+// 이미 캠페인에 연결된 옵션(대개 로켓그로스 옵션)을 찾는다. 쿠팡 광고에는 넣지 않고 이 프로그램 장부에서만 그 캠페인 줄에 넣는 용도
+export function campaignSuggester(d) {
+  const info = {};   // option_id → { product_id, option_name, product }
+  for (const date of Object.keys(d.sales).sort()) for (const r of Object.values(d.sales[date])) info[r.option_id] = { product_id: r.product_id || info[r.option_id]?.product_id || '', option_name: r.option_name || info[r.option_id]?.option_name || '', product: r.product_name || info[r.option_id]?.product || '' };
+  const nm = (x) => String(x || '').replace(/[\s,·_()\[\]-]/g, '').toLowerCase();
+  const byPid = {}, byName = {}, byProd = {};
+  const st = campaignStatus(d); const rank = (c) => (st[c] === 'running' ? 0 : st[c] === 'paused' ? 1 : st[c] ? 2 : 1);
+  for (const o of d.options) {
+    if (!o.campaign || o.source === 'wing-link') continue; const i = info[o.option_id] || {};
+    const add = (map, k) => { if (!k) return; const cur = map[k]; if (!cur || rank(o.campaign) < rank(cur.campaign)) map[k] = { campaign: o.campaign, option_id: o.option_id }; };
+    add(byPid, String(i.product_id || '')); add(byName, nm(i.option_name || o.product_name)); add(byProd, nm(i.product || o.product));
+  }
+  return (u) => {
+    const pid = String(u.product_id || info[u.option_id]?.product_id || '');
+    if (pid && byPid[pid]) return { ...byPid[pid], via: '같은 등록상품' };
+    const n = nm(u.option_name); if (n && byName[n]) return { ...byName[n], via: '같은 옵션 이름' };
+    const p = nm(u.product); if (p && byProd[p]) return { ...byProd[p], via: '같은 상품명' };
+    return null;
+  };
 }
 // 옵션ID → 상품명(판매 리포트의 '상품명' 열). 옵션에 저장된 값이 없으면 판매 데이터에서 찾는다.
 // 옵션ID → 짧은 옵션 이름: 판매 리포트의 옵션명에서 상품명(앞부분)을 뗀 것 ('DUGN 브러시, 베이지' → '베이지')
