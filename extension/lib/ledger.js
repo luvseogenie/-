@@ -54,6 +54,7 @@ export function computeLedger(d, start, end) {
   start = start || (ds.length ? monthStart(ds[0]) : monthStart(todayIso));
   end = end || (ds.length ? monthEnd(ds[ds.length - 1]) : todayIso);
   const campaignOf = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  const handPicked = new Set(d.options.filter((o) => o.manual || o.source === 'manual').map((o) => o.option_id));   // 직접 넣은 옵션: 언제 팔렸든 그 캠페인 줄
   // 그날 실제로 이 옵션을 광고한 캠페인 (광고 보고서 행), 그리고 옵션별로 광고한 적 있는 캠페인들(최근순)
   const adOpt = {}; const everAt = {};
   for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) {
@@ -77,6 +78,7 @@ export function computeLedger(d, start, end) {
   const catchAll = catchAllCampaigns(d);
   const campaignFor = (oid, date) => {
     const linked = campaignOf[oid]; if (!linked) return null;
+    if (handPicked.has(oid)) return linked;
     const skip = (c) => c !== linked && catchAll.has(c) && !catchAll.has(linked);
     const day = d.ads[date]; if (!day || !Object.keys(day).length) return linked;
     const a = adOpt[date + '|' + oid]; if (a && !skip(a.campaign)) return a.campaign;

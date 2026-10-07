@@ -934,11 +934,12 @@ function renderOptions() {
   tb.innerHTML = '';
   if (wrap) requestAnimationFrame(() => { wrap.scrollTop = keepScroll; });
   updateDirtyBar();
+  const facts = S.optionFacts(d);
   const rowFor = (o) => {
     const hist = S.marginHistory(d, o.option_id); const sg = sug[o.option_id];
     const tr = document.createElement('tr'); if (o.campaign && !hist.length) tr.className = 'warnrow';
     tr.innerHTML = `<td class="l num">${esc(o.option_id)}${soldQty[o.option_id] ? `<div class="sub">최근30일 ${fmtInt(soldQty[o.option_id])}개</div>` : ''}</td>
-      <td class="l"><input class="wide" data-k="product_name" value="${esc(o.product_name)}"></td>
+      <td class="l"><input class="wide" data-k="product_name" value="${esc(o.product_name && o.product_name !== '-' ? o.product_name : (facts[o.option_id]?.option_name || o.product_name))}" title="${esc(facts[o.option_id]?.option_name || o.product_name)}">${(() => { const lab = S.optionLabel(facts[o.option_id]?.option_name || o.product_name, facts[o.option_id]?.product || o.product || ''); return lab ? `<div class="sub" style="font-weight:600">옵션: ${esc(lab)}</div>` : ''; })()}</td>
       <td class="l"><input data-k="campaign" list="camp-list" value="${esc(o.campaign)}" placeholder="${sg ? '제안: ' + esc(sg) : '(광고 안 함)'}" ${!o.campaign ? 'style="border-color:' + (sg ? 'var(--accent)' : '#dc2626') + '"' : ''}>${sg ? `<div><a href="#" class="sub" data-sug="${esc(o.option_id)}">같은 상품처럼 ${esc(sg)} 적용</a></div>` : ''}</td>
       <td class="num">${fmtInt(lookup(o.option_id, todayIso))}</td>
       <td class="l"><ul class="hist">${hist.map((m) => `<li><code>${m.effective_from || '처음부터'}</code>${fmtInt(m.margin)}원 ${m.note ? '<span class="sub">' + esc(m.note) + '</span>' : ''}<a href="#" class="sub" data-del="${m.effective_from}">삭제</a></li>`).join('') || '<li class="sub">없음 (0원으로 계산)</li>'}</ul></td>
@@ -1076,7 +1077,7 @@ function campCard(d, c, { onlyMissing = false } = {}) {
     <tr><td class="l"><input type="text" class="short" data-newid placeholder="옵션ID 직접 입력"></td><td class="l"><input class="wide" data-newname placeholder="옵션명(선택)"></td><td></td><td></td><td class="l"><input type="number" class="tiny" data-margin placeholder="원"></td><td><button class="btn sm" data-add="" >추가</button></td></tr>
     </tbody></table>
     ${opts.length > 1 ? `<div class="row" style="margin-top:6px"><input type="number" class="tiny" data-margin-all placeholder="마진"><button class="btn sm" data-add-all="1">위 옵션 ${opts.length}개 모두 이 마진으로 추가</button></div>` : ''}`;
-  const addOne = async (id, name, margin) => { const dd = await reload(); S.upsertOption(dd, { option_id: id, product_name: name || dd.options.find((x) => x.option_id === id)?.product_name || '', campaign: c, source: 'manual' }); if (margin) S.setMargin(dd, id, margin, ''); await S.save(dd); };
+  const addOne = async (id, name, margin) => { const dd = await reload(); S.upsertOption(dd, { option_id: id, product_name: name || dd.options.find((x) => x.option_id === id)?.product_name || S.optionFacts(dd)[id]?.option_name || '', campaign: c, source: 'manual' }); const oo = dd.options.find((x) => x.option_id === S.cleanIdPublic(id)); if (oo) oo.manual = true; if (margin) S.setMargin(dd, id, margin, ''); await S.save(dd); };
   div.querySelectorAll('button[data-add]').forEach((b) => b.onclick = async () => {
     const tr = b.closest('tr'); const id = b.dataset.add || tr.querySelector('[data-newid]')?.value.trim(); if (!id) { msg('#opt-msg', '옵션ID 를 넣어 주세요', 'err'); return; }
     const name = b.dataset.name || tr.querySelector('[data-newname]')?.value.trim() || ''; const margin = parseNumber(tr.querySelector('[data-margin]').value) || 0;

@@ -969,3 +969,23 @@ console.log('extension logic: all checks passed');
   assert.ok(!d.pendingCampaignOptions[C60]); assert.equal(d.campaignOptions[C60].options.length, 5);
   console.log('ad-center list pending → apply, restore report-based prune: all checks passed');
 }
+
+// 60. 문풍지: 한 상품의 옵션 3개(화이트·블랙·그레이)는 모음 캠페인이 아니다. 직접 넣은 옵션은 AI 광고(0번)가 광고한 날에도 60번 줄. 옵션 이름은 '12M, 1개, 화이트'
+{
+  const { computeLedger: CL } = await import('../../extension/lib/ledger.js');
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', C60 = '60. 문풍지_251%_261006', P = 'DUGN 자국안남는 프리미엄 창문 현관 방풍 단열 바람막이 틈새막이 두께조절 문풍지 12M';
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const s = (id, color, q) => ({ option_id: id, option_name: `${P}, 1개, ${color}`, product_name: P, product_id: '15900', quantity: q, revenue: q * 9000 });
+  const d = { legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, relinks: [], campaignOptions: {}, ignore: { ids: [], words: [] },
+    options: [{ option_id: '96101960075', product_name: `${P}, 1개, 화이트`, campaign: C60, source: 'adreport' }, { option_id: '96101960076', product_name: '-', campaign: C60, source: 'manual', manual: true }, { option_id: '96101960077', product_name: '-', campaign: C60, source: 'wing-link', manual: true }],
+    margins: [{ option_id: '96101960076', effective_from: '', margin: 3000 }],
+    ads: { '2026-10-03': { [C0]: ad(C0, 4000) }, '2026-10-07': { [C0]: ad(C0, 4000), [C60]: ad(C60, 2000) } },
+    adrows: { '2026-10-03': [{ campaign: C0, option_id: '96101960076', spend: 500 }, { campaign: C0, option_id: 'Q1' }, { campaign: C0, option_id: 'Q2' }] },
+    sales: { '2026-10-03': { '96101960076': s('96101960076', '블랙', 4) }, '2026-10-07': { '96101960075': s('96101960075', '화이트', 2), '96101960076': s('96101960076', '블랙', 1), '96101960077': s('96101960077', '그레이', 3) } } };
+  const ca = S.catchAllCampaigns(d); assert.ok(!ca.has(C60)); assert.ok(ca.has(C0));
+  const led = CL(d, '2026-10-01', '2026-10-07'); const row = (n) => led.campaigns.find((c) => c.campaign === n);
+  assert.equal(row(C60).days['2026-10-03'].actual_qty, 4); assert.equal(row(C60).days['2026-10-03'].margin_total, 12000);   // 0번이 광고한 날의 판매도 60번 (직접 넣은 옵션)
+  assert.equal(row(C60).days['2026-10-07'].actual_qty, 6);
+  assert.equal(S.optionLabel(`${P}, 1개, 화이트`, P), '1개, 화이트'); assert.equal(S.optionLabel(`${P}, 1개, 그레이`), '1개, 그레이'); assert.equal(S.optionLabel('-'), '');
+  console.log('one-product campaign is not catch-all, hand-picked options stay, option labels: all checks passed');
+}

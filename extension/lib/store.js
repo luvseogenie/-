@@ -93,12 +93,12 @@ export function resaleChecker(d, facts = optionFacts(d), { byPrice = false } = {
 // 이런 캠페인에서 며칠 팔리다가 그 상품 전용 캠페인을 새로 만들면, 전용 캠페인을 만들기 전 판매도 전용 캠페인 줄로 옮겨 보여 준다 (장부·옮기기에서 사용).
 // 기준: 광고한(또는 연결된) 옵션의 상품이 3가지 이상이거나, 이름이 '0.' 으로 시작. d.campaignKinds[이름] = 'catchall' | 'dedicated' 로 직접 정할 수 있다
 export function catchAllCampaigns(d) {
-  const pid = {}; for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) if (r.product_id || r.product_name) pid[r.option_id] = String(r.product_id || r.product_name);
-  const nm = (x) => String(x || '').replace(/\s/g, '');
-  const prods = {}; const add = (c, oid, pname) => { if (!c) return; const k = pid[oid] || nm(pname) || null; if (k) (prods[c] ||= new Set()).add(k); };
-  for (const rows of Object.values(d.adrows || {})) for (const r of rows) add(r.campaign, String(r.option_id || ''), r.product_name);
-  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) add(c, String(o.option_id), o.name);
-  for (const o of d.options || []) if (o.source !== 'wing-link') add(o.campaign, o.option_id, o.product || o.product_name);
+  // 상품 단위로 센다: 판매 리포트의 등록상품ID(없으면 상품명). 옵션 이름(색·사이즈가 붙은 이름)으로 세면 한 상품의 옵션 3개가 '3가지 상품' 이 되어 잘못 걸린다
+  const pid = {}; for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) if (r.product_id || r.product_name) pid[r.option_id] = String(r.product_id || r.product_name).replace(/\s/g, '');
+  const prods = {}; const add = (c, oid, prodName) => { if (!c) return; const k = pid[oid] || String(prodName || '').replace(/\s/g, '') || null; if (k) (prods[c] ||= new Set()).add(k); };
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) add(r.campaign, String(r.option_id || ''), null);
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) add(c, String(o.option_id), null);
+  for (const o of d.options || []) if (o.source !== 'wing-link' && !o.manual) add(o.campaign, o.option_id, o.product);
   const out = new Set(); const kinds = d.campaignKinds || {};
   const names = new Set([...Object.keys(prods), ...Object.keys(kinds)]); for (const day of Object.values(d.ads || {})) for (const c of Object.keys(day || {})) names.add(c);
   for (const c of names) { if (kinds[c] === 'dedicated') continue; if (kinds[c] === 'catchall' || /^\s*0\s*[.\-_)]/.test(c) || (prods[c] && prods[c].size >= 3)) out.add(c); }
@@ -194,6 +194,7 @@ export async function save(d) {
 export async function replaceAll(d) { const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); loadedAdrowsSig = adrowsSig(adrows); adrowsCache = adrows || {}; }
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
+export const cleanIdPublic = (v) => cleanId(v);
 
 export function upsertOption(d, { option_id, product_name = '', campaign = '', product = null, source = null, sort_order = null }) {
   option_id = cleanId(option_id);
@@ -240,7 +241,10 @@ export function applyPendingCampaignOptions(d, camp) {
   const facts = optionFacts(d); const moved = [], added = [];
   for (const o of p.options) {
     const cur = d.options.find((x) => x.option_id === String(o.option_id));
-    if (cur) { if (cur.campaign !== camp && !cur.manual) { moved.push({ option_id: cur.option_id, from: cur.campaign, to: camp }); cur.campaign = camp; if (cur.source === 'wing-link') cur.source = 'adcenter'; } }
+    if (cur) {
+      if (o.name && o.name.length >= 3) cur.product_name = o.name;   // 광고센터에 적힌 이름(상품명, 옵션)이 정확하므로 그것으로
+      if (cur.campaign !== camp && !cur.manual) { moved.push({ option_id: cur.option_id, from: cur.campaign, to: camp }); cur.campaign = camp; if (cur.source === 'wing-link') cur.source = 'adcenter'; }
+    }
     else { upsertOption(d, { option_id: o.option_id, product_name: o.name || facts[o.option_id]?.option_name || '', product: facts[o.option_id]?.product || '', campaign: camp, source: 'adcenter' }); added.push(o.option_id); }
   }
   if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, at: '', when, why: 'adcenter' }))].slice(-300); }
@@ -379,6 +383,12 @@ export function campaignSuggester(d) {
 }
 // 옵션ID → 상품명(판매 리포트의 '상품명' 열). 옵션에 저장된 값이 없으면 판매 데이터에서 찾는다.
 // 옵션ID → 짧은 옵션 이름: 판매 리포트의 옵션명에서 상품명(앞부분)을 뗀 것 ('DUGN 브러시, 베이지' → '베이지')
+// 'DUGN … 문풍지 12M, 1개, 화이트' → '12M, 1개, 화이트' (상품명 부분을 떼고 옵션 부분만). 상품명을 모르면 마지막 쉼표 두 덩어리
+export function optionLabel(full, product = '') {
+  let s = String(full || '').trim(); if (!s || s === '-') return '';
+  if (product && s.startsWith(product)) { const v = s.slice(product.length).replace(/^[\s,·\-–|/]+/, '').trim(); if (v) return v; }
+  const parts = s.split(',').map((x) => x.trim()).filter(Boolean); return parts.length >= 3 ? parts.slice(-2).join(', ') : parts.length === 2 ? parts[1] : s;
+}
 export function shortOptionNames(d) {
   const out = {}; const prod = productNames(d);
   const strip = (name, pn) => { let s = String(name || '').trim(); if (pn && s.startsWith(pn)) s = s.slice(pn.length); s = s.replace(/^[\s,،·\-–|/]+/, '').trim(); return s || name || ''; };
