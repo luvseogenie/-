@@ -521,7 +521,7 @@ console.log('extension logic: all checks passed');
     adrows: { '2026-09-19': [{ date: '2026-09-19', campaign: '52. 담요', option_id: 'B', product_name: '담요 B', spend: 10 }, { date: '2026-09-19', campaign: '52. 담요', option_id: 'A', spend: 5 }, { date: '2026-09-19', campaign: '3. 옛것', option_id: 'Z', product_name: 'z', spend: 0 }] },
     campaignOptions: { '52. 담요': { at: '2026-09-19', options: [{ option_id: 'C', name: '담요 C' }, { option_id: 'B', name: '담요 B2' }] } } };
   const added = S.autoAddOptions(d);
-  assert.deepEqual(added.map((x) => [x.option_id, x.campaign, x.name]).sort(), [['B', '52. 담요', '담요 B'], ['C', '52. 담요', '담요 C']]);   // Z 는 중단된 3번 → 안 넣음
+  assert.deepEqual(added.map((x) => [x.option_id, x.campaign, x.name]).sort(), [['B', '52. 담요', '담요 B2'], ['C', '52. 담요', '담요 C']]);   // 광고센터 목록에서만 넣음 (광고 보고서에만 찍힌 옵션은 안 넣음), Z 는 중단된 3번 → 안 넣음
   assert.equal(d.options.length, 3); assert.equal(d.options.find((o) => o.option_id === 'C').source, 'adreport');
   assert.deepEqual(S.autoAddOptions(d), []);
   console.log('auto add options: all checks passed');
@@ -988,4 +988,17 @@ console.log('extension logic: all checks passed');
   assert.equal(row(C60).days['2026-10-07'].actual_qty, 6);
   assert.equal(S.optionLabel(`${P}, 1개, 화이트`, P), '1개, 화이트'); assert.equal(S.optionLabel(`${P}, 1개, 그레이`), '1개, 그레이'); assert.equal(S.optionLabel('-'), '');
   console.log('one-product campaign is not catch-all, hand-picked options stay, option labels: all checks passed');
+}
+
+// 광고 보고서에만 찍힌 옵션(쿠팡이 같은 상품의 다른 옵션ID 로 광고를 내보낸 것)은 캠페인 옵션으로 넣지 않는다. 옵션 이름은 판매 리포트 이름으로 통일
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const C59 = '59. 타이머_242%_261005';
+  const d = { options: [{ option_id: '94602334086', product_name: 'DUGNSTUDIO 디지털 주방 쿠킹 …', campaign: C59, sort_order: 1 }], margins: [], legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, campaignOptions: {},
+    ads: { '2026-10-06': { [C59]: ad(C59, 5000) } },
+    adrows: { '2026-10-06': [{ campaign: C59, option_id: '94602334086', spend: 4000 }, { campaign: C59, option_id: '94844384426', spend: 100 }] },
+    sales: { '2026-10-06': { '94602334086': { option_id: '94602334086', option_name: 'DUGNSTUDIO 타이머, 1개, 화이트', product_name: 'DUGNSTUDIO 타이머', quantity: 3, revenue: 1 } } } };
+  assert.deepEqual(S.autoAddOptions(d), []);
+  assert.equal(S.normalizeOptionNames(d), 1); assert.equal(d.options[0].product_name, 'DUGNSTUDIO 타이머, 1개, 화이트');
+  console.log('no auto-add from ad report rows, option names normalized: all checks passed');
 }

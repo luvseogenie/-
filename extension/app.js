@@ -1020,6 +1020,13 @@ $('#opt-bulk-save').onclick = async () => {
   const dd = await reload(); for (const id of optBulkList) S.setMargin(dd, id, margin, from, note); await S.save(dd); await reload();
   msg('#opt-msg', `${optBulkList.length}개 옵션에 마진 ${fmtInt(margin)}원 (${from || '처음부터'}) 저장`, 'ok'); $('#opt-bulk-margin').value = ''; renderOptions(); renderFoot();
 };
+$('#copt-fetch-all').onclick = async () => {
+  const d = DATA; const st = S.campaignStatus(d); const ca = S.catchAllCampaigns(d);
+  const camps = S.sortCampaigns(Object.keys(st).filter((c) => st[c] === 'running' && !ca.has(c)));
+  if (!camps.length) { toast('운영 중인 캠페인이 없습니다', 'err'); return; }
+  if (!confirm(`운영 중인 캠페인 ${camps.length}개의 옵션 목록을 광고센터에서 읽어 옵니다 (${Math.ceil(camps.length * 12 / 60)}분쯤). 계속할까요?`)) return;
+  $('#copt-fetch-all').disabled = true; try { await fetchCampOpts(camps); } finally { $('#copt-fetch-all').disabled = false; }
+};
 let coptFails = {};   // 캠페인 → { error, diag } (가져오기 실패, 화면에 크게 보여 줌)
 async function fetchCampOpts(camps) {
   const box = $('#copt-review'); if (box) { box.innerHTML = `<div class="notice">⏳ 광고센터에서 ${camps.map(esc).join(', ')} 의 옵션 목록을 읽는 중입니다… (작은 창이 떴다 닫힙니다, 1분쯤)</div>`; box.scrollIntoView({ block: 'center' }); }
@@ -1052,7 +1059,10 @@ function renderCampaignOptionReview(d) {
       ${gone.length ? `<div class="sub" style="margin-top:6px">이 목록에 없어 이 캠페인에서 빠질 옵션 ${gone.length}개: ${gone.slice(0, 10).map((o) => esc(o.option_id)).join(', ')}${gone.length > 10 ? ' 외' : ''} (직접 장부에 추가한 옵션은 그대로, 마진 이력은 남음)</div>` : ''}
       <div class="row" style="margin-top:8px"><button class="btn primary sm" data-copt-apply="${esc(c)}">이 목록대로 맞추기</button><button class="btn sm" data-copt-drop="${esc(c)}">버리기</button></div></div>`;
   }
+  const nPend = Object.keys(pend).length;
+  if (nPend >= 2) html = `<div class="row" style="margin-top:12px"><button class="btn primary sm" id="copt-apply-all">모두 이 목록대로 맞추기 (${nPend}개 캠페인)</button><span class="sub">아래 캠페인마다 읽은 목록대로 옵션을 맞춥니다</span></div>` + html;
   box.innerHTML = html;
+  const aa = $('#copt-apply-all'); if (aa) aa.onclick = async () => { const dd = await reload(); let mv = 0, ad = 0, rm = 0; for (const c of Object.keys(dd.pendingCampaignOptions || {})) { const r = S.applyPendingCampaignOptions(dd, c); if (r) { mv += r.moved.length; ad += r.added.length; rm += r.removed.length; } } await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${nPend}개 캠페인 맞춤: 옮김 ${mv} · 추가 ${ad} · 뺌 ${rm}`); };
   box.querySelectorAll('[data-copt-apply]').forEach((b) => b.onclick = async () => { const c = b.dataset.coptApply; const dd = await reload(); const r = S.applyPendingCampaignOptions(dd, c); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${c}: 옵션 ${r ? `옮김 ${r.moved.length} · 추가 ${r.added.length} · 뺌 ${r.removed.length}` : '반영'}`); });
   box.querySelectorAll('[data-copt-drop]').forEach((b) => b.onclick = async () => { const dd = await reload(); delete dd.pendingCampaignOptions[b.dataset.coptDrop]; await S.save(dd); await reload(); renderOptions(); });
   box.querySelectorAll('[data-copydiag]').forEach((b) => b.onclick = () => { const pre = b.parentElement.querySelector('pre'); navigator.clipboard.writeText(pre.textContent).then(() => toast('복사했습니다'), () => toast('복사 실패', 'err')); });

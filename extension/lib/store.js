@@ -35,12 +35,14 @@ export async function load() {
   let ignChanged = false; if (!d.ignoreDefaultsApplied) { d.ignore ||= { ids: [], words: [] }; d.ignore.words = [...new Set([...(d.ignore.words || []), '반품', '리퍼', '중고'])]; d.ignoreDefaultsApplied = true; ignChanged = true; }
   // v0.51.2 의 가격 기준으로 잘못 뺀 옵션 되살리기 (한 번): 이름·무시 규칙에 안 걸리는 것만
   let restored = [], restFlag = false; if (!d.resaleRestore1) { restored = restoreWrongResale(d); d.resaleRestore1 = true; restFlag = true; }
+  // 옵션 이름 통일 (한 번): 엑셀·광고 보고서·판매 리포트에서 온 이름이 섞여 있어 판매 리포트의 '상품명, 옵션' 이름으로 맞춘다
+  let nameFlag = false; if (!d.nameNorm1) { normalizeOptionNames(d); d.nameNorm1 = true; nameFlag = true; }
   const removedResale = removeAutoResale(d);
   // 옵션 목록 = 쿠팡 광고 캠페인에 실제로 들어 있는 옵션 + 직접 '장부에 옵션 추가' 한 옵션. 나머지는 지운다 (한 번, 이후는 옵션 탭의 정리 버튼)
   let pruneFlag = false; if (!d.pruneFix1) { const back = restoreReportPrune(d); d.pruneFix1 = true; d.pruneV1 = true; pruneFlag = true; if (back.length) { const when = new Date().toISOString().slice(0, 10); d.restoredPrune = [...(d.restoredPrune || []), ...back.map((x) => ({ option_id: x.option_id, campaign: x.campaign, when }))].slice(-500); } }
   // 같은 상품 옵션을 자동으로 캠페인 장부에 넣던 것은 그만두고(헷갈림), 캠페인마다 직접 '장부에 옵션 추가' 로 넣는다. 예전에 자동으로 넣은 것 중 마진을 안 넣은 것은 되돌린다 (한 번)
   const linkedAuto = []; let reverted = [], revFlag = false; if (!d.autoLinkReverted) { reverted = revertAutoLinks(d); d.autoLinkReverted = true; revFlag = true; }
-  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
+  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || nameFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -48,7 +50,7 @@ export async function load() {
 export function autoAddOptions(d) {
   const st = campaignStatus(d); if (!Object.keys(st).length) return [];
   const listed = new Set(d.options.map((o) => o.option_id)); const cand = {};
-  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign && st[r.campaign] === 'running' && !listed.has(String(r.option_id))) { const x = (cand[r.option_id] ||= { option_id: String(r.option_id), campaign: r.campaign, name: '' }); if (r.product_name) x.name = r.product_name; x.campaign = r.campaign; }
+  // 광고 보고서에 찍힌 옵션은 넣지 않는다: 쿠팡이 같은 상품의 다른 옵션ID(반품 등급 등)로도 광고를 내보내 넣지 않은 옵션이 붙었음. 광고센터에서 읽어 확인한 캠페인 목록만
   for (const [c, v] of Object.entries(d.campaignOptions || {})) if (st[c] === 'running') for (const o of v.options || []) if (!listed.has(String(o.option_id))) { const x = (cand[o.option_id] ||= { option_id: String(o.option_id), campaign: c, name: '' }); if (o.name && !x.name) x.name = o.name; }
   const names = productNames(d); const added = []; const resale = resaleChecker(d);
   // 같은 옵션 이름의 새 제품 옵션(이미 목록에 있는 것)과 가격을 비교하려고
@@ -226,6 +228,11 @@ export function unlistedSoldOptions(d, sinceIso) {
   return Object.values(out).map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
 }
 // 캠페인별 '쿠팡 광고에 들어 있는 옵션' 근거: 광고센터 캠페인 상품 목록(campaignOptions) + 광고 보고서에서 그 캠페인이 광고한 옵션(adrows)
+export function normalizeOptionNames(d) {
+  const facts = optionFacts(d); const ad = {}; for (const v of Object.values(d.campaignOptions || {})) for (const o of v.options || []) if (o.name) ad[o.option_id] = o.name;
+  let n = 0; for (const o of d.options) { const nm = facts[o.option_id]?.option_name || ad[o.option_id]; if (nm && nm !== o.product_name) { o.product_name = nm; n++; } if (!o.product && facts[o.option_id]?.product) o.product = facts[o.option_id].product; }
+  return n;
+}
 export function campaignEvidence(d) {
   // 정리 기준은 광고센터에서 읽어 와 사용자가 확인한 캠페인 상품 목록뿐이다.
   // (광고 보고서는 '클릭이 발생한 키워드만' 담겨 클릭이 없던 옵션이 빠지므로 정리 기준으로 쓰지 않는다)
