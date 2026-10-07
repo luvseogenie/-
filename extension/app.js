@@ -853,10 +853,12 @@ function renderOptions() {
   // 오늘 최근 캠페인으로 옮긴 옵션 안내
   const todayRel = (d.relinks || []).filter((r) => r.when === todayIso); const relBox = $('#opt-relink');
   const todayAdd = (d.autoAdded || []).filter((r) => r.when === todayIso);
-  if (relBox) { if (todayRel.length || todayAdd.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+  const todayLink = (d.autoLinked || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
       const parts = [];
       if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
       if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
+      if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       relBox.innerHTML = parts.join('<br>'); } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
@@ -1087,6 +1089,28 @@ $('#unlisted-link-all').onclick = async () => {
   await S.save(dd); await reload(); renderOptions(); refreshAll();
   msg('#unlisted-link-msg', `${list.length}개 넣음 — 마진 없는 옵션은 화면 위 노란 알림에서 바로 넣을 수 있습니다`, 'ok');
 };
+// 판매 데이터에서 찾기: 쿠팡 판매 리포트(매일 받는 파일)에 그 옵션이 있었는지, 있으면 장부 어느 줄로 갔는지(무시·목록 없음·캠페인)
+function renderSalesFind() {
+  const d = DATA; const days = Number($('#sf-days').value || 7); const since = addDays(localIso(yday), -(days - 1));
+  const q = ($('#sf-q').value || '').trim().toLowerCase(); const rules = S.ignoreRules(d); const linked = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  // 날짜별 판매방식 합계 (윙 판매가 리포트에 들어오는지 한눈에)
+  const dates = Object.keys(d.sales).filter((x) => x >= since).sort();
+  $('#sf-types').innerHTML = dates.length ? '판매 리포트의 판매방식별 판매량: ' + dates.map((dt) => { const by = {}; for (const r of Object.values(d.sales[dt])) { const k = r.sales_type || '(판매방식 없음)'; by[k] = (by[k] || 0) + (r.quantity || 0); } return `<b>${dt.slice(5).replace('-', '/')}</b> ${Object.entries(by).map(([k, v]) => `${esc(k)} ${fmtInt(v)}`).join(' · ')}`; }).join(' &nbsp;|&nbsp; ') : `최근 ${days}일 판매 데이터가 없습니다`;
+  const tb = $('#sf-table tbody'); tb.innerHTML = ''; if (!q) return;
+  const rows = [];
+  for (const dt of dates) for (const r of Object.values(d.sales[dt])) if (`${r.option_id} ${r.option_name || ''} ${r.product_name || ''}`.toLowerCase().includes(q)) rows.push({ dt, r });
+  rows.sort((a, b) => b.dt.localeCompare(a.dt) || (b.r.quantity || 0) - (a.r.quantity || 0));
+  if (!rows.length) { tb.innerHTML = `<tr><td class="l" colspan="8">최근 ${days}일 판매 리포트에 '${esc(q)}' 가 들어간 옵션이 없습니다. → 쿠팡에서 받은 판매 파일(비즈니스 인사이트 판매분석)에 이 상품이 없었다는 뜻입니다. 윙 주문이면 아직 결제·집계 전이거나, 판매분석 화면의 판매방식 필터가 '전체'가 아닐 수 있습니다. 그 날 판매분석 엑셀을 직접 받아 보내 주시면 확인하겠습니다.</td></tr>`; return; }
+  for (const { dt, r } of rows.slice(0, 300)) {
+    const ign = S.isIgnoredRow(rules, r); const c = linked[r.option_id];
+    const where = ign ? `<span class="neg">무시됨</span> (무시 단어·버튼)` : c ? esc(c) : '<span class="neg">목록에 없음</span> → 아래 \'팔렸지만 목록에 없는 옵션\'';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="l">${dt}</td><td class="l num">${esc(r.option_id)}</td><td class="l">${esc(r.option_name || r.product_name || '')}</td><td class="l sub">${esc(r.sales_type || '')}</td><td class="num">${fmtInt(r.orders || 0)}</td><td class="num">${fmtInt(r.quantity || 0)}</td><td class="num">${fmtWon(r.revenue || 0)}</td><td class="l">${where}</td>`;
+    tb.appendChild(tr);
+  }
+}
+$('#sf-go').onclick = renderSalesFind; $('#sf-q').onkeydown = (e) => { if (e.key === 'Enter') renderSalesFind(); }; $('#sf-days').onchange = renderSalesFind;
+$('#salesfind-details').addEventListener('toggle', () => { if ($('#salesfind-details').open) renderSalesFind(); });
 function renderIgnored(since) {
   const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
   const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';

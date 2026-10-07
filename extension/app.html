@@ -251,6 +251,11 @@
         <p class="sub" style="margin:6px 0">새로 만든 광고 캠페인은 여기에 뜹니다. 광고 보고서가 있으면 그 캠페인이 광고한 옵션이 자동으로 나오니 마진만 넣고 <b>추가</b>를 누르세요.</p>
         <div id="newcamp-list"></div>
       </details>
+      <details class="card" id="salesfind-details" style="margin-top:12px"><summary>🔎 판매 데이터에서 찾기 <span class="sub">— 어떤 옵션이 쿠팡 판매 리포트에 들어왔는지, 장부 어디로 갔는지</span></summary>
+        <div class="row" style="margin:6px 0"><input type="text" id="sf-q" placeholder="상품명·옵션명·옵션ID (예: 공병)" style="width:240px"><label class="sub">최근</label><select id="sf-days"><option value="7">7일</option><option value="14">14일</option><option value="30">30일</option></select><button class="btn sm" id="sf-go">찾기</button></div>
+        <div id="sf-types" class="sub" style="margin:4px 0 8px"></div>
+        <div class="tablewrap" style="max-height:320px"><table id="sf-table"><thead><tr><th class="l">날짜</th><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">판매방식</th><th>주문</th><th>판매량</th><th>매출</th><th class="l">장부에서</th></tr></thead><tbody></tbody></table></div>
+      </details>
       <details class="card" id="unlisted-details" style="margin-top:12px"><summary>🛒 팔렸지만 목록에 없는 옵션 <span class="sub" id="unlisted-count"></span></summary>
         <p class="sub" style="margin:6px 0">판매 리포트에는 나오는데 이 목록에는 없는 옵션입니다 (그로스 재고가 떨어져 윙으로 팔린 옵션, 광고 안 하는 상품, 새 옵션 등). 추가하지 않으면 마진 0원으로 계산됩니다.<br>
           <b>윙 옵션을 광고 장부에 넣기</b>: 같은 상품의 그로스 옵션이 들어 있는 캠페인이 <b>추천 캠페인</b>에 나옵니다. 윙 마진을 넣고 <b>장부에 넣기</b>를 누르면, 쿠팡 광고에는 넣지 않고 이 프로그램 광고 장부의 그 캠페인 줄에만 판매가 들어갑니다. 윙은 배송비·수수료가 달라 마진을 따로 넣어 주세요.</p>

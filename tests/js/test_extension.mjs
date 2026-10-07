@@ -456,16 +456,17 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(st, { '3. 담요': 'deleted', '5. 커튼': 'paused', '52. 담요': 'running' });
   assert.equal(S.isRunning({}, '무엇이든'), true);
   // 장부: 9/10 A 는 3번(그날 광고비 있음), 9/11 A 는 보고서대로 52번, B 는 5번이 광고비 0 이어도 목록에 남아 있음(광고 끔) → 5번 그대로,
-  // D 는 9/11 에 3번이 목록에서 사라짐(삭제) → '(광고 없는 판매)', C 는 '(캠페인 없음)'
+  // D 는 9/11 에 3번이 목록에 없지만(꺼 둔 캠페인은 목록에 안 잡힐 수 있음) 3번 그대로, C 는 '(캠페인 없음)'
   const led0 = computeLedger(d, '2026-09-09', '2026-09-11'); const row = (n) => led0.campaigns.find((c) => c.campaign === n);
   assert.equal(row('3. 담요').days['2026-09-09'].actual_qty, 2);
   assert.equal(row('3. 담요').days['2026-09-10'].actual_qty, 3);
   assert.equal(row('52. 담요').days['2026-09-11'].actual_qty, 4);
   assert.equal(row('5. 커튼').days['2026-09-10'].actual_qty, 1); assert.equal(row('5. 커튼').days['2026-09-11'].actual_qty, 2);
   assert.equal(row('5. 커튼').days['2026-09-11'].margin_total, 1000);   // 광고를 꺼도 그 캠페인 줄의 마진 = 2 × 500
-  assert.equal(row(ORGANIC).days['2026-09-11'].actual_qty, 2); assert.equal(row(ORGANIC).days['2026-09-11'].margin_total, 1400);   // 삭제된 캠페인의 옵션
+  assert.equal(row('3. 담요').days['2026-09-11'].actual_qty, 2); assert.equal(row('3. 담요').days['2026-09-11'].margin_total, 1400);   // 3번이 목록에서 사라져도(꺼 두면 안 잡힘) 판매는 그 캠페인 줄
+  assert.ok(!row(ORGANIC));
   assert.equal(row(UNMAPPED).days['2026-09-11'].actual_qty, 1);
-  assert.deepEqual(led0.campaigns.map((c) => c.campaign).slice(-2), [ORGANIC, UNMAPPED]);
+  assert.equal(led0.campaigns.map((c) => c.campaign).slice(-1)[0], UNMAPPED);
   // 옮기기: A 는 삭제된 3번 → 운영 중인 52번(보고서 근거). B 는 근거 없음 → 그대로
   const moved = S.relinkOptions(d);
   assert.deepEqual(moved.map((m) => [m.option_id, m.from, m.to]), [['A', '3. 담요', '52. 담요']]);
@@ -474,7 +475,7 @@ console.log('extension logic: all checks passed');
   // 옮긴 뒤에도 예전 캠페인(3번)이 광고비를 쓴 날의 판매는 3번 줄에 남는다
   const led1 = computeLedger(d, '2026-09-09', '2026-09-11'); const row1 = (n) => led1.campaigns.find((c) => c.campaign === n);
   assert.equal(row1('3. 담요').days['2026-09-10'].actual_qty, 3); assert.equal(row1('52. 담요').days['2026-09-11'].actual_qty, 4);
-  assert.deepEqual(led1.noad_options.map((n) => [n.option_id, n.qty, n.margin]), [['D', 2, 700], ['C', 1, 0]]);
+  assert.deepEqual(led1.noad_options.map((n) => [n.option_id, n.qty, n.margin]), [['C', 1, 0]]);
   // 두 운영 캠페인이 같은 옵션을 광고하면 지금 연결 유지
   d.ads['2026-09-11']['3. 담요'] = ad('3. 담요', 500); d.options[0].campaign = '3. 담요';
   d.adrows['2026-09-11'].push({ date: '2026-09-11', campaign: '3. 담요', option_id: 'A', spend: 500, keyword: 'y' });
@@ -805,4 +806,20 @@ console.log('extension logic: all checks passed');
   let led = computeLedger(d, '2026-10-05', '2026-10-05'); assert.equal(led.campaigns.find((c) => c.campaign === '55. 타이머_새_250%').days['2026-10-05'].actual_qty, 2);
   assert.ok(!led.campaigns.find((c) => c.campaign === '(광고 없는 판매)'));
   console.log('newest campaign keeps sales after ads off: all checks passed');
+}
+
+// 양우산: 10/4 에 광고를 꺼서 10/5·10/6 광고 목록에 안 잡힘 → 판매는 그래도 양우산 캠페인 줄. 같은 등록상품의 윙 옵션은 저장소를 읽을 때 자동 연결, 반품 등급 옵션은 기본 무시
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0, target_roas: 7, budget: 50000 });
+  const sale = (option_id, qty, extra = {}) => ({ option_id, option_name: '초경량 양우산, 블랙', product_name: '초경량 양우산', product_id: '555', sales_type: '로켓그로스', quantity: qty, revenue: qty * 20000, ...extra });
+  await S.replaceAll({ options: [{ option_id: 'U1', product_name: '초경량 양우산, 블랙', campaign: '40. 초경량 양우산_20260605', sort_order: 1 }], margins: [{ option_id: 'U1', effective_from: '', margin: 7004 }],
+    ads: { '2026-10-04': { '40. 초경량 양우산_20260605': ad('40. 초경량 양우산_20260605', 0), '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) }, '2026-10-05': { '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) }, '2026-10-06': { '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) } },
+    sales: { '2026-10-04': { U1: sale('U1', 1) }, '2026-10-05': { U1: sale('U1', 2), W9: sale('W9', 5, { sales_type: '판매자배송' }), R1: sale('R1', 1, { option_name: '초경량 양우산, 블랙 (반품-최상)' }) }, '2026-10-06': { U1: sale('U1', 3) } } });
+  const d = await S.load();
+  const w = d.options.find((o) => o.option_id === 'W9'); assert.ok(w && w.campaign === '40. 초경량 양우산_20260605' && w.source === 'wing-link' && w.ref === 'U1');   // 같은 등록상품 → 자동 연결
+  assert.ok(!d.options.find((o) => o.option_id === 'R1')); assert.ok(d.ignore.words.includes('반품'));   // 반품 등급 옵션은 무시
+  const led = computeLedger(d, '2026-10-04', '2026-10-06'); const u = led.campaigns.find((c) => c.campaign === '40. 초경량 양우산_20260605');
+  assert.equal(u.days['2026-10-05'].actual_qty, 7); assert.equal(u.days['2026-10-06'].actual_qty, 3); assert.equal(u.days['2026-10-06'].margin_total, 3 * 7004);
+  assert.equal(led.ignored_qty, 1);
+  console.log('paused campaign missing from list + auto wing link: all checks passed');
 }

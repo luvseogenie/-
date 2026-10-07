@@ -3,7 +3,7 @@ import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaig
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
-export const ORGANIC = '(광고 없는 판매)';   // 연결된 캠페인이 광고센터 목록에서 사라진(삭제) 뒤의 판매 — 광고 없이 팔린 마진. 광고를 꺼 둔(OFF) 캠페인은 목록에 남아 있어 그 캠페인 줄에 그대로 넣는다
+export const ORGANIC = '(광고 없는 판매)';   // 예전 버전의 줄 이름 (지금은 캠페인에 연결된 옵션의 판매는 광고가 없던 날도 그 캠페인 줄에 넣는다)
 export const METRICS = [
   ['target_roas', '목표효율', 'ratio'], ['budget', '광고예산', 'won'], ['traffic_slots', '트래픽 슬롯', 'int'], ['roas', '광고수익률', 'ratio'],
   ['spend_vat', '집행 광고비*10%', 'won'], ['cpc', 'CPC 단가', 'won'], ['impressions', '노출수', 'int'],
@@ -65,22 +65,23 @@ export function computeLedger(d, start, end) {
   for (const r of d.relinks || []) if (r.from && r.option_id) { const m = (everAt[r.option_id] ||= {}); m[r.from] ||= '0000'; }   // 예전에 연결돼 있던 캠페인 (옮기기 전 기간의 판매용)
   const ever = Object.fromEntries(Object.entries(everAt).map(([oid, m]) => [oid, Object.entries(m).sort((a, b) => b[1].localeCompare(a[1])).map((x) => x[0])]));
   const spentOn = (c, date) => (d.ads[date]?.[c]?.spend || 0) > 0;
-  // 캠페인이 광고센터 목록에 마지막으로 보인 날 (광고를 꺼도 목록에는 남는다 → 그 날 이후에도 있으면 '아직 있는 캠페인')
-  const lastListed = {}; for (const [date, day] of Object.entries(d.ads || {})) for (const c of Object.keys(day || {})) if (!lastListed[c] || lastListed[c] < date) lastListed[c] = date;
+  // 캠페인이 처음 보인 날 (광고 목록 또는 광고 보고서). 광고 없이 팔린 날, 그 날 이미 있던 캠페인 중 가장 최근에 만든 것을 고르는 데 쓴다
+  const firstSeen = {};
+  for (const [date, day] of Object.entries(d.ads || {})) for (const c of Object.keys(day || {})) if (!firstSeen[c] || firstSeen[c] > date) firstSeen[c] = date;
+  for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) if (r.campaign && (!firstSeen[r.campaign] || firstSeen[r.campaign] > date)) firstSeen[r.campaign] = date;
   // 옵션의 판매를 어느 캠페인 줄에 넣을지: 그날 광고 목록이 없으면 연결대로, 보고서에 그날 이 옵션이 있으면 그 캠페인,
   // 연결 캠페인이 그날 광고비를 썼으면 연결 캠페인, 이 옵션을 광고한 적 있는 다른 캠페인이 그날 광고비를 썼으면 그 캠페인,
-  // 아니면 연결 캠페인이 그날(또는 그 뒤) 광고센터 목록에 있었으면(광고를 꺼 둔 것) 연결 캠페인, 목록에서 사라졌으면(삭제) '(광고 없는 판매)'
-  // 윙 옵션처럼 광고에 넣지 않은 옵션도 캠페인에 연결해 두면 같은 규칙으로 그 캠페인 줄에 들어간다
+  // 그날 광고가 없었으면(광고를 껐거나 목록에서 사라졌어도) 그 날 이미 있던 캠페인(연결 + 이 옵션을 광고한 적 있는 것) 중 가장 최근에 만든 캠페인 줄에 넣는다.
+  // 광고를 꺼 둔 캠페인은 쿠팡 광고 목록에 안 잡히는 경우가 있어 목록 여부로는 판단하지 않는다. 윙 옵션처럼 광고에 넣지 않은 옵션도 캠페인에 연결해 두면 같은 규칙
   const campaignFor = (oid, date) => {
     const linked = campaignOf[oid]; if (!linked) return null;
     const day = d.ads[date]; if (!day || !Object.keys(day).length) return linked;
     const a = adOpt[date + '|' + oid]; if (a) return a.campaign;
     if (spentOn(linked, date)) return linked;
     for (const c of ever[oid] || []) if (c !== linked && spentOn(c, date)) return c;
-    if (lastListed[linked] && lastListed[linked] >= date) return linked;
-    // 연결 캠페인이 삭제됐어도, 이 옵션을 광고한 적 있는 캠페인 중 그날 목록에 남아 있는 가장 최근 것(새로 만들었다가 꺼 둔 캠페인)이 있으면 그 줄에
-    for (const c of ever[oid] || []) if (lastListed[c] && lastListed[c] >= date) return c;
-    return ORGANIC;
+    const cands = [...new Set([linked, ...(ever[oid] || [])])].filter((c) => firstSeen[c] && firstSeen[c] <= date);
+    if (cands.length) return cands.sort((x, y) => firstSeen[y].localeCompare(firstSeen[x]))[0];
+    return linked;
   };
   const margin = marginLookup(d);
   const order = campaignList(d);

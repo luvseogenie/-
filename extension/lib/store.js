@@ -31,7 +31,10 @@ export async function load() {
   const changed = cleanCampaignNames(d);
   const moved = relinkOptions(d);
   const added = autoAddOptions(d);
-  if (changed || moved.length || added.length || expChanged || futureChanged || carried) await save(d);
+  // 반품·리퍼 재판매 옵션(등급마다 옵션ID 가 새로 생김)은 기록하지 않는다 — 기본 무시 단어 (한 번, 사용자가 지우면 다시 넣지 않음)
+  let ignChanged = false; if (!d.ignoreDefaultsApplied) { d.ignore ||= { ids: [], words: [] }; d.ignore.words = [...new Set([...(d.ignore.words || []), '반품', '리퍼', '중고'])]; d.ignoreDefaultsApplied = true; ignChanged = true; }
+  const linkedAuto = autoLinkSameProduct(d);
+  if (changed || moved.length || added.length || linkedAuto.length || expChanged || futureChanged || carried || ignChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -162,6 +165,19 @@ export function unlistedSoldOptions(d, sinceIso) {
   for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, product_id: r.product_id || '', sales_type: r.sales_type || '', qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) { o.last = date; if (r.sales_type) o.sales_type = r.sales_type; if (r.product_id) o.product_id = r.product_id; } } }
   const sug = campaignSuggester(d);
   return Object.values(out).map((o) => ({ ...o, suggest: sug(o) })).sort((a, b) => b.qty - a.qty);
+}
+// 목록에 없는데 팔린 옵션 중 같은 등록상품·같은 옵션 이름의 옵션이 캠페인에 있으면(그로스 품절로 윙에서 팔린 옵션 등) 그 캠페인 장부에 자동으로 넣는다.
+// 쿠팡 광고에는 넣지 않는다. 마진은 따로 넣어야 해서 '마진 없는 광고 옵션' 알림에 뜬다. 상품명만 같은 경우는 추천으로만 보여 준다
+export function autoLinkSameProduct(d, days = 60) {
+  const y = new Date(); y.setDate(y.getDate() - days); const since = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+  const list = unlistedSoldOptions(d, since).filter((u) => u.suggest && u.suggest.via !== '같은 상품명');
+  const when = new Date().toISOString().slice(0, 10);
+  for (const u of list) {
+    upsertOption(d, { option_id: u.option_id, product_name: u.option_name || '', product: u.product || '', campaign: u.suggest.campaign, source: 'wing-link' });
+    const o = d.options.find((x) => x.option_id === cleanId(u.option_id)); if (o) o.ref = u.suggest.option_id;
+  }
+  if (list.length) d.autoLinked = [...(d.autoLinked || []), ...list.map((u) => ({ option_id: u.option_id, campaign: u.suggest.campaign, via: u.suggest.via, sales_type: u.sales_type, when }))].slice(-300);
+  return list;
 }
 // 목록에 없는 옵션(윙 판매 등)을 어느 캠페인 장부에 넣으면 될지 추천: 같은 등록상품ID → 같은 옵션 이름 → 같은 상품명 순으로,
 // 이미 캠페인에 연결된 옵션(대개 로켓그로스 옵션)을 찾는다. 쿠팡 광고에는 넣지 않고 이 프로그램 장부에서만 그 캠페인 줄에 넣는 용도
