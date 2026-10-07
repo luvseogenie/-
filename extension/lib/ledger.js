@@ -1,5 +1,5 @@
 // 광고 장부 계산 (coupang_calc/ledger.py 와 같은 규칙)
-import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots, ignoreRules, isIgnoredRow } from './store.js';
+import { campaigns as campaignList, dates as allDates, marginLookup, sortCampaigns, expensesByDay, trafficSlots, ignoreRules, isIgnoredRow, catchAllCampaigns } from './store.js';
 
 export const VAT = 1.1;
 export const UNMAPPED = '(캠페인 없음)';
@@ -73,15 +73,18 @@ export function computeLedger(d, start, end) {
   // 연결 캠페인이 그날 광고비를 썼으면 연결 캠페인, 이 옵션을 광고한 적 있는 다른 캠페인이 그날 광고비를 썼으면 그 캠페인,
   // 그날 광고가 없었으면(광고를 껐거나 목록에서 사라졌어도) 그 날 이미 있던 캠페인(연결 + 이 옵션을 광고한 적 있는 것) 중 가장 최근에 만든 캠페인 줄에 넣는다.
   // 광고를 꺼 둔 캠페인은 쿠팡 광고 목록에 안 잡히는 경우가 있어 목록 여부로는 판단하지 않는다. 윙 옵션처럼 광고에 넣지 않은 옵션도 캠페인에 연결해 두면 같은 규칙
+  // 모음(AI) 캠페인: 옵션이 지금 전용 캠페인에 연결돼 있으면, 전용 캠페인을 만들기 전 모음 캠페인에서 팔린 것도 전용 캠페인 줄로 (광고비는 모음 캠페인 줄에 그대로)
+  const catchAll = catchAllCampaigns(d);
   const campaignFor = (oid, date) => {
     const linked = campaignOf[oid]; if (!linked) return null;
+    const skip = (c) => c !== linked && catchAll.has(c) && !catchAll.has(linked);
     const day = d.ads[date]; if (!day || !Object.keys(day).length) return linked;
-    const a = adOpt[date + '|' + oid]; if (a) return a.campaign;
+    const a = adOpt[date + '|' + oid]; if (a && !skip(a.campaign)) return a.campaign;
     if (spentOn(linked, date)) return linked;
-    for (const c of ever[oid] || []) if (c !== linked && spentOn(c, date)) return c;
-    const cands = [...new Set([linked, ...(ever[oid] || [])])].filter((c) => firstSeen[c] && firstSeen[c] <= date);
+    for (const c of ever[oid] || []) if (c !== linked && !skip(c) && spentOn(c, date)) return c;
+    const cands = [...new Set([linked, ...(ever[oid] || [])])].filter((c) => !skip(c) && firstSeen[c] && firstSeen[c] <= date);
     if (cands.length) return cands.sort((x, y) => firstSeen[y].localeCompare(firstSeen[x]))[0];
-    return linked;
+    return linked;   // 그 날 아직 어떤 전용 캠페인도 없었으면 지금 연결된 캠페인 (캠페인을 만들기 전 판매도 새 캠페인에 반영)
   };
   const margin = marginLookup(d);
   const order = campaignList(d);

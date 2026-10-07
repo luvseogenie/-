@@ -88,7 +88,8 @@ function renderMarginAlert() {
   const d = DATA; const st = S.campaignStatus(d); const lookup = S.marginLookup(d); const todayIso = localIso(today);
   const since = addDays(localIso(yday), -29); const sold = {};
   for (const [date, day] of Object.entries(d.sales)) if (date >= since) for (const r of Object.values(day)) if (r.quantity > 0) sold[r.option_id] = (sold[r.option_id] || 0) + r.quantity;
-  const missing = d.options.filter((o) => o.campaign && (S.isRunning(st, o.campaign) || sold[o.option_id]) && !lookup(o.option_id, todayIso));   // 광고를 꺼 둔 캠페인도 최근에 팔린 옵션은 알림
+  const ca = S.catchAllCampaigns(d);   // AI·모음 캠페인 옵션은 전용 캠페인을 만들 때 마진을 넣으므로 알리지 않는다
+  const missing = d.options.filter((o) => o.campaign && !ca.has(o.campaign) && (S.isRunning(st, o.campaign) || sold[o.option_id]) && !lookup(o.option_id, todayIso));   // 광고를 꺼 둔 캠페인도 최근에 팔린 옵션은 알림
   const byCamp = {}; for (const o of missing) byCamp[o.campaign] = (byCamp[o.campaign] || 0) + 1;
   const soldN = missing.filter((o) => sold[o.option_id]).length;
   const box = $('#margin-banner'); if (!box) return;
@@ -656,6 +657,11 @@ function renderNoAd() {
     tb.appendChild(tr);
   }
 }
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-kind-ded]'); if (!b) return;
+  const name = b.dataset.kindDed; if (!confirm(`'${name}' 을(를) 한 상품의 전용 캠페인으로 볼까요? (모음 캠페인 처리를 하지 않습니다)`)) return;
+  const dd = await reload(); dd.campaignKinds = { ...(dd.campaignKinds || {}), [name]: 'dedicated' }; await S.save(dd); await refreshAll(); toast(`${name} → 전용 캠페인으로 봅니다`);
+});
 function renderLedgerTable() {
   const led = ledgerCache; if (!led) return;
   const hideEmpty = $('#lg-hide-empty').checked, showAction = $('#lg-action').checked;
@@ -689,6 +695,12 @@ function renderLedgerTable() {
   const visibleCamps = allCamps.filter((name) => { const v = visOf(name); if (v === 'hidden' && !showHidden) return false; return v === 'always' || (showHidden ? hasIn(byName[name]) : autoShow(name)); });
   const idleN = allCamps.filter((name) => visOf(name) === 'auto' && !autoShow(name) && hasIn(byName[name])).length;
   if (led.ignored_qty) $('#lg-warn').innerHTML += `<div class="notice sub">기록하지 않기로 한 판매(재판매·리퍼 등) ${fmtInt(led.ignored_qty)}개는 이 기간 장부에서 뺐습니다. 캠페인·옵션 탭 → 팔렸지만 목록에 없는 옵션 → 무시 중인 판매 옵션에서 되돌릴 수 있습니다.</div>`;
+  { // 모음(AI) 캠페인 안내: 여기서 팔린 옵션은 전용 캠페인을 만들면 만들기 전 판매까지 전용 캠페인 줄로 옮겨 보인다
+    const ca = [...S.catchAllCampaigns(DATA)].filter((n) => byName[n]);
+    if (ca.length) {
+      $('#lg-warn').innerHTML += `<div class="notice sub">🧺 여러 상품을 함께 광고하는 <b>모음(AI) 캠페인</b>으로 본 것: ${ca.map((n) => `${esc(n)} <button class="btn sm" data-kind-ded="${esc(n)}">전용 캠페인이에요</button>`).join(' · ')} — 여기서 팔리던 옵션은 그 상품의 전용 캠페인을 만들면, 만들기 전 판매까지 전용 캠페인 줄로 옮겨 보입니다 (광고비는 이 줄에 그대로). 마진 없음 알림도 하지 않습니다.</div>`;
+    }
+  }
   if (idleN && !showHidden) $('#lg-warn').innerHTML += `<div class="notice sub">이 기간에 광고비도 판매도 없는 캠페인 ${idleN}개는 표시하지 않습니다. 보려면 '숨긴 캠페인 보기'를 켜세요.</div>`;
   const sel = $('#lg-camp'); const cur = sel.value;
   sel.innerHTML = '<option value="">전체 (모든 캠페인)</option>' + visibleCamps.map((n) => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');

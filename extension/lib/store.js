@@ -49,6 +49,21 @@ export function autoAddOptions(d) {
   if (added.length) { const when = new Date().toISOString().slice(0, 10); d.autoAdded = [...(d.autoAdded || []), ...added.map((x) => ({ ...x, when }))].slice(-500); }
   return added;
 }
+// ---- 여러 상품을 한꺼번에 광고하는 '모음' 캠페인 (AI 스마트광고, '0. 소량 재고 …' 같은 것) ----
+// 이런 캠페인에서 며칠 팔리다가 그 상품 전용 캠페인을 새로 만들면, 전용 캠페인을 만들기 전 판매도 전용 캠페인 줄로 옮겨 보여 준다 (장부·옮기기에서 사용).
+// 기준: 광고한(또는 연결된) 옵션의 상품이 3가지 이상이거나, 이름이 '0.' 으로 시작. d.campaignKinds[이름] = 'catchall' | 'dedicated' 로 직접 정할 수 있다
+export function catchAllCampaigns(d) {
+  const pid = {}; for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) if (r.product_id || r.product_name) pid[r.option_id] = String(r.product_id || r.product_name);
+  const nm = (x) => String(x || '').replace(/\s/g, '');
+  const prods = {}; const add = (c, oid, pname) => { if (!c) return; const k = pid[oid] || nm(pname) || null; if (k) (prods[c] ||= new Set()).add(k); };
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) add(r.campaign, String(r.option_id || ''), r.product_name);
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) add(c, String(o.option_id), o.name);
+  for (const o of d.options || []) if (o.source !== 'wing-link') add(o.campaign, o.option_id, o.product || o.product_name);
+  const out = new Set(); const kinds = d.campaignKinds || {};
+  const names = new Set([...Object.keys(prods), ...Object.keys(kinds)]); for (const day of Object.values(d.ads || {})) for (const c of Object.keys(day || {})) names.add(c);
+  for (const c of names) { if (kinds[c] === 'dedicated') continue; if (kinds[c] === 'catchall' || /^\s*0\s*[.\-_)]/.test(c) || (prods[c] && prods[c].size >= 3)) out.add(c); }
+  return out;
+}
 // ---- 캠페인 상태: 광고센터 목록(ads)을 마지막으로 읽은 날 기준 ----
 // running: 목록에 있고 최근 7일 안에 광고비가 있거나 새로 생긴 캠페인 / paused: 목록엔 있지만 광고비 없음 / deleted: 목록에서 사라짐
 // 옵션·엑셀에만 있고 광고센터 목록에서 본 적 없는 캠페인은 결과에 없다(끝난 캠페인). 광고 목록을 한 번도 안 읽었으면 {} (모두 운영 중으로 취급)
@@ -75,14 +90,15 @@ export function relinkOptions(d) {
   const ev = {};
   for (const [date, rows] of Object.entries(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) { const m = (ev[r.option_id] ||= {}); if (!m[r.campaign] || m[r.campaign] < date) m[r.campaign] = date; }
   for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) { const m = (ev[o.option_id] ||= {}); if (!m[c] || m[c] < v.at) m[c] = v.at; }
-  const moved = [];
+  const moved = []; const ca = catchAllCampaigns(d);
   for (const o of d.options) {
     const m = ev[o.option_id]; if (!m) continue;
-    const running = Object.entries(m).filter(([c]) => st[c] === 'running').sort((a, b) => b[1].localeCompare(a[1]));
+    // 전용 캠페인을 모음(AI) 캠페인보다 먼저, 그 안에서는 최근 근거 순
+    const running = Object.entries(m).filter(([c]) => st[c] === 'running').sort((a, b) => (ca.has(a[0]) - ca.has(b[0])) || b[1].localeCompare(a[1]));
     if (!running.length) continue;
     const [best, at] = running[0];
     if (best === o.campaign) continue;
-    if (st[o.campaign] === 'running' && m[o.campaign]) continue;   // 지금 캠페인도 운영 중이고 근거가 있으면 그대로 (한 옵션을 두 캠페인이 광고하는 경우)
+    if (st[o.campaign] === 'running' && m[o.campaign] && !(ca.has(o.campaign) && !ca.has(best))) continue;   // 지금 캠페인도 운영 중이고 근거가 있으면 그대로 (단, 모음 캠페인 → 새 전용 캠페인은 옮김)
     moved.push({ option_id: o.option_id, from: o.campaign, to: best, at });
     o.campaign = best;
   }

@@ -823,3 +823,29 @@ console.log('extension logic: all checks passed');
   assert.equal(led.ignored_qty, 1);
   console.log('paused campaign missing from list + auto wing link: all checks passed');
 }
+
+// 문풍지: AI·모음 캠페인('0. …')에서 며칠 팔리다가 전용 캠페인을 만들면, 만들기 전 판매도 전용 캠페인 줄로 (광고비는 모음 캠페인에 그대로)
+{
+  const { computeLedger: CL } = await import('../../extension/lib/ledger.js');
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', CM = '61. 문풍지_250%', CT1 = '1. 타이머_236%', CT2 = '55. 타이머_새_250%';
+  const sale = (id, q, pid) => ({ option_id: id, quantity: q, revenue: q * 5000, product_id: pid });
+  const d = { legacy: {}, imports: [], expenses: [], traffic: [], excludes: {}, relinks: [], campaignOptions: {}, ignore: { ids: [], words: [] },
+    options: [{ option_id: 'M1', product_name: '문풍지', campaign: C0, source: 'adreport', sort_order: 1 }, { option_id: 'T1', product_name: '타이머', campaign: CT1, sort_order: 2 }],
+    margins: [{ option_id: 'M1', effective_from: '', margin: 2000 }, { option_id: 'T1', effective_from: '', margin: 4571 }],
+    ads: { '2026-10-01': { [C0]: ad(C0, 3000), [CT1]: ad(CT1, 1000) }, '2026-10-02': { [C0]: ad(C0, 3000), [CT1]: ad(CT1, 1000) }, '2026-10-04': { [C0]: ad(C0, 3000), [CM]: ad(CM, 5000), [CT2]: ad(CT2, 2000) }, '2026-10-05': { [C0]: ad(C0, 3000), [CM]: ad(CM, 5000), [CT2]: ad(CT2, 2000) } },
+    adrows: { '2026-10-01': [{ campaign: C0, option_id: 'M1', spend: 1000 }, { campaign: C0, option_id: 'X1', spend: 1000 }, { campaign: C0, option_id: 'Y1', spend: 1000 }],
+      '2026-10-04': [{ campaign: C0, option_id: 'M1', spend: 500 }, { campaign: CM, option_id: 'M1', spend: 5000 }, { campaign: CT2, option_id: 'T1', spend: 2000 }] },
+    sales: { '2026-10-01': { M1: sale('M1', 2, 'm'), X1: sale('X1', 1, 'x'), Y1: sale('Y1', 1, 'y'), T1: sale('T1', 1, 't') }, '2026-10-02': { M1: sale('M1', 3, 'm'), T1: sale('T1', 1, 't') }, '2026-10-05': { M1: sale('M1', 4, 'm'), T1: sale('T1', 2, 't') } } };
+  assert.ok(S.catchAllCampaigns(d).has(C0)); assert.ok(!S.catchAllCampaigns(d).has(CM)); assert.ok(!S.catchAllCampaigns(d).has(CT1));
+  const moved = S.relinkOptions(d);   // 모음 캠페인이 아직 돌아도 전용 캠페인으로 옮긴다
+  assert.deepEqual(moved.map((m) => [m.option_id, m.to]).sort(), [['M1', CM], ['T1', CT2]]);
+  const led = CL(d, '2026-10-01', '2026-10-05'); const row = (n) => led.campaigns.find((c) => c.campaign === n);
+  assert.equal(row(CM).days['2026-10-01'].actual_qty, 2); assert.equal(row(CM).days['2026-10-02'].actual_qty, 3); assert.equal(row(CM).days['2026-10-05'].actual_qty, 4);   // 만들기 전 판매도 61번
+  assert.equal(row(CM).days['2026-10-01'].margin_total, 4000);
+  assert.equal(row(C0).days['2026-10-01'].spend, 3000); assert.equal(row(C0).days['2026-10-01'].actual_qty || 0, 0);   // 모음 캠페인은 광고비만
+  // 전용 캠페인끼리(옛 타이머 1번 → 새 55번)는 예전처럼: 새 캠페인을 만들기 전 판매는 옛 캠페인 줄에 남는다
+  assert.equal(row(CT1).days['2026-10-01'].actual_qty, 1); assert.equal(row(CT2).days['2026-10-05'].actual_qty, 2);
+  d.campaignKinds = { [C0]: 'dedicated' }; assert.ok(!S.catchAllCampaigns(d).has(C0));   // 직접 정할 수 있음
+  console.log('catch-all campaign → dedicated campaign gets earlier sales: all checks passed');
+}
