@@ -816,10 +816,13 @@ console.log('extension logic: all checks passed');
     ads: { '2026-10-04': { '40. 초경량 양우산_20260605': ad('40. 초경량 양우산_20260605', 0), '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) }, '2026-10-05': { '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) }, '2026-10-06': { '7. 키친타올_228%': ad('7. 키친타올_228%', 1000) } },
     sales: { '2026-10-04': { U1: sale('U1', 1) }, '2026-10-05': { U1: sale('U1', 2), W9: sale('W9', 5, { sales_type: '판매자배송' }), R1: sale('R1', 1, { option_name: '초경량 양우산, 블랙 (반품-최상)' }) }, '2026-10-06': { U1: sale('U1', 3) } } });
   const d = await S.load();
-  const w = d.options.find((o) => o.option_id === 'W9'); assert.ok(w && w.campaign === '40. 초경량 양우산_20260605' && w.source === 'wing-link' && w.ref === 'U1');   // 같은 등록상품 → 자동 연결
+  assert.ok(!d.options.find((o) => o.option_id === 'W9'));   // 같은 상품이어도 자동으로는 넣지 않는다 (캠페인마다 직접 추가)
+  const cands = S.ledgerOptionCandidates(d, '40. 초경량 양우산_20260605'); assert.equal(cands[0].option_id, 'W9'); assert.ok(cands[0].same);
+  const add = S.addLedgerOption(d, { option_id: 'W9', campaign: '40. 초경량 양우산_20260605', margin: 3000 }); assert.deepEqual(add, { qty: 5, first: '2026-10-05' });
+  const w = d.options.find((o) => o.option_id === 'W9'); assert.ok(w.manual && w.ref === 'U1');
   assert.ok(!d.options.find((o) => o.option_id === 'R1')); assert.ok(d.ignore.words.includes('반품'));   // 반품 등급 옵션은 무시
   const led = computeLedger(d, '2026-10-04', '2026-10-06'); const u = led.campaigns.find((c) => c.campaign === '40. 초경량 양우산_20260605');
-  assert.equal(u.days['2026-10-05'].actual_qty, 7); assert.equal(u.days['2026-10-06'].actual_qty, 3); assert.equal(u.days['2026-10-06'].margin_total, 3 * 7004);
+  assert.equal(u.days['2026-10-05'].actual_qty, 7); assert.equal(u.days['2026-10-05'].margin_total, 2 * 7004 + 5 * 3000); assert.equal(u.days['2026-10-06'].actual_qty, 3); assert.equal(u.days['2026-10-06'].margin_total, 3 * 7004);
   assert.equal(led.ignored_qty, 1);
   console.log('paused campaign missing from list + auto wing link: all checks passed');
 }
@@ -862,9 +865,10 @@ console.log('extension logic: all checks passed');
     ads: { '2026-10-03': { [C0]: ad(C0, 4000), [C60]: ad(C60, 3000) }, '2026-10-06': { [C0]: ad(C0, 4000), [C60]: ad(C60, 0) } },
     adrows: { '2026-10-03': [{ campaign: C0, option_id: W, spend: 900 }, { campaign: C0, option_id: 'X', spend: 900 }, { campaign: C60, option_id: G, spend: 3000 }], '2026-10-06': [{ campaign: C0, option_id: W, spend: 900 }] },
     sales: { '2026-10-03': { [G]: s(G, 2, '로켓그로스'), [W]: s(W, 30, '판매자배송') }, '2026-10-06': { [W]: s(W, 25, '판매자배송') } } };
-  const moved = S.relinkOptions(d);
-  assert.deepEqual(moved.map((m) => [m.option_id, m.from, m.to]), [[W, C0, C60]]);
-  const w = d.options.find((o) => o.option_id === W); assert.equal(w.source, 'wing-link'); assert.equal(w.ref, G);
+  assert.deepEqual(S.relinkOptions(d), []);   // 자동으로는 옮기지 않는다
+  assert.equal(S.ledgerOptionCandidates(d, C60)[0].option_id, W);   // 60번 '장부에 옵션 추가' 후보 맨 위에 같은 상품의 윙 옵션
+  S.addLedgerOption(d, { option_id: W, campaign: C60, margin: 1200 });
+  const w = d.options.find((o) => o.option_id === W); assert.equal(w.source, 'wing-link'); assert.equal(w.ref, G); assert.ok(w.manual);
   assert.equal(d.options.find((o) => o.option_id === 'X').campaign, C0);   // 다른 상품은 그대로 0번
   assert.deepEqual(S.relinkOptions(d), []);   // 0번이 계속 광고해도 0번으로 되돌아가지 않음
   const led = CL(d, '2026-10-03', '2026-10-06'); const row = (n) => led.campaigns.find((c) => c.campaign === n);
@@ -888,9 +892,29 @@ console.log('extension logic: all checks passed');
     sales: { '2026-10-05': { [G]: s(G, 2, 6000), [W]: s(W, 30, 6000, '압축 공병, 50ml', '판매자배송'), R1: s('R1', 3, 4200), R2: s('R2', 1, 6000, '압축 공병, 50ml, 최상'), R3: s('R3', 2, 3900), X1: { option_id: 'X1', product_id: 'x', quantity: 1, revenue: 1 }, X2: { option_id: 'X2', product_id: 'y', quantity: 1, revenue: 1 } } } });
   const d = await S.load();
   const ids = d.options.map((o) => o.option_id);
-  assert.ok(ids.includes(W) && d.options.find((o) => o.option_id === W).campaign === C60);   // 윙 새 제품 → 60번
-  assert.ok(!ids.includes('R1') && !ids.includes('R2') && !ids.includes('R3'));   // 반품(싸게 팔림·등급 표시)은 빠지고, 목록에 없던 반품도 안 들어감
-  assert.deepEqual(d.removedResale.map((r) => r.option_id).sort(), ['R1', 'R2']);
+  assert.ok(ids.includes(W) && d.options.find((o) => o.option_id === W).campaign === C0);   // 윙 새 제품은 자동으로 옮기지 않음 (직접 추가)
+  assert.ok(!ids.includes('R2') && !ids.includes('R3'));   // 이름에 등급 표시가 있는 것은 빠지고, 목록에 없던 것은 자동으로 안 들어감
+  assert.ok(ids.includes('R1'));   // 값이 싸다는 것만으로는 자동으로 빼지 않는다 (윙이 그로스보다 비싼 경우 그로스가 잘못 빠졌음)
+  const c = S.ledgerOptionCandidates(d, C60); assert.ok(c.find((x) => x.option_id === 'R3').resale); assert.ok(!c.find((x) => x.option_id === W).resale);
   const un = S.unlistedSoldOptions(d, '2026-10-01'); const r3 = un.find((u) => u.option_id === 'R3'); assert.ok(r3 && r3.resale);   // 목록에 없는 옵션 화면에는 '반품·재판매로 보임'
   console.log('resale options are never auto-added: all checks passed');
+}
+
+// 60번 캠페인이 실제로 광고한 그로스 옵션은, 같은 이름의 윙 옵션이 더 비싸게 팔려도 목록에서 빠지지 않는다 (v0.51.2 에서 잘못 빠진 것은 되살림)
+{
+  const C60 = '60. 압축 공병_250%', G = '96069955685', W = '96069955684';
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: 0, impressions: 1, clicks: 0, ad_orders: 0 });
+  const s2 = (id, q, unit, type) => ({ option_id: id, option_name: '압축 공병, 50ml', product_name: '압축 공병', product_id: '15999', sales_type: type, quantity: q, revenue: q * unit });
+  await S.replaceAll({ ignore: { ids: [], words: [] }, ignoreDefaultsApplied: true, autoLinkReverted: true,
+    options: [{ option_id: 'Z', product_name: 'z', campaign: C60, source: 'manual', sort_order: 1 }],
+    removedResale: [{ option_id: G, campaign: C60, name: '압축 공병, 50ml', why: '같은 옵션보다 25% 쌈', when: '2026-10-07' }],
+    margins: [], ads: { '2026-10-05': { [C60]: ad(C60, 3000) } },
+    sales: { '2026-10-05': { [G]: s2(G, 2, 6000, '로켓그로스'), [W]: s2(W, 30, 8000, '판매자배송') } } });
+  await chrome.storage.local.set({ ccadrows: { '2026-10-05': [{ date: '2026-10-05', campaign: C60, option_id: G, spend: 3000, keyword: 'k' }] } });
+  S.__resetCache?.();
+  const d = await S.load();
+  assert.equal(d.options.find((o) => o.option_id === G)?.campaign, C60);   // 되살아남
+  assert.ok(!d.options.find((o) => o.option_id === W));   // 윙은 자동으로 안 넣음 (직접 추가)
+  const d2 = await S.load(); assert.ok(d2.options.find((o) => o.option_id === G));   // 다시 읽어도 그대로
+  console.log('campaign own growth option is never removed by price: all checks passed');
 }

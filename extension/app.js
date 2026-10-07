@@ -868,12 +868,14 @@ function renderOptions() {
   const todayAdd = (d.autoAdded || []).filter((r) => r.when === todayIso);
   const todayLink = (d.autoLinked || []).filter((r) => r.when === todayIso);
   const todayResale = (d.removedResale || []).filter((r) => r.when === todayIso);
-  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+  const todayRev = (d.revertedLinks || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length || todayRev.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
       const parts = [];
       if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
       if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
       if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       if (todaySib.length) { const by = {}; for (const r of todaySib) { const k = `${r.from || '(없음)'} → ${r.to}`; by[k] = (by[k] || 0) + 1; } parts.push(`🔗 오늘 같은 상품의 옵션 ${todaySib.length}개를 그 상품 전용 캠페인 장부로 옮겼습니다 (쿠팡 광고는 그대로, 윙 옵션 등): ` + Object.entries(by).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 따로 넣어 주세요</span>'); }
+      if (todayRev.length) parts.push(`↩️ 예전 버전이 같은 상품이라고 자동으로 캠페인 장부에 넣었던 옵션 ${todayRev.length}개(마진 안 넣은 것)를 되돌렸습니다. 장부에 함께 볼 옵션은 각 캠페인 머리줄의 <b>＋ 장부에 옵션 추가</b> 로 직접 넣어 주세요 (넣기 전 판매도 모두 반영)`);
       if (todayResale.length) parts.push(`🧹 오늘 자동으로 들어갔던 반품·재판매 옵션 ${todayResale.length}개를 목록에서 뺐습니다 (마진을 넣은 것·직접 넣은 것은 그대로): ` + todayResale.slice(0, 8).map((r) => `${esc(r.option_id)} ${esc(String(r.name || '').slice(0, 30))} (${esc(r.why)})`).join(' · ') + (todayResale.length > 8 ? ' 외' : '') + ' <span class="sub">— 새 제품인데 빠졌으면 \'팔렸지만 목록에 없는 옵션\'에서 직접 넣으세요</span>');
       relBox.innerHTML = parts.join('<br>'); } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
@@ -950,7 +952,8 @@ function renderOptions() {
     if (sortMode !== 'campaign') return; const key = camp || '(캠페인 없음)'; if (key === lastCamp) return; lastCamp = key;
     const n = list.filter((o) => (o.campaign || '(캠페인 없음)') === key).length;
     const tr = document.createElement('tr'); tr.className = 'camphdr'; tr.dataset.camp = key;
-    tr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>📢 ${esc(key)}</b><span class="sub">옵션 ${n}개</span><span class="grow"></span><button class="btn primary sm camp-save">이 캠페인 입력한 것 저장 <span class="camp-dirty-n">0</span>개</button></div></td>`;
+    tr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>📢 ${esc(key)}</b><span class="sub">옵션 ${n}개</span><span class="grow"></span>${key !== '(캠페인 없음)' ? '<button class="btn sm camp-addopt" title="쿠팡 광고에는 넣지 않고, 이 캠페인 장부에 함께 볼 옵션(윙 옵션 등)을 넣습니다. 넣기 전 판매도 모두 이 캠페인 줄에 들어갑니다">＋ 장부에 옵션 추가</button> ' : ''}<button class="btn primary sm camp-save">이 캠페인 입력한 것 저장 <span class="camp-dirty-n">0</span>개</button></div></td>`;
+    const addBtn = tr.querySelector('.camp-addopt'); if (addBtn) addBtn.onclick = () => toggleLedgerAdd(tr, key);
     tr.querySelector('.camp-save').onclick = async () => {
       const rows = dirtyRows().filter((r) => (r._opt.campaign || '(캠페인 없음)') === key); if (!rows.length) { toast('이 캠페인에 바뀐 줄이 없습니다', ''); return; }
       const dd = await reload(); for (const r of rows) { applyRow(dd, r); r.classList.remove('dirty'); } await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${key}: ${rows.length}개 저장됨`);
@@ -958,13 +961,14 @@ function renderOptions() {
     tb.appendChild(tr);
   };
   if (grouped) {
-    const order = []; const seen = new Set();
-    for (const o of list) { const pn = prod[o.option_id] || ''; if (!seen.has(pn)) { seen.add(pn); order.push(pn); } }
-    for (const pn of order) {
-      const g = groups[pn]; const members = list.filter((o) => (prod[o.option_id] || '') === pn);
-      campHeader(members[0]?.campaign || g.campaign || '');
+    // 묶음 = 캠페인 + 상품 (같은 상품이라도 캠페인이 다르면 각 캠페인 머리줄 아래에 따로)
+    const order = []; const seen = new Set(); const keyOf = (o) => `${o.campaign || ''}\u0001${prod[o.option_id] || ''}`;
+    for (const o of list) { const k = keyOf(o); if (!seen.has(k)) { seen.add(k); order.push(k); } }
+    for (const k of order) {
+      const pn = k.split('\u0001')[1]; const g = groups[pn]; const members = list.filter((o) => keyOf(o) === k);
+      campHeader(members[0]?.campaign || '');
       const hdr = document.createElement('tr'); hdr.className = 'grp';
-      hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${g.options.length}개 · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}${g.margin != null ? ` · 마진 ${fmtInt(g.margin)}원` : ''}</span><span class="grow"></span><button class="btn sm" data-gtools="1">이 상품 전체 바꾸기 ▾</button></div>
+      hdr.innerHTML = `<td colspan="7" class="l"><div class="row"><b>${esc(pn || '(상품명 없음)')}</b><span class="sub">옵션 ${members.length}개${g.options.length !== members.length ? ` (이 상품 전체 ${g.options.length}개)` : ""} · 캠페인 연결 ${g.mapped}개${g.campaign ? ' · ' + esc(g.campaign) : ''}${g.margin != null ? ` · 마진 ${fmtInt(g.margin)}원` : ''}</span><span class="grow"></span><button class="btn sm" data-gtools="1">이 상품 전체 바꾸기 ▾</button></div>
         <div class="row grp-tools" hidden><input class="short" data-gk="campaign" list="camp-list" value="${esc(g.campaign)}" placeholder="캠페인" style="width:200px"><input type="number" class="tiny" data-gk="margin" value="${g.margin ?? ''}" placeholder="마진(선택)"><button class="btn sm" data-gapply="1">캠페인 없는 옵션 모두에 적용</button>
         <span class="sub" style="margin-left:8px">|</span><input type="number" class="tiny" data-gk="newmargin" placeholder="새 마진"><input type="number" class="tiny" data-gk="newzero" placeholder="제로 ROAS %" title="비우면 그대로. 넣으면 이 상품의 캠페인(${esc(g.campaign || '없음')}) 제로 ROAS 도 같은 시작일로 바뀝니다"><input type="date" data-gk="from" value="${todayIso}"><button class="btn sm" data-gmargin="1" title="이 상품의 모든 옵션(${g.options.length}개)에 새 마진을 시작일부터 적용">옵션 ${g.options.length}개 모두 새 마진 적용</button></div></td>`;
       hdr.querySelector('[data-gtools]').onclick = () => { const t = hdr.querySelector('.grp-tools'); t.hidden = !t.hidden; };
@@ -1127,6 +1131,32 @@ function renderSalesFind() {
 }
 $('#sf-go').onclick = renderSalesFind; $('#sf-q').onkeydown = (e) => { if (e.key === 'Enter') renderSalesFind(); }; $('#sf-days').onchange = renderSalesFind;
 $('#salesfind-details').addEventListener('toggle', () => { if ($('#salesfind-details').open) renderSalesFind(); });
+// 캠페인 장부에 옵션 직접 추가: 판매된 적 있는 옵션 중에서 골라 마진과 함께 넣는다 (쿠팡 광고는 그대로). 넣기 전 판매도 이 캠페인 줄로
+function toggleLedgerAdd(hdr, camp) {
+  const next = hdr.nextElementSibling; if (next && next.classList.contains('ledger-add')) { next.remove(); return; }
+  const row = document.createElement('tr'); row.className = 'ledger-add';
+  row.innerHTML = `<td colspan="7" class="l" style="background:var(--accent-soft,#eef4fd)"><div class="row"><b>＋ ${esc(camp)} 장부에 넣을 옵션</b><input type="text" class="la-q" placeholder="옵션명·옵션ID 검색" style="width:220px"><span class="sub">최근 180일에 팔린 옵션 · 같은 상품이 위에 · 마진을 넣고 추가 (넣기 전 판매도 모두 이 캠페인 줄에 들어갑니다)</span><span class="grow"></span><button class="btn sm la-close">닫기</button></div><div class="tablewrap" style="max-height:340px;margin-top:6px"><table><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">판매방식</th><th>판매량</th><th>개당</th><th class="l">지금 장부</th><th>마진(원)</th><th></th></tr></thead><tbody></tbody></table></div></td>`;
+  hdr.after(row);
+  const draw = () => {
+    const q = row.querySelector('.la-q').value.trim().toLowerCase(); const tb = row.querySelector('tbody'); tb.innerHTML = '';
+    const list = S.ledgerOptionCandidates(DATA, camp).filter((c) => !q || `${c.option_id} ${c.option_name} ${c.product}`.toLowerCase().includes(q)).slice(0, 60);
+    if (!list.length) { tb.innerHTML = '<tr><td class="l sub" colspan="8">넣을 수 있는 옵션이 없습니다 (최근 180일 판매 기준)</td></tr>'; return; }
+    for (const c of list) {
+      const tr = document.createElement('tr'); if (c.same) tr.style.background = '#f3f9ef';
+      tr.innerHTML = `<td class="l num">${esc(c.option_id)}</td><td class="l">${esc(c.option_name || c.product)}${c.same ? ' <span class="sub">· 같은 상품</span>' : ''}${c.resale ? `<div class="neg sub">반품·재판매로 보임 (${esc(c.resale)})</div>` : ''}</td><td class="l sub">${esc(c.sales_type || '')}</td><td class="num">${fmtInt(c.qty)}</td><td class="num">${fmtWon(c.unit)}</td><td class="l sub">${esc(c.linked || '목록에 없음')}</td><td><input type="number" class="tiny" placeholder="마진"></td><td><button class="btn primary sm">추가</button></td>`;
+      tr.querySelector('button').onclick = async () => {
+        const mg = tr.querySelector('input').value;
+        if (c.resale && !confirm(`${c.option_id} 는 반품·재판매로 보입니다 (${c.resale}). 그래도 ${camp} 장부에 넣을까요?`)) return;
+        if (mg === '' && !confirm('마진을 비워 두면 0원으로 계산됩니다. 나중에 넣어도 됩니다. 이대로 추가할까요?')) return;
+        const dd = await reload(); const r = S.addLedgerOption(dd, { option_id: c.option_id, campaign: camp, margin: mg }); await S.save(dd); await reload();
+        toast(`${c.option_id} → ${camp} 장부에 추가${r.qty ? ` (지난 판매 ${fmtInt(r.qty)}개, ${r.first} 부터 반영)` : ''}`);
+        renderOptions(); renderFoot();
+      };
+      tb.appendChild(tr);
+    }
+  };
+  row.querySelector('.la-q').oninput = draw; row.querySelector('.la-close').onclick = () => row.remove(); draw(); row.querySelector('.la-q').focus();
+}
 function renderIgnored(since) {
   const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
   const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';

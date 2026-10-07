@@ -33,9 +33,12 @@ export async function load() {
   const added = autoAddOptions(d);
   // 반품·리퍼 재판매 옵션(등급마다 옵션ID 가 새로 생김)은 기록하지 않는다 — 기본 무시 단어 (한 번, 사용자가 지우면 다시 넣지 않음)
   let ignChanged = false; if (!d.ignoreDefaultsApplied) { d.ignore ||= { ids: [], words: [] }; d.ignore.words = [...new Set([...(d.ignore.words || []), '반품', '리퍼', '중고'])]; d.ignoreDefaultsApplied = true; ignChanged = true; }
+  // v0.51.2 의 가격 기준으로 잘못 뺀 옵션 되살리기 (한 번): 이름·무시 규칙에 안 걸리는 것만
+  let restored = [], restFlag = false; if (!d.resaleRestore1) { restored = restoreWrongResale(d); d.resaleRestore1 = true; restFlag = true; }
   const removedResale = removeAutoResale(d);
-  const linkedAuto = autoLinkSameProduct(d);
-  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || expChanged || futureChanged || carried || ignChanged) await save(d);
+  // 같은 상품 옵션을 자동으로 캠페인 장부에 넣던 것은 그만두고(헷갈림), 캠페인마다 직접 '장부에 옵션 추가' 로 넣는다. 예전에 자동으로 넣은 것 중 마진을 안 넣은 것은 되돌린다 (한 번)
+  const linkedAuto = []; let reverted = [], revFlag = false; if (!d.autoLinkReverted) { reverted = revertAutoLinks(d); d.autoLinkReverted = true; revFlag = true; }
+  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -71,15 +74,16 @@ export function optionFacts(d) {
 }
 const variantOf = (name, product) => { let v = String(name || ''); if (product && v.startsWith(product)) v = v.slice(product.length); return v; };
 const baseName = (name) => String(name || '').replace(GRADE_RE, '').replace(/[\s,·_()\[\]\-]/g, '').toLowerCase();
-export function resaleChecker(d, facts = optionFacts(d)) {
+export function resaleChecker(d, facts = optionFacts(d), { byPrice = false } = {}) {
   const rules = ignoreRules(d);
+  // 가격 비교는 화면 안내용으로만 쓴다 (윙 가격이 그로스보다 비싸면 새 제품 그로스 옵션이 '싸다'고 잘못 걸린다)
   return (oid, refOid = null, nameHint = '') => {
     const x = facts[oid] || {}; const name = x.option_name || nameHint;
     if (x.row && isIgnoredRow(rules, x.row)) return '무시 규칙';
     if (rules.ids.has(String(oid))) return '무시 규칙';
     if (GRADE_RE.test(variantOf(name, x.product))) return '이름에 반품·등급 표시';
     const ref = refOid ? facts[refOid] : null;
-    if (ref && ref.unit && x.unit && baseName(name) === baseName(ref.option_name) && String(oid) !== String(refOid) && x.unit < ref.unit * 0.85) return `같은 옵션보다 ${Math.round((1 - x.unit / ref.unit) * 100)}% 쌈`;
+    if (byPrice && ref && ref.unit && x.unit && baseName(name) === baseName(ref.option_name) && String(oid) !== String(refOid) && x.unit < ref.unit * 0.85) return `같은 옵션보다 ${Math.round((1 - x.unit / ref.unit) * 100)}% 쌈`;
     return '';
   };
 }
@@ -137,18 +141,6 @@ export function relinkOptions(d) {
     if (st[o.campaign] === 'running' && m[o.campaign] && !(ca.has(o.campaign) && !ca.has(best))) continue;   // 지금 캠페인도 운영 중이고 근거가 있으면 그대로 (단, 모음 캠페인 → 새 전용 캠페인은 옮김)
     moved.push({ option_id: o.option_id, from: o.campaign, to: best, at });
     o.campaign = best;
-  }
-  // 모음(AI) 캠페인에 잡혀 있거나 캠페인이 없는 옵션인데, 같은 등록상품·같은 옵션 이름의 옵션이 전용 캠페인에 있으면 그 캠페인 장부로
-  // (예: 60번에는 그로스 옵션만 광고로 넣고, 윙 옵션은 AI 광고(0번)로 돌아가는 경우 → 윙 옵션도 60번 장부에). 쿠팡 광고는 그대로
-  const sug = campaignSuggester(d); const infoOf = {}; const resale = resaleChecker(d);
-  for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) infoOf[r.option_id] = { product_id: r.product_id || infoOf[r.option_id]?.product_id || '', option_name: r.option_name || infoOf[r.option_id]?.option_name || '', product: r.product_name || infoOf[r.option_id]?.product || '' };
-  for (const o of d.options) {
-    if (o.source === 'wing-link' || (o.campaign && !ca.has(o.campaign))) continue;
-    if (o.source === 'manual' || o.source === 'excel') continue;   // 직접 넣은 옵션은 건드리지 않는다
-    const i = infoOf[o.option_id] || {}; const g = sug({ option_id: o.option_id, product_id: i.product_id, option_name: i.option_name || o.product_name, product: i.product || o.product });
-    if (!g || g.via === '같은 상품명' || g.campaign === o.campaign) continue;
-    if (resale(o.option_id, g.option_id, o.product_name)) continue;   // 반품·재판매 옵션은 옮기지 않는다
-    moved.push({ option_id: o.option_id, from: o.campaign, to: g.campaign, at: '', why: 'sibling' }); o.campaign = g.campaign; o.ref = g.option_id; o.source = 'wing-link';
   }
   // 장부에만 넣은 윙 옵션은 기준 옵션(같은 상품의 그로스 옵션)이 옮겨 간 캠페인으로 함께 옮긴다
   const byId = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
@@ -227,17 +219,63 @@ export function ignoredSoldOptions(d, sinceIso) {
 export function unlistedSoldOptions(d, sinceIso) {
   const listed = new Set(d.options.map((o) => o.option_id)); const out = {}; const rules = ignoreRules(d);
   for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, product_id: r.product_id || '', sales_type: r.sales_type || '', qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) { o.last = date; if (r.sales_type) o.sales_type = r.sales_type; if (r.product_id) o.product_id = r.product_id; } } }
-  const sug = campaignSuggester(d); const resale = resaleChecker(d);
+  const sug = campaignSuggester(d); const resale = resaleChecker(d, undefined, { byPrice: true });
   return Object.values(out).map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
+}
+export function restoreWrongResale(d) {
+  const resale = resaleChecker(d); const have = new Set(d.options.map((o) => o.option_id)); const out = [];
+  for (const r of d.removedResale || []) {
+    if (have.has(r.option_id) || !/쌈/.test(r.why || '')) continue;   // 가격 때문에 뺀 것만
+    if (resale(r.option_id, null, r.name)) continue;
+    upsertOption(d, { option_id: r.option_id, product_name: r.name || '', campaign: r.campaign || '', source: 'adreport' }); have.add(r.option_id); out.push(r);
+  }
+  if (out.length) { const when = new Date().toISOString().slice(0, 10); d.restoredOptions = [...(d.restoredOptions || []), ...out.map((x) => ({ option_id: x.option_id, campaign: x.campaign, when }))].slice(-300); }
+  return out;
+}
+// 예전 버전이 자동으로 캠페인 장부에 넣은 옵션(같은 상품 연결) 중 마진을 안 넣은 것을 되돌린다: 모음 캠페인에서 옮겨 온 것은 원래 캠페인으로, 목록에 없던 것은 목록에서 뺀다
+export function revertAutoLinks(d) {
+  const out = []; const sib = {}; for (const r of d.relinks || []) if (r.why === 'sibling' && r.from) sib[r.option_id] ||= r.from;
+  d.options = d.options.filter((o) => {
+    if (o.source !== 'wing-link' || o.manual || marginHistory(d, o.option_id).length) return true;
+    if (sib[o.option_id]) { out.push({ option_id: o.option_id, from: o.campaign, to: sib[o.option_id] }); o.campaign = sib[o.option_id]; o.source = 'adreport'; delete o.ref; return true; }
+    out.push({ option_id: o.option_id, from: o.campaign, to: '' }); return false;
+  });
+  if (out.length) { const when = new Date().toISOString().slice(0, 10); d.revertedLinks = [...(d.revertedLinks || []), ...out.map((x) => ({ ...x, when }))].slice(-300); }
+  return out;
+}
+// 캠페인 장부에 옵션 직접 추가 (쿠팡 광고에는 안 넣음): 그 캠페인 줄에 그 옵션의 판매가 들어간다. 추가하기 전 판매도 모두 (장부는 연결대로 다시 계산)
+export function addLedgerOption(d, { option_id, campaign, margin = null, name = '', product = '' }) {
+  option_id = cleanId(option_id);
+  const facts = optionFacts(d); const f = facts[option_id] || {};
+  upsertOption(d, { option_id, product_name: name || f.option_name || '', product: product || f.product || '', campaign, source: 'wing-link' });
+  const o = d.options.find((x) => x.option_id === option_id); o.manual = true; delete o.ref;
+  // 같은 등록상품의 옵션이 이 캠페인에 있으면 그것을 기준으로 삼아, 그 옵션이 새 캠페인으로 옮겨 가면 함께 옮긴다
+  const sib = d.options.find((x) => x.option_id !== option_id && x.campaign === campaign && x.source !== 'wing-link' && facts[x.option_id]?.product_id && facts[x.option_id].product_id === f.product_id); if (sib) o.ref = sib.option_id;
+  if (margin != null && margin !== '' && !isNaN(Number(margin))) setMargin(d, option_id, Number(margin), '', '캠페인 장부에 추가');
+  let qty = 0, first = ''; for (const [date, day] of Object.entries(d.sales || {})) { const r = day[option_id]; if (r && r.quantity > 0) { qty += r.quantity; if (!first || date < first) first = date; } }
+  return { qty, first };
+}
+// 캠페인 장부에 추가할 수 있는 옵션 후보: 판매된 적 있는 옵션 중 이 캠페인에 없는 것. 같은 등록상품(이 캠페인 옵션과)인 것을 먼저
+export function ledgerOptionCandidates(d, campaign, days = 180) {
+  const y = new Date(); y.setDate(y.getDate() - days); const since = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+  const facts = optionFacts(d); const resale = resaleChecker(d, facts, { byPrice: true }); const linked = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  const pids = new Set(d.options.filter((o) => o.campaign === campaign).map((o) => facts[o.option_id]?.product_id).filter(Boolean));
+  const agg = {};
+  for (const [date, day] of Object.entries(d.sales || {})) { if (date < since) continue; for (const r of Object.values(day)) { if (linked[r.option_id] === campaign || !(r.quantity > 0)) continue; const a = (agg[r.option_id] ||= { option_id: r.option_id, qty: 0, revenue: 0, last: '', sales_type: '' }); a.qty += r.quantity; a.revenue += r.revenue || 0; if (date > a.last) { a.last = date; a.sales_type = r.sales_type || a.sales_type; } } }
+  const byBase = {}; for (const o of d.options) if (o.campaign === campaign) { const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k) byBase[k] = o.option_id; }
+  return Object.values(agg).map((a) => { const f = facts[a.option_id] || {}; return { ...a, option_name: f.option_name || '', product: f.product || '', unit: a.qty ? a.revenue / a.qty : 0, same: !!(f.product_id && pids.has(f.product_id)), linked: linked[a.option_id] || '', resale: resale(a.option_id, byBase[baseName(f.option_name)] || null, f.option_name) }; })
+    .sort((x, y) => (y.same - x.same) || (y.qty - x.qty));
 }
 // 자동으로 들어간(광고 보고서·같은 상품 연결) 옵션 중 반품·재판매로 보이는 것을 목록에서 뺀다. 직접 넣었거나 마진을 넣은 옵션은 그대로
 export function removeAutoResale(d) {
   const facts = optionFacts(d); const resale = resaleChecker(d, facts);
   const byBase = {}; for (const o of d.options) { if (o.source === 'adreport' || o.source === 'wing-link') continue; const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k && !byBase[k]) byBase[k] = o.option_id; }
   for (const o of d.options) if (o.source === 'adreport' || o.source === 'wing-link') { const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k && !byBase[k] && !resale(o.option_id, null, o.product_name)) byBase[k] = o.option_id; }
-  const out = [];
+  const out = []; const ca = catchAllCampaigns(d); const own = new Set();   // 전용 캠페인이 실제로 광고한 옵션 (그 캠페인에 등록된 옵션)
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign && !ca.has(r.campaign)) own.add(String(r.option_id));
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) if (!ca.has(c)) for (const o of v.options || []) own.add(String(o.option_id));
   d.options = d.options.filter((o) => {
-    if (!(o.source === 'adreport' || o.source === 'wing-link') || o.manual || marginHistory(d, o.option_id).length) return true;
+    if (!(o.source === 'adreport' || o.source === 'wing-link') || o.manual || marginHistory(d, o.option_id).length || own.has(o.option_id)) return true;
     const k = baseName(facts[o.option_id]?.option_name || o.product_name); const why = resale(o.option_id, o.ref || byBase[k] || null, o.product_name);
     if (!why) return true; out.push({ option_id: o.option_id, campaign: o.campaign, name: facts[o.option_id]?.option_name || o.product_name, why }); return false;
   });
