@@ -36,9 +36,11 @@ export async function load() {
   // v0.51.2 의 가격 기준으로 잘못 뺀 옵션 되살리기 (한 번): 이름·무시 규칙에 안 걸리는 것만
   let restored = [], restFlag = false; if (!d.resaleRestore1) { restored = restoreWrongResale(d); d.resaleRestore1 = true; restFlag = true; }
   const removedResale = removeAutoResale(d);
+  // 옵션 목록 = 쿠팡 광고 캠페인에 실제로 들어 있는 옵션 + 직접 '장부에 옵션 추가' 한 옵션. 나머지는 지운다 (한 번, 이후는 옵션 탭의 정리 버튼)
+  let pruned = { removed: [] }, pruneFlag = false; if (!d.pruneV1) { pruned = pruneToCampaignOptions(d); d.pruneV1 = true; pruneFlag = true; }
   // 같은 상품 옵션을 자동으로 캠페인 장부에 넣던 것은 그만두고(헷갈림), 캠페인마다 직접 '장부에 옵션 추가' 로 넣는다. 예전에 자동으로 넣은 것 중 마진을 안 넣은 것은 되돌린다 (한 번)
   const linkedAuto = []; let reverted = [], revFlag = false; if (!d.autoLinkReverted) { reverted = revertAutoLinks(d); d.autoLinkReverted = true; revFlag = true; }
-  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
+  if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
   return d;
 }
 // ---- 광고 보고서·광고센터에 나온 옵션을 목록에 자동 등록 ----
@@ -221,6 +223,36 @@ export function unlistedSoldOptions(d, sinceIso) {
   for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, product_id: r.product_id || '', sales_type: r.sales_type || '', qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) { o.last = date; if (r.sales_type) o.sales_type = r.sales_type; if (r.product_id) o.product_id = r.product_id; } } }
   const sug = campaignSuggester(d); const resale = resaleChecker(d, undefined, { byPrice: true });
   return Object.values(out).map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
+}
+// 캠페인별 '쿠팡 광고에 들어 있는 옵션' 근거: 광고센터 캠페인 상품 목록(campaignOptions) + 광고 보고서에서 그 캠페인이 광고한 옵션(adrows)
+export function campaignEvidence(d) {
+  const ev = {};
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) (ev[r.campaign] ||= new Set()).add(String(r.option_id));
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) for (const o of v.options || []) (ev[c] ||= new Set()).add(String(o.option_id));
+  return ev;
+}
+// 옵션 목록 정리: 쿠팡 광고 캠페인에 들어 있지 않은 옵션은 목록에서 뺀다 (직접 '장부에 옵션 추가' 한 것은 그대로).
+// 근거(광고 보고서·광고센터 상품 목록)가 하나도 없는 캠페인은 확인할 수 없어 그대로 둔다. 마진 이력은 지우지 않는다 (다시 넣으면 그대로 살아남)
+export function pruneToCampaignOptions(d) {
+  const ev = campaignEvidence(d); const removed = []; const unverified = new Set();
+  d.options = d.options.filter((o) => {
+    if (o.manual) return true;
+    if (!o.campaign) { removed.push({ option_id: o.option_id, campaign: '', name: o.product_name, why: '캠페인 없음' }); return false; }
+    const e = ev[o.campaign]; if (!e) { unverified.add(o.campaign); return true; }
+    if (e.has(o.option_id)) return true;
+    removed.push({ option_id: o.option_id, campaign: o.campaign, name: o.product_name, why: '쿠팡 광고 캠페인에 없음' }); return false;
+  });
+  const when = new Date().toISOString().slice(0, 10);
+  if (removed.length) d.prunedOptions = [...(d.prunedOptions || []), ...removed.map((x) => ({ ...x, when }))].slice(-2000);
+  d.pruneUnverified = [...unverified];
+  return { removed, unverified: [...unverified] };
+}
+// 정리로 뺀 옵션 되돌리기 (그 날 뺀 것 전부)
+export function undoPrune(d, when) {
+  const have = new Set(d.options.map((o) => o.option_id)); let n = 0;
+  for (const r of d.prunedOptions || []) if (r.when === when && !have.has(r.option_id)) { upsertOption(d, { option_id: r.option_id, product_name: r.name || '', campaign: r.campaign || '', source: 'restored' }); have.add(r.option_id); n++; }
+  d.prunedOptions = (d.prunedOptions || []).filter((r) => r.when !== when);
+  return n;
 }
 export function restoreWrongResale(d) {
   const resale = resaleChecker(d); const have = new Set(d.options.map((o) => o.option_id)); const out = [];

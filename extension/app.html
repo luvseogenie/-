@@ -217,7 +217,7 @@
         <h2>캠페인 · 옵션 · 마진 <span class="sub">옵션마다 광고 캠페인과 개당 마진을 넣으면 장부가 계산됩니다.</span> <a href="#" class="sub" id="opt-help-toggle">도움말</a></h2>
         <div class="notice sub" id="opt-help" style="display:none;margin-bottom:8px">
           이 목록은 엑셀 1번 시트에서 가져왔거나 직접 추가한 옵션입니다. 캠페인을 비워 두면 그 옵션의 판매는 '자연 판매'로만 집계됩니다.<br>
-          <b>팔렸지만 목록에 없는 옵션</b>: 윙 판매 리포트에는 나오는데 여기 목록에는 없는 옵션입니다(광고 안 하는 상품, 새로 만든 옵션 등). 중고나 이상한 것이 아니라 그냥 마진을 아직 안 넣은 상품이며, 추가하지 않으면 마진 0원으로 계산됩니다.<br>
+          <b>팔렸지만 목록에 없는 옵션</b>: 윙 판매 리포트에는 나오는데 여기 목록에는 없는 옵션입니다(광고 안 하는 상품, 새로 만든 옵션 등). 중고나 이상한 것이 아니라 그냥 마진을 아직 안 넣은 상품이며, 장부에 함께 보려면 오른쪽에서 캠페인을 고르고 마진을 넣어 <b>장부에 넣기</b>를 누르세요(쿠팡 광고에는 안 넣음). 기록할 필요 없는 것은 <b>무시</b>.<br>
           <b>옵션이 연결되지 않은 캠페인</b>: 새로 만든 광고 캠페인인데 어느 옵션이 그 캠페인인지 아직 모르는 것입니다. 광고 보고서가 들어오면 옵션이 자동으로 나오니 마진만 넣으면 됩니다.
         </div>
         <div class="row" style="margin-bottom:8px">
@@ -225,7 +225,7 @@
           <select id="opt-camp" title="캠페인별로 보기" style="min-width:220px"><option value="">모든 캠페인</option></select>
           <select id="opt-filter"><option value="all">전체</option><option value="mapped">캠페인 있음</option><option value="unmapped">캠페인 없음</option><option value="nomargin">⚠️ 마진 없음 (광고 캠페인 옵션)</option><option value="sold30">최근 30일 판매 있음</option><option value="suggest">같은 상품이 연결됨 (제안)</option></select>
           <label class="chk"><input type="checkbox" id="opt-group" checked> 상품별로 묶기</label>
-          <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select>
+          <select id="opt-sort" title="정렬"><option value="campaign">캠페인 번호순</option><option value="order">등록순</option></select><button class="btn sm" id="opt-prune" title="쿠팡 광고 캠페인에 들어 있지 않은 옵션(직접 장부에 추가한 것 제외)을 목록에서 뺍니다. 마진 이력은 남깁니다">🧽 캠페인에 없는 옵션 정리</button>
           <span class="sub" id="opt-count"></span>
           <span class="grow"></span>
           <button class="btn sm" id="opt-new-toggle">옵션 직접 추가</button>

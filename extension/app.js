@@ -869,15 +869,20 @@ function renderOptions() {
   const todayLink = (d.autoLinked || []).filter((r) => r.when === todayIso);
   const todayResale = (d.removedResale || []).filter((r) => r.when === todayIso);
   const todayRev = (d.revertedLinks || []).filter((r) => r.when === todayIso);
-  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length || todayRev.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+  const todayPrune = (d.prunedOptions || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length || todayRev.length || todayPrune.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
       const parts = [];
       if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
       if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
       if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       if (todaySib.length) { const by = {}; for (const r of todaySib) { const k = `${r.from || '(없음)'} → ${r.to}`; by[k] = (by[k] || 0) + 1; } parts.push(`🔗 오늘 같은 상품의 옵션 ${todaySib.length}개를 그 상품 전용 캠페인 장부로 옮겼습니다 (쿠팡 광고는 그대로, 윙 옵션 등): ` + Object.entries(by).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 따로 넣어 주세요</span>'); }
+      if (todayPrune.length) { const by = {}; for (const r of todayPrune) by[r.campaign || '(캠페인 없음)'] = (by[r.campaign || '(캠페인 없음)'] || 0) + 1; parts.push(`🧽 옵션 목록을 정리했습니다: 쿠팡 광고 캠페인에 들어 있지 않은 옵션 ${todayPrune.length}개를 뺐습니다 (마진 이력은 남겨 둠) — ` + Object.entries(by).slice(0, 10).map(([c, n]) => `${esc(c)} ${n}개`).join(' · ') + (Object.keys(by).length > 10 ? ' 외' : '') + ` <button class="btn sm" id="prune-undo">되돌리기</button>`); }
+      if ((d.pruneUnverified || []).length) parts.push(`<span class="sub">광고 보고서·광고센터 상품 목록이 없어 확인하지 못한 캠페인은 그대로 두었습니다: ${d.pruneUnverified.slice(0, 8).map(esc).join(', ')}${d.pruneUnverified.length > 8 ? ' 외' : ''}</span>`);
       if (todayRev.length) parts.push(`↩️ 예전 버전이 같은 상품이라고 자동으로 캠페인 장부에 넣었던 옵션 ${todayRev.length}개(마진 안 넣은 것)를 되돌렸습니다. 장부에 함께 볼 옵션은 각 캠페인 머리줄의 <b>＋ 장부에 옵션 추가</b> 로 직접 넣어 주세요 (넣기 전 판매도 모두 반영)`);
       if (todayResale.length) parts.push(`🧹 오늘 자동으로 들어갔던 반품·재판매 옵션 ${todayResale.length}개를 목록에서 뺐습니다 (마진을 넣은 것·직접 넣은 것은 그대로): ` + todayResale.slice(0, 8).map((r) => `${esc(r.option_id)} ${esc(String(r.name || '').slice(0, 30))} (${esc(r.why)})`).join(' · ') + (todayResale.length > 8 ? ' 외' : '') + ' <span class="sub">— 새 제품인데 빠졌으면 \'팔렸지만 목록에 없는 옵션\'에서 직접 넣으세요</span>');
-      relBox.innerHTML = parts.join('<br>'); } else relBox.style.display = 'none'; }
+      relBox.innerHTML = parts.join('<br>');
+      const ub = $('#prune-undo'); if (ub) ub.onclick = async () => { if (!confirm('오늘 정리로 뺀 옵션을 모두 되돌릴까요?')) return; const dd = await reload(); const n = S.undoPrune(dd, todayIso); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${n}개 되돌림`); };
+    } else relBox.style.display = 'none'; }
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
     const hist = S.marginHistory(d, o.option_id);
@@ -1078,16 +1083,14 @@ function renderUnlisted() {
     const sel = `<select data-k="camp" style="max-width:190px"><option value="">(캠페인 고르기)</option>${camps.map((c) => `<option value="${esc(c)}" ${sg && !u.resale && sg.campaign === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
     tr.innerHTML = `<td class="l num">${esc(u.option_id)}</td><td class="l">${esc(u.option_name)}</td><td class="l sub">${esc(u.product)}</td><td class="l sub">${esc(u.sales_type || '')}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtWon(u.revenue)}</td><td class="num sub">${u.last}</td>`
       + `<td class="l">${sel} <input type="number" data-k="margin" placeholder="마진(원)" style="width:80px"> <button class="btn primary sm" data-link>장부에 넣기</button>${u.resale ? `<div class="neg sub">반품·재판매로 보임 (${esc(u.resale)}) — 새 제품이면 직접 넣으세요</div>` : sg ? `<div class="sub">추천: ${esc(sg.campaign)} (${esc(sg.via)})</div>` : ''}</td>`
-      + `<td><button class="btn sm">추가</button> <button class="btn sm" title="같은 상품명의 옵션 전부">상품 전체 추가</button> <button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
+      + `<td><button class="btn sm" data-ignore title="기록하지 않음 (장부·이 목록에서 뺌)">무시</button></td>`;
     tr.querySelector('[data-link]').onclick = async () => {
       const camp = tr.querySelector('[data-k=camp]').value; const mg = tr.querySelector('[data-k=margin]').value;
       if (!camp) { toast('넣을 캠페인을 골라 주세요', 'err'); return; }
       const dd = await reload(); linkToCampaign(dd, u, camp, mg); await S.save(dd); await reload(); renderOptions(); refreshAll();
       toast(`${u.option_id} → ${camp} 장부에 넣음${mg ? '' : ' (마진을 꼭 넣어 주세요)'}`);
     };
-    const [one, all, ign] = tr.querySelectorAll('button:not([data-link])');
-    one.onclick = async () => { const dd = await reload(); S.upsertOption(dd, { option_id: u.option_id, product_name: u.option_name, product: u.product, source: 'manual' }); await S.save(dd); await reload(); renderOptions(); };
-    all.onclick = async () => { const dd = await reload(); let k = 0; for (const x of list) if (x.product === u.product) { S.upsertOption(dd, { option_id: x.option_id, product_name: x.option_name, product: x.product, source: 'manual' }); k++; } await S.save(dd); await reload(); renderOptions(); msg('#opt-msg', `${k}개 옵션 추가`, 'ok'); };
+    const ign = tr.querySelector('[data-ignore]');
     ign.onclick = async () => { const dd = await reload(); S.ignoreOption(dd, u.option_id, true); await S.save(dd); await reload(); renderOptions(); toast(`${u.option_id} 무시 (기록 안 함)`); };
     tb.appendChild(tr);
   }
@@ -1157,6 +1160,13 @@ function toggleLedgerAdd(hdr, camp) {
   };
   row.querySelector('.la-q').oninput = draw; row.querySelector('.la-close').onclick = () => row.remove(); draw(); row.querySelector('.la-q').focus();
 }
+$('#opt-prune').onclick = async () => {
+  const dd = await reload(); const ev = S.campaignEvidence(dd);
+  const n = dd.options.filter((o) => !o.manual && (!o.campaign || (ev[o.campaign] && !ev[o.campaign].has(o.option_id)))).length;
+  if (!n) { toast('뺄 옵션이 없습니다 (모두 쿠팡 광고 캠페인에 들어 있거나 직접 추가한 옵션)', ''); return; }
+  if (!confirm(`쿠팡 광고 캠페인에 들어 있지 않은 옵션 ${n}개를 목록에서 뺍니다 (직접 '장부에 옵션 추가' 한 것은 그대로, 마진 이력은 남김). 옵션 탭 위의 되돌리기로 되돌릴 수 있습니다. 계속할까요?`)) return;
+  const r = S.pruneToCampaignOptions(dd); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${r.removed.length}개 뺐습니다`);
+};
 function renderIgnored(since) {
   const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
   const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';

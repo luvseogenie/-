@@ -918,3 +918,20 @@ console.log('extension logic: all checks passed');
   const d2 = await S.load(); assert.ok(d2.options.find((o) => o.option_id === G));   // 다시 읽어도 그대로
   console.log('campaign own growth option is never removed by price: all checks passed');
 }
+
+// 옵션 목록 정리: 쿠팡 광고 캠페인에 들어 있는 옵션 + 직접 추가한 옵션만 남긴다 (마진 이력은 남김, 근거 없는 캠페인은 그대로)
+{
+  const d = { options: [
+      { option_id: 'G', campaign: '60. 공병', source: 'excel' },            // 60번이 광고함 → 남김
+      { option_id: 'W', campaign: '60. 공병', source: 'wing-link', manual: true },   // 직접 추가 → 남김
+      { option_id: 'X', campaign: '60. 공병', source: 'excel' },            // 60번이 광고 안 함 → 뺌
+      { option_id: 'N', campaign: '', source: 'manual' },                   // 캠페인 없음 → 뺌
+      { option_id: 'Q', campaign: '70. 근거없음', source: 'excel' } ],      // 근거가 없는 캠페인 → 그대로
+    margins: [{ option_id: 'X', effective_from: '', margin: 100 }],
+    adrows: { '2026-10-05': [{ campaign: '60. 공병', option_id: 'G' }] }, campaignOptions: {} };
+  const r = S.pruneToCampaignOptions(d);
+  assert.deepEqual(d.options.map((o) => o.option_id), ['G', 'W', 'Q']); assert.deepEqual(r.removed.map((x) => x.option_id), ['X', 'N']); assert.deepEqual(r.unverified, ['70. 근거없음']);
+  assert.equal(d.margins.length, 1);   // 마진 이력 남김
+  const when = d.prunedOptions[0].when; assert.equal(S.undoPrune(d, when), 2); assert.equal(d.options.length, 5);
+  console.log('prune options to campaign members: all checks passed');
+}
