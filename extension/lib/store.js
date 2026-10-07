@@ -37,7 +37,7 @@ export async function load() {
   let restored = [], restFlag = false; if (!d.resaleRestore1) { restored = restoreWrongResale(d); d.resaleRestore1 = true; restFlag = true; }
   const removedResale = removeAutoResale(d);
   // 옵션 목록 = 쿠팡 광고 캠페인에 실제로 들어 있는 옵션 + 직접 '장부에 옵션 추가' 한 옵션. 나머지는 지운다 (한 번, 이후는 옵션 탭의 정리 버튼)
-  let pruned = { removed: [] }, pruneFlag = false; if (!d.pruneV1) { pruned = pruneToCampaignOptions(d); d.pruneV1 = true; pruneFlag = true; }
+  let pruneFlag = false; if (!d.pruneFix1) { const back = restoreReportPrune(d); d.pruneFix1 = true; d.pruneV1 = true; pruneFlag = true; if (back.length) { const when = new Date().toISOString().slice(0, 10); d.restoredPrune = [...(d.restoredPrune || []), ...back.map((x) => ({ option_id: x.option_id, campaign: x.campaign, when }))].slice(-500); } }
   // 같은 상품 옵션을 자동으로 캠페인 장부에 넣던 것은 그만두고(헷갈림), 캠페인마다 직접 '장부에 옵션 추가' 로 넣는다. 예전에 자동으로 넣은 것 중 마진을 안 넣은 것은 되돌린다 (한 번)
   const linkedAuto = []; let reverted = [], revFlag = false; if (!d.autoLinkReverted) { reverted = revertAutoLinks(d); d.autoLinkReverted = true; revFlag = true; }
   if (changed || moved.length || added.length || linkedAuto.length || removedResale.length || reverted.length || revFlag || restored.length || restFlag || pruneFlag || expChanged || futureChanged || carried || ignChanged) await save(d);
@@ -226,26 +226,52 @@ export function unlistedSoldOptions(d, sinceIso) {
 }
 // 캠페인별 '쿠팡 광고에 들어 있는 옵션' 근거: 광고센터 캠페인 상품 목록(campaignOptions) + 광고 보고서에서 그 캠페인이 광고한 옵션(adrows)
 export function campaignEvidence(d) {
+  // 정리 기준은 광고센터에서 읽어 와 사용자가 확인한 캠페인 상품 목록뿐이다.
+  // (광고 보고서는 '클릭이 발생한 키워드만' 담겨 클릭이 없던 옵션이 빠지므로 정리 기준으로 쓰지 않는다)
   const ev = {};
-  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.option_id && r.campaign) (ev[r.campaign] ||= new Set()).add(String(r.option_id));
-  // 광고센터에서 그 캠페인의 상품 목록을 읽어 왔으면 그것이 정확한 '넣어 둔 옵션' 목록이다 (AI 캠페인은 보고서에 다른 옵션도 섞이므로)
   for (const [c, v] of Object.entries(d.campaignOptions || {})) if ((v.options || []).length) ev[c] = new Set(v.options.map((o) => String(o.option_id)));
   return ev;
 }
+// 광고센터에서 읽어 온 목록(확인 대기)을 반영: 그 캠페인의 옵션 목록이 된다. 목록의 옵션은 그 캠페인으로 옮기거나 추가하고, 목록에 없는 옵션은 뺀다 (직접 추가한 것은 그대로)
+export function applyPendingCampaignOptions(d, camp) {
+  const p = d.pendingCampaignOptions?.[camp]; if (!p) return null;
+  d.campaignOptions ||= {}; d.campaignOptions[camp] = { at: p.at, options: p.options };
+  delete d.pendingCampaignOptions[camp];
+  const facts = optionFacts(d); const moved = [], added = [];
+  for (const o of p.options) {
+    const cur = d.options.find((x) => x.option_id === String(o.option_id));
+    if (cur) { if (cur.campaign !== camp && !cur.manual) { moved.push({ option_id: cur.option_id, from: cur.campaign, to: camp }); cur.campaign = camp; if (cur.source === 'wing-link') cur.source = 'adcenter'; } }
+    else { upsertOption(d, { option_id: o.option_id, product_name: o.name || facts[o.option_id]?.option_name || '', product: facts[o.option_id]?.product || '', campaign: camp, source: 'adcenter' }); added.push(o.option_id); }
+  }
+  if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, at: '', when, why: 'adcenter' }))].slice(-300); }
+  const pr = pruneToCampaignOptions(d, camp);
+  return { moved, added, removed: pr.removed };
+}
+// v0.53.0 이 광고 보고서 기준으로 뺀 옵션 되살리기 (한 번): 광고센터 목록을 아직 안 읽은 캠페인의 것만
+export function restoreReportPrune(d) {
+  const have = new Set(d.options.map((o) => o.option_id)); const out = [];
+  for (const r of d.prunedOptions || []) {
+    if (r.why !== '쿠팡 광고 캠페인에 없음' || have.has(r.option_id) || (d.campaignOptions?.[r.campaign]?.options || []).length) continue;
+    upsertOption(d, { option_id: r.option_id, product_name: r.name || '', campaign: r.campaign || '', source: 'restored' }); have.add(r.option_id); out.push(r);
+  }
+  if (out.length) d.prunedOptions = (d.prunedOptions || []).filter((r) => !out.includes(r));
+  return out;
+}
 // 옵션 목록 정리: 쿠팡 광고 캠페인에 들어 있지 않은 옵션은 목록에서 뺀다 (직접 '장부에 옵션 추가' 한 것은 그대로).
 // 근거(광고 보고서·광고센터 상품 목록)가 하나도 없는 캠페인은 확인할 수 없어 그대로 둔다. 마진 이력은 지우지 않는다 (다시 넣으면 그대로 살아남)
-export function pruneToCampaignOptions(d) {
+export function pruneToCampaignOptions(d, only = null) {
   const ev = campaignEvidence(d); const removed = []; const unverified = new Set();
   d.options = d.options.filter((o) => {
     if (o.manual) return true;
+    if (only && o.campaign !== only) return true;
     if (!o.campaign) { removed.push({ option_id: o.option_id, campaign: '', name: o.product_name, why: '캠페인 없음' }); return false; }
     const e = ev[o.campaign]; if (!e) { unverified.add(o.campaign); return true; }
     if (e.has(o.option_id)) return true;
-    removed.push({ option_id: o.option_id, campaign: o.campaign, name: o.product_name, why: '쿠팡 광고 캠페인에 없음' }); return false;
+    removed.push({ option_id: o.option_id, campaign: o.campaign, name: o.product_name, why: '광고센터 캠페인 목록에 없음' }); return false;
   });
   const when = new Date().toISOString().slice(0, 10);
   if (removed.length) d.prunedOptions = [...(d.prunedOptions || []), ...removed.map((x) => ({ ...x, when }))].slice(-2000);
-  d.pruneUnverified = [...unverified];
+  if (!only) d.pruneUnverified = [...unverified];
   return { removed, unverified: [...unverified] };
 }
 // 정리로 뺀 옵션 되돌리기 (그 날 뺀 것 전부)

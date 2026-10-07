@@ -510,19 +510,16 @@ async function fetchCampaignOptions(campaigns) {
         else { const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickRowName', text: camp }).catch(() => ({ ok: false })); how = `이름 클릭(${c?.ok ? '됨' : '실패'})`; }
         // 상품 목록이 뜰 때까지 (ID: 숫자 가 보이면)
         let opts = []; const t0 = Date.now();
-        while (Date.now() - t0 < 25000) { await sleep(2500); await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); if (r?.ok && r.options.length) { opts = r.options; break; } }
-        if (!opts.length) { const st = await tabState(tab.id); results[camp] = { ok: false, error: `상품 목록(ID: 숫자)을 찾지 못했습니다 — ${how}, 지금 주소 ${st.url.slice(0, 80)}, 줄 구조 ${rl?.rowTag || '?'} 링크 ${(rl?.anchors || []).join(', ').slice(0, 120) || '없음'}, 이름 요소 ${rl?.html || ''}` }; continue; }
-        const d = await S.load(); S.setCampaignOptions(d, camp, opts); await S.save(d);
-        results[camp] = { ok: true, options: opts };
-        await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${opts.map((o) => o.option_id).join(', ').slice(0, 80)})`);
+        let lastR = null, via = '';
+        while (Date.now() - t0 < 30000) { await sleep(2500); await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); lastR = r || lastR; if (r?.ok && r.options.length) { opts = r.options; via = r.via || ''; break; } }
+        if (!opts.length && lastR?.diag) { const g = lastR.diag; await log(`[옵션] ${camp} 상품 목록을 못 읽음 — 주소 ${g.url} · 제목 ${g.title} · 'ID' 글자: ${(g.bits || []).join(' / ').slice(0, 300)} · 표 제목: ${(g.heads || []).join(' ; ').slice(0, 200)} · 받은 데이터 ${g.responses}건, 옵션 ${g.sniffed}개 · 데이터 키: ${(g.keys || '').slice(0, 300)}`); }
+        if (!opts.length) { const st = await tabState(tab.id); results[camp] = { ok: false, diag: lastR?.diag || null, error: `상품 목록(옵션ID)을 찾지 못했습니다 — ${how}, 지금 주소 ${st.url.slice(0, 80)}, 줄 구조 ${rl?.rowTag || '?'} 링크 ${(rl?.anchors || []).join(', ').slice(0, 120) || '없음'}, 이름 요소 ${rl?.html || ''}` }; continue; }
+        // 바로 반영하지 않고 '확인 대기'로 둔다 → 앱에서 목록을 보여 주고 사용자가 '이대로 맞추기' 를 누르면 반영
+        const d = await S.load(); d.pendingCampaignOptions = { ...(d.pendingCampaignOptions || {}), [camp]: { at: new Date().toISOString().slice(0, 10), via, options: opts.map((o) => ({ option_id: String(o.option_id), name: String(o.name || '') })) } }; await S.save(d);
+        results[camp] = { ok: true, options: opts, via };
+        await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${via === 'data' ? '화면 데이터' : '화면 글자'}에서, 확인 대기) ${opts.map((o) => o.option_id).join(', ').slice(0, 120)}`);
       } catch (e) { results[camp] = { ok: false, error: e.message }; }
     }
-    // 읽어 온 목록대로 옵션을 맞춘다: 목록에 있는 옵션은 그 캠페인으로(없으면 추가), 그 캠페인에 연결돼 있는데 목록에 없는 옵션은 뺀다 (직접 장부에 추가한 것은 그대로)
-    try {
-      const d = await S.load();   // load 가 목록의 옵션을 추가·옮김
-      const r = S.pruneToCampaignOptions(d); await S.save(d);
-      if (r.removed.length) await log(`[옵션] 광고센터 목록에 없는 옵션 ${r.removed.length}개를 옵션 목록에서 뺐습니다 (${r.removed.slice(0, 6).map((x) => x.option_id).join(', ')}${r.removed.length > 6 ? ' 외' : ''})`);
-    } catch (e) { await log(`[옵션] 옵션 목록 맞추기 실패: ${e.message}`); }
     return { ok: true, results };
   } finally { await close(); }
 }

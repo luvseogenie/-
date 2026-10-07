@@ -870,19 +870,22 @@ function renderOptions() {
   const todayResale = (d.removedResale || []).filter((r) => r.when === todayIso);
   const todayRev = (d.revertedLinks || []).filter((r) => r.when === todayIso);
   const todayPrune = (d.prunedOptions || []).filter((r) => r.when === todayIso);
-  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length || todayRev.length || todayPrune.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
+  const todayRestP = (d.restoredPrune || []).filter((r) => r.when === todayIso);
+  if (relBox) { if (todayRel.length || todayAdd.length || todayLink.length || todaySib.length || todayResale.length || todayRev.length || todayPrune.length || todayRestP.length) { const pairs = {}; for (const r of todayRel) { const k = `${r.from || '(없음)'} → ${r.to}`; pairs[k] = (pairs[k] || 0) + 1; } relBox.style.display = '';
       const parts = [];
       if (todayRel.length) parts.push(`🔁 오늘 옵션 ${todayRel.length}개를 최근 광고 캠페인으로 옮겼습니다: ` + Object.entries(pairs).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ` <span class="sub">— 광고 보고서·광고센터에서 그 캠페인이 이 옵션을 광고한 것이 확인돼서입니다. 마진은 그대로입니다.</span>`);
       if (todayAdd.length) { const by = {}; for (const a of todayAdd) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`➕ 오늘 광고 보고서·광고센터에서 옵션 ${todayAdd.length}개를 목록에 넣었습니다: ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ` <span class="sub">— 마진이 비어 있으니 '마진 없는 옵션' 에서 넣어 주세요.</span>`); }
       if (todayLink.length) { const by = {}; for (const a of todayLink) by[a.campaign] = (by[a.campaign] || 0) + 1; parts.push(`🔗 오늘 같은 상품의 다른 옵션ID(윙 판매 등) ${todayLink.length}개를 그 상품의 캠페인 장부에 넣었습니다 (쿠팡 광고에는 안 넣음): ` + Object.entries(by).map(([c, n]) => `${esc(c)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 넣어 주세요 (위 노란 알림)</span>'); }
       if (todaySib.length) { const by = {}; for (const r of todaySib) { const k = `${r.from || '(없음)'} → ${r.to}`; by[k] = (by[k] || 0) + 1; } parts.push(`🔗 오늘 같은 상품의 옵션 ${todaySib.length}개를 그 상품 전용 캠페인 장부로 옮겼습니다 (쿠팡 광고는 그대로, 윙 옵션 등): ` + Object.entries(by).map(([k, n]) => `${esc(k)} (${n}개)`).join(' · ') + ' <span class="sub">— 윙은 마진이 다르니 마진을 따로 넣어 주세요</span>'); }
-      if (todayPrune.length) { const by = {}; for (const r of todayPrune) by[r.campaign || '(캠페인 없음)'] = (by[r.campaign || '(캠페인 없음)'] || 0) + 1; parts.push(`🧽 옵션 목록을 정리했습니다: 쿠팡 광고 캠페인에 들어 있지 않은 옵션 ${todayPrune.length}개를 뺐습니다 (마진 이력은 남겨 둠) — ` + Object.entries(by).slice(0, 10).map(([c, n]) => `${esc(c)} ${n}개`).join(' · ') + (Object.keys(by).length > 10 ? ' 외' : '') + ` <button class="btn sm" id="prune-undo">되돌리기</button>`); }
+      if (todayRestP.length) parts.push(`↩️ 지난 버전이 광고 보고서만 보고 뺀 옵션 ${todayRestP.length}개를 되살렸습니다 (보고서에는 클릭이 난 옵션만 있어 76·77 같은 옵션이 잘못 빠졌음). 캠페인 옵션은 머리줄의 <b>⟳ 쿠팡에서 옵션 가져오기</b> 로 광고센터 목록을 읽어 확인한 뒤 맞춥니다`);
+      if (todayPrune.length) { const by = {}; for (const r of todayPrune) by[r.campaign || '(캠페인 없음)'] = (by[r.campaign || '(캠페인 없음)'] || 0) + 1; parts.push(`🧽 옵션 목록을 정리했습니다: 광고센터 캠페인 목록에 없는 옵션 ${todayPrune.length}개를 뺐습니다 (마진 이력은 남겨 둠) — ` + Object.entries(by).slice(0, 10).map(([c, n]) => `${esc(c)} ${n}개`).join(' · ') + (Object.keys(by).length > 10 ? ' 외' : '') + ` <button class="btn sm" id="prune-undo">되돌리기</button>`); }
       if ((d.pruneUnverified || []).length) parts.push(`<span class="sub">광고 보고서·광고센터 상품 목록이 없어 확인하지 못한 캠페인은 그대로 두었습니다: ${d.pruneUnverified.slice(0, 8).map(esc).join(', ')}${d.pruneUnverified.length > 8 ? ' 외' : ''}</span>`);
       if (todayRev.length) parts.push(`↩️ 예전 버전이 같은 상품이라고 자동으로 캠페인 장부에 넣었던 옵션 ${todayRev.length}개(마진 안 넣은 것)를 되돌렸습니다. 장부에 함께 볼 옵션은 각 캠페인 머리줄의 <b>＋ 장부에 옵션 추가</b> 로 직접 넣어 주세요 (넣기 전 판매도 모두 반영)`);
       if (todayResale.length) parts.push(`🧹 오늘 자동으로 들어갔던 반품·재판매 옵션 ${todayResale.length}개를 목록에서 뺐습니다 (마진을 넣은 것·직접 넣은 것은 그대로): ` + todayResale.slice(0, 8).map((r) => `${esc(r.option_id)} ${esc(String(r.name || '').slice(0, 30))} (${esc(r.why)})`).join(' · ') + (todayResale.length > 8 ? ' 외' : '') + ' <span class="sub">— 새 제품인데 빠졌으면 \'팔렸지만 목록에 없는 옵션\'에서 직접 넣으세요</span>');
       relBox.innerHTML = parts.join('<br>');
       const ub = $('#prune-undo'); if (ub) ub.onclick = async () => { if (!confirm('오늘 정리로 뺀 옵션을 모두 되돌릴까요?')) return; const dd = await reload(); const n = S.undoPrune(dd, todayIso); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${n}개 되돌림`); };
     } else relBox.style.display = 'none'; }
+  renderCampaignOptionReview(d);
   const camps = S.campaigns(d); const { sug, groups, prod } = suggestions();
   const pass = (o) => {
     const hist = S.marginHistory(d, o.option_id);
@@ -1016,13 +1019,42 @@ $('#opt-bulk-save').onclick = async () => {
   const dd = await reload(); for (const id of optBulkList) S.setMargin(dd, id, margin, from, note); await S.save(dd); await reload();
   msg('#opt-msg', `${optBulkList.length}개 옵션에 마진 ${fmtInt(margin)}원 (${from || '처음부터'}) 저장`, 'ok'); $('#opt-bulk-margin').value = ''; renderOptions(); renderFoot();
 };
+let coptFails = {};   // 캠페인 → { error, diag } (가져오기 실패, 화면에 크게 보여 줌)
 async function fetchCampOpts(camps) {
+  const box = $('#copt-review'); if (box) { box.innerHTML = `<div class="notice">⏳ 광고센터에서 ${camps.map(esc).join(', ')} 의 옵션 목록을 읽는 중입니다… (작은 창이 떴다 닫힙니다, 1분쯤)</div>`; box.scrollIntoView({ block: 'center' }); }
   msg('#newcamp-msg', `광고센터에서 ${camps.length}개 캠페인의 옵션을 읽는 중… (창이 떴다 닫힙니다)`); msg('#opt-msg', '');
-  const r = await chrome.runtime.sendMessage({ type: 'campaignOptions', campaigns: camps });
-  await reload(); renderOptions();
-  if (!r?.ok) { msg('#opt-msg', r?.error || '실패', 'err'); return; }
-  const lines = Object.entries(r.results).map(([c, x]) => `${c}: ${x.ok ? `옵션 ${x.options.length}개` : '실패 — ' + x.error}`);
-  msg('#opt-msg', lines.join(' / '), Object.values(r.results).every((x) => x.ok) ? 'ok' : 'err');
+  const r = await chrome.runtime.sendMessage({ type: 'campaignOptions', campaigns: camps }).catch((e) => ({ ok: false, error: e.message }));
+  coptFails = {};
+  if (!r?.ok) for (const c of camps) coptFails[c] = { error: r?.error || '응답 없음' };
+  else for (const [c, x] of Object.entries(r.results || {})) if (!x.ok) coptFails[c] = { error: x.error, diag: x.diag };
+  await reload(); renderOptions(); msg('#newcamp-msg', '');
+  $('#copt-review')?.scrollIntoView({ block: 'center' });
+}
+// 광고센터에서 읽은 캠페인 옵션 목록 확인 → '이대로 맞추기' 를 눌러야 반영 (잘못 읽은 번호로 옵션이 바뀌지 않게)
+function renderCampaignOptionReview(d) {
+  const box = $('#copt-review'); if (!box) return;
+  const pend = d.pendingCampaignOptions || {}; const facts = S.optionFacts(d); const linked = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
+  const sold = {}; const since = addDays(localIso(yday), -29); for (const [dt, day] of Object.entries(d.sales)) if (dt >= since) for (const r of Object.values(day)) sold[r.option_id] = (sold[r.option_id] || 0) + (r.quantity || 0);
+  let html = '';
+  for (const [c, f] of Object.entries(coptFails)) {
+    const g = f.diag; const info = g ? `주소: ${g.url}\n화면 제목: ${g.title}\n'ID' 글자: ${(g.bits || []).join(' / ')}\n표 제목: ${(g.heads || []).join(' ; ')}\n받은 데이터 ${g.responses}건, 옵션 ${g.sniffed}개\n데이터 키: ${g.keys}` : '';
+    html += `<div class="card" style="border-color:#f3b4b4;background:#fde2e2;margin-top:12px"><b>⛔ ${esc(c)} 옵션 목록을 광고센터에서 읽지 못했습니다</b><div class="sub" style="margin-top:4px">${esc(f.error || '')}</div>${info ? `<details style="margin-top:6px" open><summary class="sub">화면에서 본 것 (이 내용을 복사해 보내 주시면 맞추겠습니다)</summary><pre class="log" style="white-space:pre-wrap">${esc(info)}</pre><button class="btn sm" data-copydiag="${esc(c)}">복사</button></details>` : ''}<div class="sub" style="margin-top:6px">그동안은 <b>＋ 장부에 옵션 추가</b> 로 옵션을 직접 넣을 수 있습니다.</div></div>`;
+  }
+  for (const [c, p] of Object.entries(pend)) {
+    const ids = new Set(p.options.map((o) => String(o.option_id)));
+    const rows = p.options.map((o) => { const cur = linked[o.option_id]; const where = !cur ? '<span class="sub">새로 넣음</span>' : cur.campaign === c ? '그대로' : `<b>${esc(cur.campaign || '(캠페인 없음)')}</b> → 이 캠페인`; const nm = o.name || facts[o.option_id]?.option_name || ''; return `<tr><td class="l num">${esc(o.option_id)}</td><td class="l">${esc(nm)}</td><td class="num">${fmtInt(sold[o.option_id] || 0)}</td><td class="l">${where}</td></tr>`; }).join('');
+    const gone = d.options.filter((o) => o.campaign === c && !o.manual && !ids.has(o.option_id));
+    const known = p.options.filter((o) => facts[o.option_id] || linked[o.option_id]).length;
+    html += `<div class="card" style="border-color:#c7dbf7;margin-top:12px"><b>📋 광고센터에서 읽은 ${esc(c)} 옵션 ${p.options.length}개</b> <span class="sub">${p.at} · ${p.via === 'data' ? '화면 데이터에서' : '화면 글자에서'} 읽음</span>
+      ${known === 0 ? '<div class="neg" style="margin-top:4px">⚠️ 읽은 번호가 판매·옵션 기록에 하나도 없습니다. 옵션ID 가 아닌 번호(상품ID 등)를 읽었을 수 있으니 확인해 주세요.</div>' : ''}
+      <div class="tablewrap" style="max-height:260px;margin-top:6px"><table><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th>최근30일 판매</th><th class="l">옵션 목록에서</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${gone.length ? `<div class="sub" style="margin-top:6px">이 목록에 없어 이 캠페인에서 빠질 옵션 ${gone.length}개: ${gone.slice(0, 10).map((o) => esc(o.option_id)).join(', ')}${gone.length > 10 ? ' 외' : ''} (직접 장부에 추가한 옵션은 그대로, 마진 이력은 남음)</div>` : ''}
+      <div class="row" style="margin-top:8px"><button class="btn primary sm" data-copt-apply="${esc(c)}">이 목록대로 맞추기</button><button class="btn sm" data-copt-drop="${esc(c)}">버리기</button></div></div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('[data-copt-apply]').forEach((b) => b.onclick = async () => { const c = b.dataset.coptApply; const dd = await reload(); const r = S.applyPendingCampaignOptions(dd, c); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${c}: 옵션 ${r ? `옮김 ${r.moved.length} · 추가 ${r.added.length} · 뺌 ${r.removed.length}` : '반영'}`); });
+  box.querySelectorAll('[data-copt-drop]').forEach((b) => b.onclick = async () => { const dd = await reload(); delete dd.pendingCampaignOptions[b.dataset.coptDrop]; await S.save(dd); await reload(); renderOptions(); });
+  box.querySelectorAll('[data-copydiag]').forEach((b) => b.onclick = () => { const pre = b.parentElement.querySelector('pre'); navigator.clipboard.writeText(pre.textContent).then(() => toast('복사했습니다'), () => toast('복사 실패', 'err')); });
 }
 // 옵션이 하나도 연결되지 않은 캠페인 (새로 만든 광고). 광고 보고서에 그 캠페인이 광고한 옵션ID 가 있으면 후보로 보여 준다.
 // 캠페인 하나의 옵션 후보 카드 (광고 보고서·광고센터에서 읽은 옵션 + 직접 입력). onlyMissing: 이미 목록에 있는 옵션은 빼고
@@ -1164,8 +1196,8 @@ function toggleLedgerAdd(hdr, camp) {
 $('#opt-prune').onclick = async () => {
   const dd = await reload(); const ev = S.campaignEvidence(dd);
   const n = dd.options.filter((o) => !o.manual && (!o.campaign || (ev[o.campaign] && !ev[o.campaign].has(o.option_id)))).length;
-  if (!n) { toast('뺄 옵션이 없습니다 (모두 쿠팡 광고 캠페인에 들어 있거나 직접 추가한 옵션)', ''); return; }
-  if (!confirm(`쿠팡 광고 캠페인에 들어 있지 않은 옵션 ${n}개를 목록에서 뺍니다 (직접 '장부에 옵션 추가' 한 것은 그대로, 마진 이력은 남김). 옵션 탭 위의 되돌리기로 되돌릴 수 있습니다. 계속할까요?`)) return;
+  if (!n) { toast('뺄 옵션이 없습니다 (광고센터 목록을 읽어 확인한 캠페인만 정리합니다 — 캠페인 머리줄의 ⟳ 쿠팡에서 옵션 가져오기)', ''); return; }
+  if (!confirm(`광고센터에서 읽어 확인한 캠페인 목록에 없는 옵션 ${n}개를 목록에서 뺍니다 (목록을 아직 안 읽은 캠페인은 그대로, 직접 '장부에 옵션 추가' 한 것도 그대로, 마진 이력은 남김). 옵션 탭 위의 되돌리기로 되돌릴 수 있습니다. 계속할까요?`)) return;
   const r = S.pruneToCampaignOptions(dd); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${r.removed.length}개 뺐습니다`);
 };
 function renderIgnored(since) {

@@ -476,14 +476,28 @@
     return [...out].slice(0, 20);
   }
   // 캠페인 상세 화면의 상품(옵션) 목록: '상품명 … ID: 95988650186' → [{option_id, name}]
+  // 광고센터 화면이 받아 온 데이터에서 모은 옵션 (sniff.js)
+  function sniffedItems() { try { return { items: JSON.parse(document.documentElement.dataset.ccItems || '[]'), keys: document.documentElement.dataset.ccKeys || '', responses: Number(document.documentElement.dataset.ccResponses || 0) }; } catch { return { items: [], keys: '', responses: 0 }; } }
+  // 읽지 못했을 때 원인을 보려고: 'ID' 가 들어간 글자 조각, 표 제목들, 데이터 키
+  function campaignPageDiag() {
+    const bits = []; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n;
+    while ((n = walker.nextNode()) && bits.length < 12) { const t = clean(n.textContent || ''); if (/ID|아이디|옵션/.test(t) && t.length < 80) bits.push(t); }
+    const heads = allTables().slice(0, 4).map((t) => t.headers.filter(Boolean).slice(0, 8).join('|'));
+    const sn = sniffedItems();
+    return { url: location.href, title: document.title, bits, heads, sniffed: sn.items.length, responses: sn.responses, keys: sn.keys.slice(0, 300) };
+  }
   function readCampaignOptions() {
     const out = {};
-    const ID = /ID\s*[:：]?\s*(\d{6,})/;
+    const ID = /(?:옵션\s*ID|옵션ID|vendorItemId|ID)\s*[:：]?\s*(\d{8,})/;   // 상품ID·등록상품ID 는 아래에서 걸러 냄
     for (const t of allTables()) {
       const hi = t.headers.findIndex((h) => /상품명|옵션명|상품|옵션/.test(h));
       for (const r of t.rows) {
         const cells = hi >= 0 ? [r[hi], ...r] : r;
-        for (const c of cells) { const m = String(c || '').match(ID); if (m) { const name = clean(String(c).replace(m[0], '')); if (!out[m[1]] || name.length > out[m[1]].length) out[m[1]] = name; break; } }
+        for (const c of cells) {
+          const txt = String(c || ''); const m = txt.match(ID); if (!m) continue;
+          if (!/옵션|vendorItem/i.test(m[0]) && /상품\s*$/.test(txt.slice(Math.max(0, m.index - 6), m.index))) continue;   // '상품 ID: …'(등록상품ID)는 옵션ID 가 아니다
+          const name = clean(txt.replace(m[0], '')); if (!out[m[1]] || name.length > out[m[1]].length) out[m[1]] = name; break;
+        }
       }
     }
     if (!Object.keys(out).length) {
@@ -495,7 +509,10 @@
         const name = clean((el?.innerText || '').replace(ID, '')); if (!out[m[1]] || name.length > out[m[1]].length) out[m[1]] = name;
       }
     }
-    return Object.entries(out).map(([option_id, name]) => ({ option_id, name: name.replace(/^(ON|OFF)\s*/i, '').slice(0, 80) }));
+    let via = 'screen';
+    if (!Object.keys(out).length) { const sn = sniffedItems(); for (const [id, name] of sn.items) out[id] = clean(name || ''); if (Object.keys(out).length) via = 'data'; }
+    const list = Object.entries(out).map(([option_id, name]) => ({ option_id, name: name.replace(/^(ON|OFF)\s*/i, '').slice(0, 80) }));
+    list.via = via; return list;
   }
 
   // 캠페인 목록에서 이름이 든 줄을 찾아, 그 줄 안의 링크 주소와 구조를 돌려준다 (이름 클릭이 안 먹을 때 주소로 이동하기 위해)
@@ -773,7 +790,7 @@
     } else if (msg?.type === 'clickRowName') {
       sendResponse(clickRowName(msg.text || ''));
     } else if (msg?.type === 'readCampaignOptions') {
-      try { sendResponse({ ok: true, options: readCampaignOptions(), url: location.href }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
+      try { const o = readCampaignOptions(); sendResponse({ ok: true, options: o, via: o.via, url: location.href, diag: o.length ? null : campaignPageDiag() }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
     } else if (msg?.type === 'findLink') {
       sendResponse(findLink(msg.texts || []));
     } else if (msg?.type === 'selectOption') {

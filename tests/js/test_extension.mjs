@@ -928,7 +928,7 @@ console.log('extension logic: all checks passed');
       { option_id: 'N', campaign: '', source: 'manual' },                   // 캠페인 없음 → 뺌
       { option_id: 'Q', campaign: '70. 근거없음', source: 'excel' } ],      // 근거가 없는 캠페인 → 그대로
     margins: [{ option_id: 'X', effective_from: '', margin: 100 }],
-    adrows: { '2026-10-05': [{ campaign: '60. 공병', option_id: 'G' }] }, campaignOptions: {} };
+    adrows: { '2026-10-05': [{ campaign: '70. 근거없음', option_id: 'Q' }] }, campaignOptions: { '60. 공병': { at: '2026-10-07', options: [{ option_id: 'G' }] } } };   // 광고 보고서만 있는 캠페인(70)은 정리하지 않음
   const r = S.pruneToCampaignOptions(d);
   assert.deepEqual(d.options.map((o) => o.option_id), ['G', 'W', 'Q']); assert.deepEqual(r.removed.map((x) => x.option_id), ['X', 'N']); assert.deepEqual(r.unverified, ['70. 근거없음']);
   assert.equal(d.margins.length, 1);   // 마진 이력 남김
@@ -951,4 +951,21 @@ console.log('extension logic: all checks passed');
   const in60 = d.options.filter((o) => o.campaign === C60).map((o) => o.option_id).sort();
   assert.deepEqual(in60, ids); assert.deepEqual(r.removed.map((x) => x.option_id), ['OLD9']);
   console.log('campaign option list from ad center defines campaign options: all checks passed');
+}
+
+// 광고센터에서 읽은 목록은 '확인 대기' → 이대로 맞추기로 반영. 지난 버전이 광고 보고서만 보고 뺀 옵션은 되살림
+{
+  const C0 = '0. 소량 재고 및 광고 안 도는 것들', C60 = '60. 문풍지_251%_261006';
+  const d = { options: [{ option_id: '73', campaign: C0, source: 'adreport' }, { option_id: '75', campaign: C60, source: 'adreport' }, { option_id: 'OLD', campaign: C60, source: 'excel' }, { option_id: 'W', campaign: C60, source: 'wing-link', manual: true }],
+    margins: [], sales: { '2026-10-06': { '77': { option_id: '77', option_name: '문풍지 화이트', product_name: '문풍지', quantity: 5, revenue: 1 } } }, adrows: {}, campaignOptions: {},
+    prunedOptions: [{ option_id: '76', campaign: C60, name: '문풍지 그레이', why: '쿠팡 광고 캠페인에 없음', when: '2026-10-07' }, { option_id: 'N1', campaign: '', name: 'x', why: '캠페인 없음', when: '2026-10-07' }],
+    pendingCampaignOptions: { [C60]: { at: '2026-10-08', via: 'data', options: ['73', '74', '75', '76', '77'].map((x) => ({ option_id: x, name: '' })) } } };
+  assert.deepEqual(S.restoreReportPrune(d).map((x) => x.option_id), ['76']);   // 보고서 기준으로 뺀 것만 되살림
+  assert.equal(d.options.find((o) => o.option_id === '76').campaign, C60);
+  const r = S.applyPendingCampaignOptions(d, C60);
+  assert.deepEqual(r.moved.map((x) => x.option_id), ['73']); assert.deepEqual(r.added.sort(), ['74', '77']); assert.deepEqual(r.removed.map((x) => x.option_id), ['OLD']);
+  assert.deepEqual(d.options.filter((o) => o.campaign === C60).map((o) => o.option_id).sort(), ['73', '74', '75', '76', '77', 'W']);
+  assert.equal(d.options.find((o) => o.option_id === '77').product_name, '문풍지 화이트');
+  assert.ok(!d.pendingCampaignOptions[C60]); assert.equal(d.campaignOptions[C60].options.length, 5);
+  console.log('ad-center list pending → apply, restore report-based prune: all checks passed');
 }
