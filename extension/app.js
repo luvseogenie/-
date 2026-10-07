@@ -1539,7 +1539,7 @@ async function runInAppUpdate() {
 }
 $('#upd-apply').onclick = runInAppUpdate;
 chrome.storage.local.get('updateFolder').then((r) => { $('#upd-folder').value = r.updateFolder ?? DEFAULT_FOLDER; });
-$('#upd-check').onclick = async () => { msg('#upd-msg', '확인 중…'); const u = await renderUpdate(true); msg('#upd-msg', u.hasUpdate ? `새 버전 v${u.latest} 이 있습니다. 업데이트.bat 을 실행하세요.` : '최신 버전입니다.', u.hasUpdate ? 'err' : 'ok'); };
+$('#upd-check').onclick = async () => { msg('#upd-msg', '확인 중…'); const u = await renderUpdate(true); msg('#upd-msg', u.hasUpdate ? `새 버전 v${u.latest} 이 있습니다. 위의 '지금 업데이트' 를 누르세요.` : '최신 버전입니다.', u.hasUpdate ? 'err' : 'ok'); };
 $('#upd-reload').onclick = async () => { if (!(await reloadIfFilesChanged())) { if (confirm('파일이 아직 바뀌지 않았습니다. 그래도 새로고침할까요?')) chrome.runtime.reload(); } };
 $('#upd-zip').href = ZIP_URL;
 

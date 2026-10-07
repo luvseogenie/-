@@ -1,5 +1,5 @@
 // 새 버전 확인 + 파일이 바뀌면 스스로 새로고침.
-//  - 원격: GitHub 의 manifest.json 버전을 6시간마다 확인해 storage.local.latestVersion 에 둔다.
+//  - 원격: GitHub 최신 커밋의 manifest.json 버전을 확인해 storage.local.latestVersion 에 둔다 (5분 캐시).
 //  - 로컬: 폴더의 manifest.json(디스크) 버전이 실행 중인 버전과 다르면 = 업데이트.bat 이 파일을 바꾼 것 → chrome.runtime.reload()
 export const REPO = 'luvseogenie/-';
 export const BRANCH = 'claude/coupang-ad-calculator-automation-28o2wh';
@@ -12,15 +12,25 @@ export function cmpVersion(a, b) {
   return 0;
 }
 export const currentVersion = () => chrome.runtime.getManifest().version;
+// 브랜치의 최신 커밋 SHA. raw.githubusercontent 의 브랜치 주소는 푸시 직후 몇 분간 옛 파일을 줄 수 있어(캐시),
+// 커밋 SHA 로 고정한 주소에서 받는다 (그 커밋의 파일만 오므로 옛 파일·새 파일이 섞이지 않는다). API 가 막히면(시간당 60번) null
+export async function latestCommit() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(BRANCH)}?t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/vnd.github.sha' } });
+    if (!r.ok) return null; const sha = (await r.text()).trim(); return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch { return null; }
+}
+const rawAt = (ref) => `https://raw.githubusercontent.com/${REPO}/${ref}/`;
 
 export async function checkRemote(force = false) {
   const { updateCheckedAt = 0, latestVersion = null } = await chrome.storage.local.get(['updateCheckedAt', 'latestVersion']);
-  if (!force && Date.now() - updateCheckedAt < 10 * 60 * 1000) return latestVersion;   // 10분에 한 번만 GitHub 에 물어본다 (앱을 열 때마다 최신인지 알 수 있게)
+  if (!force && Date.now() - updateCheckedAt < 5 * 60 * 1000) return latestVersion;   // 5분에 한 번만 GitHub 에 물어본다
   try {
-    const r = await fetch(RAW_MANIFEST + '?t=' + Date.now(), { cache: 'no-store' });
+    const sha = await latestCommit();
+    const r = await fetch((sha ? rawAt(sha) + 'extension/manifest.json' : RAW_MANIFEST) + '?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const m = await r.json();
-    await chrome.storage.local.set({ latestVersion: m.version, updateCheckedAt: Date.now() });
+    await chrome.storage.local.set({ latestVersion: m.version, latestSha: sha, updateCheckedAt: Date.now() });
     return m.version;
   } catch { await chrome.storage.local.set({ updateCheckedAt: Date.now() }); return latestVersion; }
 }
@@ -61,8 +71,9 @@ async function waitDone(id, timeout = 90000) {
   }
   throw new Error('시간 초과');
 }
-export async function listRemoteFiles() {
-  const r = await fetch(TREE_API + '&t=' + Date.now(), { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+export async function listRemoteFiles(sha = null) {
+  const url = sha ? `https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1` : TREE_API;
+  const r = await fetch(url + '&t=' + Date.now(), { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
   if (!r.ok) throw new Error('GitHub 파일 목록을 받지 못했습니다 (HTTP ' + r.status + ')');
   const j = await r.json(); if (j.truncated) throw new Error('파일 목록이 너무 깁니다');
   return j.tree.filter((x) => x.type === 'blob' && x.path.startsWith('extension/')).map((x) => x.path.slice('extension/'.length));
@@ -79,7 +90,8 @@ export async function probeFolder(folder) {
   return { ok, path: item.filename };
 }
 export async function applyUpdate(folder, onProgress = () => {}) {
-  const files = (await listRemoteFiles()).filter((p) => !SKIP.test(p));
+  const sha = await latestCommit(); const base0 = sha ? rawAt(sha) : RAW_BASE;   // 커밋에 고정된 주소 (없으면 브랜치 주소)
+  const files = (await listRemoteFiles(sha)).filter((p) => !SKIP.test(p));
   files.sort((a, b) => (a === 'manifest.json') - (b === 'manifest.json'));   // manifest.json 은 맨 마지막 (다 받은 뒤에야 버전이 바뀌어 새로고침되게)
   const base = folder ? folder.replace(/^[\\/]+|[\\/]+$/g, '') + '/' : '';
   const failed = []; let n = 0;
@@ -90,7 +102,7 @@ export async function applyUpdate(folder, onProgress = () => {}) {
     for (let tries = 0; tries < 3; tries++) {
       try {
         // GitHub 은 .js 도 text/plain 으로 주어 크롬이 파일 이름을 .txt 로 바꿔 버린다 → 내용을 먼저 받아 일반 바이너리(blob)로 내려받는다
-        const r = await fetch(RAW_BASE + 'extension/' + p + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+        const r = await fetch(base0 + 'extension/' + p + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
         const blob = new Blob([await r.arrayBuffer()], { type: 'application/octet-stream' }); const url = URL.createObjectURL(blob);
         try { const id = await dl({ url, filename: base + 'extension/' + p, conflictAction: 'overwrite', saveAs: false }); await waitDone(id); await erase(id); } finally { URL.revokeObjectURL(url); }
         lastErr = null; break;
