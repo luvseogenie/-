@@ -651,7 +651,7 @@ async function collectRange(start, end, kinds, onlyMissing) {
         for (let cur = need[0]; cur <= need[need.length - 1]; cur = add(cur, 31)) {
           const to = add(cur, 30) < need[need.length - 1] ? add(cur, 30) : need[need.length - 1];
           try { const r = await collectReport(null, { from: cur, to }); job.log.push(`${cur}${to !== cur ? `~${to}` : ''} 광고 보고서: ${r.empty ? '데이터 0줄 (쿠팡이 아직 집계 전)' : `${r.saved}행 저장`}`); }
-          catch (e) { job.log.push(`${cur}${to !== cur ? `~${to}` : ''} 광고 보고서: 실패 — ${e.message}`); }
+          catch (e) { job.log.push(`${cur}${to !== cur ? `~${to}` : ''} 광고 보고서: 실패 — ${e.message}`); await log(`[기간 수집] ${cur}${to !== cur ? `~${to}` : ''} 광고 보고서 실패: ${String(e.message).slice(0, 400)}`); }
           if (job.cancel) break;
         }
       }
@@ -670,7 +670,7 @@ async function collectRange(start, end, kinds, onlyMissing) {
         job.done++; continue;
       }
       try { const r = await collectKind(kind, date); job.log.push(`${date} ${kind === 'sales' ? '판매' : '광고'}: ${r.saved}건 저장`); }
-      catch (e) { job.log.push(`${date} ${kind === 'sales' ? '판매' : '광고'}: 실패 — ${e.message}`); }
+      catch (e) { job.log.push(`${date} ${kind === 'sales' ? '판매' : '광고'}: 실패 — ${e.message}`); await log(`[기간 수집] ${date} ${kind === 'sales' ? '판매' : '광고'} 실패: ${String(e.message).slice(0, 400)}`); }
       job.done++;
     }
     if (job.cancel) { job.log.push('중단됨'); break; }
