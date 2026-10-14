@@ -59,7 +59,17 @@ async function readFromTab(tabId, kind, type = 'read') {
   }
   return best;
 }
-const inject = (tabId) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }).then(() => true).catch(() => false);
+// 화면에 content.js 넣기: 모든 프레임 → 안 되면 본 화면만 → 그래도 안 되면 이미 들어가 있는지(manifest 로 자동 주입) 물어본다. 실패 이유는 lastInjectError 에 남긴다
+let lastInjectError = '';
+const inject = async (tabId) => {
+  try { await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }); return true; } catch (e) { lastInjectError = e?.message || String(e); }
+  try { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }); return true; } catch (e) { lastInjectError = e?.message || String(e); }
+  try { const r = await chrome.tabs.sendMessage(tabId, { type: 'pageInfo' }); if (r) return true; } catch { /* 없음 */ }
+  return false;
+};
+// 크롬이 이 확장의 쿠팡 사이트 접근을 막았는지 (확장 세부정보 → 사이트 액세스 '클릭 시' 등)
+const COUPANG_ORIGINS = ['https://*.coupang.com/*'];
+async function hostAccess() { try { return await chrome.permissions.contains({ origins: COUPANG_ORIGINS }); } catch { return true; } }
 // 스크립트를 못 넣는 탭(크롬 오류 페이지, 쿠팡이 아닌 주소, 아직 로딩 중)이면 무엇인지 알려 주고, 오류 페이지면 새로 고친다
 async function tabState(tabId) {
   try { const t = await chrome.tabs.get(tabId); return { url: t.url || t.pendingUrl || '', title: t.title || '', status: t.status || '' }; } catch { return { url: '', title: '', status: 'closed' }; }
@@ -78,7 +88,9 @@ async function ensureInjectable(tabId, s) {
     if (await inject(tabId)) return null;
   }
   const t = await tabState(tabId);
-  return `화면에 스크립트를 넣지 못했습니다 (주소 ${t.url.slice(0, 100) || '없음'}, 제목 "${t.title.slice(0, 40)}", 상태 ${t.status})`;
+  const access = await hostAccess();
+  if (!access) { await chrome.storage.local.set({ hostAccessLost: Date.now() }); return `크롬이 이 확장의 쿠팡 사이트 접근을 막고 있습니다 (확장 프로그램 사이트 액세스). 광고계산기 앱 화면 맨 위의 '쿠팡 사이트 접근 허용' 을 누르거나, chrome://extensions → 쿠팡 광고계산기 세부정보 → 사이트 액세스를 '모든 사이트에서' 로 바꿔 주세요`; }
+  return `화면에 스크립트를 넣지 못했습니다 (주소 ${t.url.slice(0, 100) || '없음'}, 제목 "${t.title.slice(0, 40)}", 상태 ${t.status}, 크롬 오류: ${String(lastInjectError).slice(0, 200) || '없음'})`;
 }
 // 백그라운드 탭은 화면이 늦게 그려질 수 있다 → 표가 보일 때까지 정해진 시간까지 다시 읽어 본다
 async function readWithRetry(tabId, kind, deadline) {
@@ -1034,7 +1046,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { lastAuto = null } = await chrome.storage.local.get('lastAuto');
       const y = yesterdayIso(); const doneToday = !!(lastAuto && lastAuto.date >= y && lastAuto.ok);
       const { ticks = [], installedAt = null, autoRetry = null } = await chrome.storage.local.get(['ticks', 'installedAt', 'autoRetry']);
-      sendResponse({ enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto, doneToday, yesterday: y, running: autoRunning, ticks: ticks.slice(-80), installedAt, autoRetry });
+      sendResponse({ hostAccess: await hostAccess(), enabled: s.autoEnabled, time: s.autoTime, nextAt: al?.scheduledTime || null, lastAuto, doneToday, yesterday: y, running: autoRunning, ticks: ticks.slice(-80), installedAt, autoRetry });
     }
     else if (msg.type === 'syncServer') { await syncServer(msg.kind, msg.date, msg.records); sendResponse({ ok: true }); }
     else { console.log('[cc] unknown message', JSON.stringify(msg)); sendResponse({ ok: false }); }

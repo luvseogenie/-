@@ -117,6 +117,11 @@ async function renderAutoBanner() {
   const box = $('#auto-banner'); if (!box) return;
   let a = null; try { a = await chrome.runtime.sendMessage({ type: 'autoStatus' }); } catch { a = null; }
   if (!a) { box.innerHTML = '<div class="notice" style="background:#fde2e2;border-color:#f3b4b4;color:#7a1f1f">⛔ 확장의 백그라운드가 응답하지 않습니다. <code>chrome://extensions</code> 에서 쿠팡 광고계산기 카드에 <b>오류</b> 버튼이 있으면 눌러 내용을 보내 주시고, 카드의 ↻ 를 눌러 다시 켜 주세요. 이 상태에서는 자동 수집이 돌지 않습니다.</div>'; return; }
+  if (a.hostAccess === false) {
+    box.innerHTML = `<div class="notice" style="background:#fde2e2;border-color:#f3b4b4;color:#7a1f1f">⛔ <b>크롬이 이 확장의 쿠팡 사이트 접근을 막고 있습니다.</b> 그래서 판매자센터·광고센터 화면을 읽지 못해 자동 수집이 실패합니다 (확장 프로그램 '사이트 액세스' 가 '클릭 시' 등으로 바뀐 경우). <button class="btn primary sm" id="host-grant">쿠팡 사이트 접근 허용</button> <span class="sub">안 되면 chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 사이트 액세스 → '모든 사이트에서'</span></div>`;
+    $('#host-grant').onclick = async () => { let ok = false; try { ok = await chrome.permissions.request({ origins: ['https://*.coupang.com/*'] }); } catch (e) { toast('허용 창을 열지 못했습니다: ' + e.message, 'err'); } if (ok) { toast('허용했습니다. 자동 수집을 다시 시작합니다'); chrome.runtime.sendMessage({ type: 'nudgeAuto' }).catch(() => {}); } setTimeout(renderAutoBanner, 800); };
+    return;
+  }
   if (!a.enabled) {
     box.innerHTML = `<div class="notice" style="background:#fde2e2;border-color:#f3b4b4;color:#7a1f1f">⛔ <b>매일 자동 수집이 꺼져 있습니다.</b> 그래서 ${esc(a.time)} 에 아무것도 하지 않았습니다. ${a.installedAt ? `(${hhmmOf(a.installedAt)} 에 확장을 새로 설치해서 설정이 처음 상태로 돌아갔습니다) ` : ''}<button class="btn primary sm" id="auto-on">자동 수집 켜기</button></div>`;
     $('#auto-on').onclick = async () => { await chrome.storage.sync.set({ autoEnabled: true }); toast?.('자동 수집을 켰습니다. 매일 ' + a.time + ' 에 수집합니다'); setTimeout(renderAutoBanner, 800); if (typeof loadSettings === 'function') loadSettings(); };
