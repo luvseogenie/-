@@ -1668,7 +1668,10 @@ async function runInAppUpdate() {
     const cands = [...new Set([folder, folder ? `${folder}/${folder.split('/').pop()}` : null, ''].filter((x) => x != null))];
     let pr = null, hit = null;
     for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } }
-    if (hit == null) { say(`다운로드 폴더(${pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '')}) 안에서 실행 중인 확장 폴더를 못 찾았습니다. chrome://extensions → 이 확장의 '세부정보' → '소스' 경로를 위 칸에 그대로 붙여 넣고 다시 누르세요. 그 경로가 다운로드 폴더 밖이면 폴더를 다운로드 폴더로 옮긴 뒤 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; }
+    if (hit == null) {
+      const root = pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '');
+      say(`크롬의 다운로드 위치(${root}) 안에 실행 중인 프로그램 폴더가 없습니다. 앱 안 업데이트는 크롬 '다운로드' 로 파일을 덮어써서, 다운로드 위치 안의 폴더만 바꿀 수 있습니다. 두 가지 중 하나를 하세요: ① 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭 (다운로드 위치와 상관없이 됩니다) ② 크롬 설정 → 다운로드 → 위치를 프로그램 폴더가 있는 다운로드 폴더(예: C:\\Users\\…\\Downloads)로 바꾼 뒤 다시 누르기`, 'err'); return;
+    }
     if (hit !== folder) { folder = hit; $('#upd-folder').value = hit; }
     await chrome.storage.local.set({ updateFolder: folder });
     const latest = await checkRemote(true); const cur = chrome.runtime.getManifest().version;
