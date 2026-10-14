@@ -1663,7 +1663,16 @@ async function runInAppUpdate() {
     let folder = $('#upd-folder').value.trim().replace(/[\\/]+$/, '');
     // chrome://extensions 의 '소스' 전체 경로를 붙여 넣은 경우: 다운로드 폴더 아래 부분만 남긴다 (…\Downloads\폴더\extension → 폴더)
     const full = folder.match(/^(?:[a-zA-Z]:[\\/]|\/)/) ? folder : null;
-    if (full) { const m = full.match(/[\\/]downloads[\\/](.*)$/i); if (!m) { say(`그 경로는 다운로드 폴더 안이 아닙니다 (${full}). 프로그램 폴더를 다운로드 폴더로 옮긴 뒤 chrome://extensions 에서 지우고 다시 로드하거나, 업데이트.bat 을 쓰세요.`, 'err'); return; } folder = m[1].replace(/[\\/]+extension$/i, '').replace(/\\/g, '/'); $('#upd-folder').value = folder; }
+    if (full) {
+      // 크롬 다운로드 위치(루트)를 알아내 그 아래 상대 경로로 바꾼다 (D:\\Claude작업\\… 처럼 다운로드 위치를 바꿔 쓰는 경우도)
+      say('크롬 다운로드 위치 확인 중…'); const p0 = await probeFolder('');
+      const root = String(p0.path || '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]+$/, '');
+      const norm = (x) => x.replace(/\//g, '\\').toLowerCase(); let rel = null;
+      if (root && norm(full).startsWith(norm(root) + '\\')) rel = full.slice(root.length + 1);
+      else { const mm = full.match(/[\\/]downloads[\\/](.*)$/i); if (mm && /[\\/]downloads$/i.test(root)) rel = mm[1]; }
+      if (rel == null) { say(`그 경로(${full})는 크롬 다운로드 위치(${root || '?'}) 밖이라 앱 안 업데이트로는 바꿀 수 없습니다. 그 폴더 안의 '업데이트.bat' 을 더블클릭하세요 (다운로드 위치와 상관없이 됩니다).`, 'err'); return; }
+      folder = rel.replace(/[\\/]extension$/i, '').replace(/\\/g, '/');
+    }
     // 흔한 경우를 차례로 시험: 적은 폴더 → 윈도우 '압축 풀기'가 만드는 같은 이름 두 겹 → 다운로드 폴더 바로 아래 extension
     const cands = [...new Set([folder, folder ? `${folder}/${folder.split('/').pop()}` : null, ''].filter((x) => x != null))];
     let pr = null, hit = null;
