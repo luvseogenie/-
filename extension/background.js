@@ -637,6 +637,8 @@ async function collectReportRange(from, to) {
 
 // ---- 특정 날짜/기간 수집 (앱 페이지의 '지난 날짜 채우기', 자동 수집의 빠진 날 보충) ----
 function isoRange(start, end) { const out = []; const d = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00'); for (; d <= e; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
+// 광고비가 있는데 광고 보고서(캠페인 분석·장부 옵션별 값의 바탕)가 없는 날 — 판매·광고 값만 있고 보고서만 빠진 날도 채우려고
+const spentNoReport = (d, x) => Object.values(d.ads[x] || {}).some((a) => (a.spend || 0) > 0) && !((d.adrows || {})[x] || []).length;
 async function missingDates(dates, kinds) {
   const d = await S.load();
   const has = (o) => !!Object.keys(o || {}).length;   // 빈 날({})은 없는 것으로
@@ -650,21 +652,25 @@ async function collectRange(start, end, kinds, onlyMissing) {
   if (onlyMissing) dates = await missingDates(dates, kinds);
   Object.assign(job, { running: true, total: dates.length * kinds.length, done: 0, log: [], cancel: false });
   if (cut.length) job.log.push(`예약 시각 전이라 ${cut.join(', ')} 는 아직 받지 않습니다 (예약 시각 이후 자동 수집)`);
-  if (!dates.length) { job.log.push('가져올 날짜가 없습니다 (이미 모두 저장됨)'); job.running = false; return { ok: true }; }
   const s = await getSettings();
+  const d00 = await S.load(); const reportOnly = kinds.includes('ads') && !s.adsUrl.includes('{date}') && isoRange(start, end).some((x) => x <= safe && x !== yesterdayIso() && spentNoReport(d00, x));
+  if (!dates.length && !reportOnly) { job.log.push('가져올 날짜가 없습니다 (이미 모두 저장됨)'); job.running = false; return { ok: true }; }
   // 광고 관리 화면은 어제만 열 수 있다 → 지난 날 중 광고 값도 광고 보고서도 없는 날은 그 구간의 키워드 보고서를 먼저 받아 둔다 (아래에서 보고서 합으로 채움)
   if (kinds.includes('ads') && !s.adsUrl.includes('{date}')) {
     try {
       const d0 = await S.load();
-      const need = dates.filter((x) => x !== yesterdayIso() && !Object.keys(d0.ads[x] || {}).length && !(d0.adrows || {})[x]);
+      const all = isoRange(start, end).filter((x) => x <= safe && x !== yesterdayIso());
+      const need = all.filter((x) => (dates.includes(x) && !Object.keys(d0.ads[x] || {}).length && !(d0.adrows || {})[x]) || spentNoReport(d0, x));
       if (need.length) {
-        job.log.push(`${need[0]}${need.length > 1 ? `~${need[need.length - 1]}` : ''} 광고 보고서를 받습니다 (지난 날 광고 값은 보고서로만 채울 수 있어서)…`);
+        job.log.push(`${need.map((x) => x.slice(5)).join(', ')} 광고 보고서를 받습니다 (지난 날 광고 값과 캠페인 분석은 보고서로 채워서)…`);
         const add = (iso, n) => { const dd = new Date(iso + 'T00:00:00'); dd.setDate(dd.getDate() + n); return `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, '0')}-${String(dd.getDate()).padStart(2, '0')}`; };
-        for (let cur = need[0]; cur <= need[need.length - 1]; cur = add(cur, 31)) {
-          const to = add(cur, 30) < need[need.length - 1] ? add(cur, 30) : need[need.length - 1];
+        // 필요한 날만 덮는 구간(최대 31일)으로 나눈다 — 멀리 떨어진 두 날 사이를 통째로 받지 않게
+        const spans = []; for (const x of need) { const last = spans[spans.length - 1]; if (last && x <= add(last.from, 30)) last.to = x; else spans.push({ from: x, to: x }); }
+        job.total += spans.length;
+        for (const { from: cur, to } of spans) {
           try { const r = await collectReport(null, { from: cur, to }); job.log.push(`${cur}${to !== cur ? `~${to}` : ''} 광고 보고서: ${r.empty ? '데이터 0줄 (쿠팡이 아직 집계 전)' : `${r.saved}행 저장`}`); }
           catch (e) { job.log.push(`${cur}${to !== cur ? `~${to}` : ''} 광고 보고서: 실패 — ${e.message}`); await log(`[기간 수집] ${cur}${to !== cur ? `~${to}` : ''} 광고 보고서 실패: ${String(e.message).slice(0, 400)}`); }
-          if (job.cancel) break;
+          job.done++; if (job.cancel) break;
         }
       }
     } catch (e) { job.log.push(`광고 보고서 받기 실패 — ${e.message}`); }
@@ -820,8 +826,8 @@ async function runAutoInner(dateOverride, kinds) {
     await collectRange(start, y, ['sales', 'ads'], true);
     // 광고 관리 화면은 어제만 읽을 수 있으니, 그 전 날 중 광고 값이 없는 날은 광고 보고서를 받아 채운다 (PC 가 꺼져 있던 날 등)
     try {
-      const d = await S.load(); const missing = isoRange(start, y).filter((x) => x < y && !Object.keys(d.ads[x] || {}).length);
-      if (missing.length && kinds.includes('report')) { await log(`[자동] 광고 값이 없는 날 ${missing.join(', ')} → 광고 보고서로 채웁니다`); await collectReportRange(missing[0], missing[missing.length - 1]); }
+      const d = await S.load(); const missing = isoRange(start, y).filter((x) => x < y && (!Object.keys(d.ads[x] || {}).length || spentNoReport(d, x)));
+      if (missing.length && kinds.includes('report')) { await log(`[자동] 광고 값이나 광고 보고서가 없는 날 ${missing.join(', ')} → 광고 보고서로 채웁니다`); await collectReportRange(missing[0], missing[missing.length - 1]); }
     } catch (e) { await log(`[자동] 지난 날 광고 보고서 보충 실패: ${e.message}`); }
   }
   if (!dateOverride) await refreshCampaignOptions();
