@@ -373,7 +373,12 @@ async function collectReport(dateOverride, span = null) {
     const acc = await ensureAccount(tab.id, 'ads', s); if (!acc.ok) throw new Error(acc.reason);
     const info = () => chrome.tabs.sendMessage(tab.id, { type: 'pageInfo' }).catch(() => null);
     // 1) 보고서 화면으로. 지금 화면이 보고서 화면인지 확인하고, 아니면 메뉴 링크 → 후보 주소 순으로 찾는다. 찾은 주소만 설정에 저장.
-    const goto = async (u) => { await chrome.tabs.update(tab.id, { url: u }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); };
+    // 옮겨 간 화면이 로그인 화면이면(광고센터 세션이 도중에 풀림) 로그인하고 그 주소로 다시 간다 — 로그인 화면을 '보고서 화면 아님' 으로 오해하지 않게
+    const onLogin = async () => { const st = await tabState(tab.id); const p = await info(); return /\/user\/login|\/login/i.test(st.url || '') || !!(p?.hasLogin || p?.hasLoginChooser); };
+    const goto = async (u) => {
+      await chrome.tabs.update(tab.id, { url: u }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id);
+      if (await onLogin()) { const r = await ensureLoggedIn(tab.id, u, s); steps.push(`로그인 화면이 떠서 로그인 ${r.ok ? '함' : `실패(${r.reason || ''})`}`); if (r.needed && !r.ok) throw new Error(r.reason); }
+    };
     const isReportPage = async () => {
       const d = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); if (!d) return false;
       const b = d.buttons.join('|'); const st = await tabState(tab.id);
@@ -382,7 +387,14 @@ async function collectReport(dateOverride, span = null) {
     };
     const tried = [];
     let onReport = await isReportPage();
-    if (!onReport && s.adsReportUrl && s.adsReportUrl !== s.adsUrl) { tried.push('설정 주소'); await goto(s.adsReportUrl); onReport = await isReportPage(); if (!onReport) { await chrome.storage.sync.set({ adsReportUrl: '' }); steps.push('설정의 보고서 주소가 보고서 화면이 아니라 지움'); await goto(url); } }
+    if (!onReport && await onLogin()) { const r = await ensureLoggedIn(tab.id, url, s); steps.push(`로그인 화면이라 로그인 ${r.ok ? '함' : '실패'}`); if (r.needed && !r.ok) throw new Error(r.reason); onReport = await isReportPage(); }
+    if (!onReport && s.adsReportUrl && s.adsReportUrl !== s.adsUrl) {
+      tried.push('설정 주소'); await goto(s.adsReportUrl); onReport = await isReportPage();
+      // 로그인 화면 등으로 잠깐 못 연 것일 수 있으니, 정말 다른 화면이 열렸을 때만 지운다
+      if (!onReport && !(await onLogin())) { await chrome.storage.sync.set({ adsReportUrl: '' }); steps.push('설정의 보고서 주소가 보고서 화면이 아니라 지움'); await goto(url); }
+    }
+    // 쿠팡 광고보고서 화면의 알려진 주소부터 (설정이 지워졌어도 바로 찾게)
+    if (!onReport) { const known = new URL(url).origin + '/marketing-reporting/billboard/reports/pa'; tried.push(known); await goto(known); onReport = await isReportPage(); if (onReport) steps.push('알려진 보고서 주소 = 보고서 화면'); }
     if (!onReport) {
       const l = await chrome.tabs.sendMessage(tab.id, { type: 'findLink', texts: ['광고보고서', '광고 보고서', '보고서 다운로드', '보고서', '리포트'] }).catch(() => ({ ok: false }));
       if (l?.ok && l.href !== url) { tried.push(l.href); await goto(l.href); onReport = await isReportPage(); steps.push(`메뉴 링크 ${l.href.slice(0, 70)} ${onReport ? '= 보고서 화면' : '(보고서 화면 아님)'}`); }
