@@ -1666,7 +1666,7 @@ async function runInAppUpdate() {
     if (full) {
       // 크롬 다운로드 위치(루트)를 알아내 그 아래 상대 경로로 바꾼다 (D:\\Claude작업\\… 처럼 다운로드 위치를 바꿔 쓰는 경우도)
       say('크롬 다운로드 위치 확인 중…'); const p0 = await probeFolder('');
-      const root = String(p0.path || '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]+$/, '');
+      const p0p = String(p0.path || ''); const root = (/[\\/]extension[\\/]update-probe\.txt$/i.test(p0p) ? p0p.replace(/[\\/]extension[\\/]update-probe\.txt$/i, '') : p0p.replace(/[\\/][^\\/]*$/, '')).replace(/[\\/]+$/, '');
       const norm = (x) => x.replace(/\//g, '\\').toLowerCase(); let rel = null;
       if (root && norm(full).startsWith(norm(root) + '\\')) rel = full.slice(root.length + 1);
       else { const mm = full.match(/[\\/]downloads[\\/](.*)$/i); if (mm && /[\\/]downloads$/i.test(root)) rel = mm[1]; }
@@ -1678,7 +1678,10 @@ async function runInAppUpdate() {
     let pr = null, hit = null;
     for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } }
     if (hit == null) {
-      const root = pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '');
+      // 크롬이 파일 이름을 바꿔 저장했으면(다른 확장이 다운로드 이름을 정하는 경우 등) 그 파일이 놓인 폴더를 다운로드 위치로 본다
+      const renamed = !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path);
+      const root = renamed ? pr.path.replace(/[\\/][^\\/]*$/, '') : pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '');
+      if (renamed) { say(`크롬이 업데이트 파일을 정한 이름대로 저장하지 않고 '${pr.path}' 로 바꿔 저장했습니다 (다운로드 이름을 바꾸는 다른 확장 프로그램이 있으면 그렇습니다). 이 상태에선 앱 안 업데이트가 안 되니, 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭하세요.`, 'err'); return; }
       say(`크롬의 다운로드 위치(${root}) 안에 실행 중인 프로그램 폴더가 없습니다. 앱 안 업데이트는 크롬 '다운로드' 로 파일을 덮어써서, 다운로드 위치 안의 폴더만 바꿀 수 있습니다. 두 가지 중 하나를 하세요: ① 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭 (다운로드 위치와 상관없이 됩니다) ② 크롬 설정 → 다운로드 → 위치를 프로그램 폴더가 있는 다운로드 폴더(예: C:\\Users\\…\\Downloads)로 바꾼 뒤 다시 누르기`, 'err'); return;
     }
     if (hit !== folder) { folder = hit; $('#upd-folder').value = hit; }
