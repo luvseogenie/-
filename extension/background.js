@@ -5,7 +5,7 @@ import { putFile, loadTemplate, saveTemplate } from './lib/excelstore.js';
 import { gzip } from './lib/gz.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
-import { checkRemote, reloadIfFilesChanged } from './lib/update.js';
+import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false };
 let expectUntil = 0, expectDate = null;
@@ -752,7 +752,8 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
   let r = null;
   for (let i = 0; i < 5 && !r?.ok; i++) { r = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'blobUrl', key, mime }).catch((e) => ({ ok: false, error: e.message })); if (!r?.ok) await sleep(500); }
   if (!r?.ok) throw new Error(`blob 주소를 만들지 못했습니다: ${r?.error || '응답 없음'}`);
-  const start = (fn) => new Promise((res, rej) => chrome.downloads.download({ url: r.url, filename: fn, conflictAction, saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+  const start = async (fn) => { await rememberName(r.url, fn, conflictAction); return start0(fn); };
+  const start0 = (fn) => new Promise((res, rej) => chrome.downloads.download({ url: r.url, filename: fn, conflictAction, saveAs: false }, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
   let id;
   try { id = await start(filename); }
   catch (e) {
@@ -1022,6 +1023,17 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   }
 });
 // 알림 실패(아이콘을 못 읽음 — 업데이트로 파일을 바꾸는 중이거나 폴더를 옮긴 때 등)는 무시한다. 프로미스 거절이 '오류' 로 쌓이지 않게 catch
+// 다른 확장(이미지·영상 다운로더 등)이 다운로드 이름을 정하면 크롬이 우리가 준 이름을 무시하고 무작위 이름으로 저장한다.
+// 우리 확장이 시작한 다운로드는 정해 둔 이름을 다시 제안한다 (여러 확장이 제안하면 가장 최근에 설치한 확장이 이긴다). 다른 다운로드는 건드리지 않는다.
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (item.byExtensionId !== chrome.runtime.id) { suggest(); return; }
+  const key = 'dln:' + item.url;
+  chrome.storage.session.get(key).then((o) => {
+    const want = o?.[key]?.filename;
+    if (want) { suggest({ filename: want, conflictAction: o[key].conflictAction || 'overwrite' }); chrome.storage.session.remove(key).catch(() => {}); } else suggest();
+  }).catch(() => suggest());
+  return true;
+});
 function notify(message) { try { const p = chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: '쿠팡 광고계산기', message }); if (p && p.catch) p.catch(() => {}); } catch { /* 무시 */ } }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

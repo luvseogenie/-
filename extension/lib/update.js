@@ -56,7 +56,10 @@ export const DEFAULT_FOLDER = '--claude-coupang-ad-calculator-automation-28o2wh'
 export const TREE_API = `https://api.github.com/repos/${REPO}/git/trees/${encodeURIComponent(BRANCH)}?recursive=1`;
 export const RAW_BASE = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/`;
 const SKIP = /\.(bat|ps1|command|exe|cmd)$/i;   // 크롬이 '위험한 파일'로 막는 종류. 거의 안 바뀌므로 건너뛴다 (필요하면 업데이트.bat 으로)
-const dl = (opts) => new Promise((res, rej) => chrome.downloads.download(opts, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
+// 정한 파일 이름을 기억해 둔다 → 다른 확장이 이름을 바꾸려 해도 background 의 onDeterminingFilename 이 이 이름을 다시 제안
+export const rememberName = async (url, filename, conflictAction = 'overwrite') => { try { if (url && filename) await chrome.storage.session.set({ ['dln:' + url]: { filename, conflictAction, at: Date.now() } }); } catch { /* 무시 */ } };
+const dl = async (opts) => { await rememberName(opts.url, opts.filename, opts.conflictAction); return dl0(opts); };
+const dl0 = (opts) => new Promise((res, rej) => chrome.downloads.download(opts, (id) => { const e = chrome.runtime.lastError; if (e || id == null) rej(new Error(e?.message || '다운로드를 시작하지 못했습니다')); else res(id); }));
 const search = (id) => new Promise((res) => chrome.downloads.search({ id }, (r) => res(r && r[0])));
 const erase = (id) => new Promise((res) => chrome.downloads.erase({ id }, () => { void chrome.runtime.lastError; res(); }));
 const removeFile = (id) => new Promise((res) => chrome.downloads.removeFile(id, () => { void chrome.runtime.lastError; res(); }));
