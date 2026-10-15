@@ -1656,6 +1656,10 @@ async function renderUpdate(force = false) {
 }
 // 한 번에 업데이트: 폴더 확인 → 파일 내려받아 덮어쓰기 → 버전 확인 → 새로고침
 let updating = false;
+// 다운로드 권한을 가진 다른 확장(켜진 것) — 이런 확장이 다운로드 이름을 정하면 크롬이 우리가 준 파일 이름을 무시한다
+async function downloadExtensions() {
+  try { const all = await chrome.management.getAll(); return all.filter((x) => x.enabled && x.id !== chrome.runtime.id && x.type === 'extension' && (x.permissions || []).includes('downloads')).map((x) => x.name); } catch { return []; }
+}
 async function runInAppUpdate() {
   if (updating) return; updating = true; const btn = $('#upd-apply'); btn.disabled = true;
   const say = (t, cls = '') => msg('#upd-progress', t, cls);
@@ -1681,7 +1685,7 @@ async function runInAppUpdate() {
       // 크롬이 파일 이름을 바꿔 저장했으면(다른 확장이 다운로드 이름을 정하는 경우 등) 그 파일이 놓인 폴더를 다운로드 위치로 본다
       const renamed = !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path);
       const root = renamed ? pr.path.replace(/[\\/][^\\/]*$/, '') : pr.path.replace(/[\\/][^\\/]*[\\/]extension[\\/]update-probe\.txt$/i, '').replace(/[\\/]extension[\\/]update-probe\.txt$/i, '');
-      if (renamed) { say(`크롬이 업데이트 파일을 정한 이름대로 저장하지 않고 '${pr.path}' 로 바꿔 저장했습니다 (다운로드 이름을 바꾸는 다른 확장 프로그램이 있으면 그렇습니다). 이 상태에선 앱 안 업데이트가 안 되니, 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭하세요.`, 'err'); return; }
+      if (renamed) { const sus = await downloadExtensions(); say(`크롬이 업데이트 파일을 정한 이름대로 저장하지 않고 '${pr.path}' 로 바꿔 저장했습니다. 다운로드 이름을 바꾸는 다른 확장 프로그램 때문입니다${sus.length ? ` — 의심되는 확장: ${sus.map((x) => `「${x}」`).join(', ')} (chrome://extensions 에서 잠시 꺼 두면 앱 안 업데이트·백업 파일 이름이 정상이 됩니다)` : ''}. 이 상태에선 앱 안 업데이트가 안 되니, 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭하세요.`, 'err'); return; }
       say(`크롬의 다운로드 위치(${root}) 안에 실행 중인 프로그램 폴더가 없습니다. 앱 안 업데이트는 크롬 '다운로드' 로 파일을 덮어써서, 다운로드 위치 안의 폴더만 바꿀 수 있습니다. 두 가지 중 하나를 하세요: ① 프로그램 폴더(chrome://extensions → 쿠팡 광고계산기 → 세부정보 → 소스) 안의 '업데이트.bat' 을 더블클릭 (다운로드 위치와 상관없이 됩니다) ② 크롬 설정 → 다운로드 → 위치를 프로그램 폴더가 있는 다운로드 폴더(예: C:\\Users\\…\\Downloads)로 바꾼 뒤 다시 누르기`, 'err'); return;
     }
     if (hit !== folder) { folder = hit; $('#upd-folder').value = hit; }

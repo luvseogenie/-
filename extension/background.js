@@ -478,7 +478,7 @@ async function collectReport(dateOverride, span = null) {
           const c3 = await click(tab.id, ['예약하기', '예약 등록', '등록', '저장', '확인', '보고서 예약'], { exactOnly: true, inDialog: true });
           steps.push(c3.ok ? `창 안 '${c3.text}' 누름` : '창 안 확인 버튼 못 찾음');
         } else steps.push(`확인 창 못 찾음${hadReserve ? " ('보고서 예약' 버튼은 원래부터 있음)" : ''}`);
-        const t0 = Date.now(); let found = false; const limit = from === to ? 120000 : 600000;   // 기간 보고서는 만드는 데 오래 걸릴 수 있어 10분
+        const t0 = Date.now(); let found = false; const limit = from === to ? 300000 : 600000;   // 하루치도 지난 날은 몇 분 걸릴 때가 있어 5분, 기간 보고서는 10분
         while (Date.now() - t0 < limit) {
           await sleep(6000); await inject(tab.id);
           await click(tab.id, ['목록 새로 고침', '새로 고침', '새로고침']);
@@ -754,6 +754,11 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
   while (Date.now() - t0 < 120000) { const [it] = await chrome.downloads.search({ id }); if (!it || it.state !== 'in_progress') break; await sleep(1000); }
   chrome.runtime.sendMessage({ target: 'offscreen', type: 'revoke', url: r.url }).catch(() => {});
   const [it] = await chrome.downloads.search({ id }).catch(() => []);
+  const want = filename.split('/').pop(), got = String(it?.filename || '').split(/[\\/]/).pop();
+  if (got && got !== want && got !== asciiName(filename).split('/').pop()) {
+    let sus = []; try { sus = (await chrome.management.getAll()).filter((x) => x.enabled && x.id !== chrome.runtime.id && x.type === 'extension' && (x.permissions || []).includes('downloads')).map((x) => x.name); } catch { /* 무시 */ }
+    await log(`[다운로드] 크롬이 '${want}' 를 '${got}' 이름으로 바꿔 저장했습니다 — 다운로드 이름을 바꾸는 다른 확장 프로그램 때문입니다${sus.length ? ` (의심: ${sus.join(', ')})` : ''}. 그 확장을 끄면 정상 이름으로 저장됩니다`);
+  }
   return { id, filename: it?.filename ? it.filename.replace(/\\/g, '/').split('/').slice(-2).join('/') : filename };
 }
 // 매일 자동 수집 뒤 다운로드\쿠팡광고계산기_백업\ 에 요일별 백업 파일을 남긴다 (7개를 돌려 씀). 확장이 지워져도 '복원' 으로 되살릴 수 있게
@@ -975,9 +980,11 @@ const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.f
 chrome.downloads.onChanged.addListener(async (delta) => {
   if (delta.state?.current !== 'complete' || handled.has(delta.id)) return;
   const [item] = await chrome.downloads.search({ id: delta.id }); if (!item) return;
-  const ext = (item.filename || '').toLowerCase().match(/\.(xlsx|xls|csv)$/)?.[1];
+  let ext = (item.filename || '').toLowerCase().match(/\.(xlsx|xls|csv)$/)?.[1];
   const fromCoupang = /coupang\.com/.test(item.finalUrl || item.url || '') || /coupang\.com/.test(item.referrer || '');
   const expected = Date.now() < expectUntil; // ① 을 누른 직후 2분 안의 엑셀은 이름과 상관없이 리포트로 본다
+  // 다른 확장이 다운로드 이름을 바꿔(무작위 글자, 확장자 없음) 저장해도, 기다리던 쿠팡 파일이면 내용을 보고 판단한다
+  if (!ext && expected && fromCoupang && !/\.[a-z0-9]{2,5}$/i.test(item.filename || '')) ext = 'unknown';
   if (!ext || !(expected || (fromCoupang && looksLikeReport(item)))) return;
   handled.add(delta.id);
   const url = item.finalUrl || item.url;
@@ -988,8 +995,9 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     await log(`[다운로드] 파일을 자동으로 읽을 수 없는 방식(blob)입니다. 장부 보기 → 리포트 파일 올리기 로 올려 주세요: ${item.filename}`); notify('리포트를 자동으로 읽지 못했습니다. 장부 보기 → 리포트 파일 올리기 로 방금 받은 파일을 올려 주세요.'); settle({ ok: false, error: 'blob 다운로드는 자동으로 읽을 수 없습니다. 파일을 직접 올려 주세요' }); return; }
   try {
     const r = await fetch(url, { credentials: 'include' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const name = item.filename.split(/[\\/]/).pop();
-    const res = await importAnyFile(await r.arrayBuffer(), name, expectDate);
+    const buf = await r.arrayBuffer(); let name = item.filename.split(/[\\/]/).pop();
+    if (ext === 'unknown') { const b = new Uint8Array(buf.slice(0, 2)); name = `report_${expectDate || ''}.${b[0] === 0x50 && b[1] === 0x4b ? 'xlsx' : 'csv'}`; }
+    const res = await importAnyFile(buf, name, expectDate);
     expectDate = null;
     const label = res.kind === 'ads' ? '광고' : '판매';
     await log(`[다운로드] ${name} → ${res.date} ${label} ${res.saved}건 저장`);
