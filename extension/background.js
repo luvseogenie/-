@@ -822,7 +822,7 @@ async function runAutoInner(dateOverride, kinds) {
       await log(`[자동] ${failed.map((k) => KIND_NAME[k]).join('·')} 를 10분 뒤 다시 시도합니다 (${count + 1}/${RETRY_MAX})`);
     } else if (!failed.length && autoRetry.date === yesterdayIso()) { await chrome.storage.local.remove('autoRetry'); }
   }
-  try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message: okAll ? '어제 판매·광고 데이터를 저장했습니다.' : '일부 수집이 실패했습니다. 10분 뒤 자동으로 다시 시도합니다.' }); } catch { /* 무시 */ }
+  notify(okAll ? '어제 판매·광고 데이터를 저장했습니다.' : '일부 수집이 실패했습니다. 10분 뒤 자동으로 다시 시도합니다.');
   // 최근 N일 중 빠진 날도 채운다 (설정)
   const s = await getSettings();
   if (!dateOverride && s.fillMissingDays > 0) {
@@ -1009,7 +1009,8 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     settle({ ok: false, error: e.message });
   }
 });
-function notify(message) { try { chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title: '쿠팡 광고계산기', message }); } catch { /* 무시 */ } }
+// 알림 실패(아이콘을 못 읽음 — 업데이트로 파일을 바꾸는 중이거나 폴더를 옮긴 때 등)는 무시한다. 프로미스 거절이 '오류' 로 쌓이지 않게 catch
+function notify(message) { try { const p = chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: '쿠팡 광고계산기', message }); if (p && p.catch) p.catch(() => {}); } catch { /* 무시 */ } }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
