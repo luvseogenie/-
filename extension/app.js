@@ -652,11 +652,28 @@ function renderNoAd() {
   const noMargin = list.filter((n) => !n.margin).length;
   $('#noad-count').textContent = list.length ? `— ${list.length}개 · 판매 ${fmtInt(list.reduce((a, n) => a + n.qty, 0))}개${noMargin ? ` · 마진 없음 ${noMargin}개` : ''}` : '— 없음';
   const tb = $('#noad-table tbody'); tb.innerHTML = '';
+  // 같은 등록상품(또는 같은 옵션 이름)의 옵션이 이미 캠페인에 있으면 그 캠페인을 추천. 반품·리퍼 등급 옵션은 추천하지 않는다
+  const sug = S.campaignSuggester(DATA); const resale = S.resaleChecker(DATA); const mOf = S.marginLookup(DATA);
+  const recOf = (n) => { if (n.linked) return null; const r = sug({ option_id: n.option_id, option_name: n.name, product: n.product }); if (!r || r.via === '같은 상품명') return null; const why = resale(n.option_id, r.option_id, n.name); if (why) return { ...r, resale: why }; return { ...r, margin: mOf(r.option_id, n.last || led.end) || 0 }; };
+  const recs = Object.fromEntries(list.map((n) => [n.option_id, recOf(n)]));
+  const linkable = list.filter((n) => recs[n.option_id] && !recs[n.option_id].resale);
+  const bulk = $('#noad-bulk');
+  bulk.innerHTML = linkable.length ? `<div class="notice" style="margin-bottom:6px">🔗 이 중 <b>${linkable.length}개</b>는 같은 상품의 다른 옵션이 이미 캠페인에 있습니다 (판매 ${fmtInt(linkable.reduce((a, n) => a + n.qty, 0))}개). <button class="btn primary sm" id="noad-link-all">같은 상품의 캠페인으로 한꺼번에 연결</button> <span class="sub">쿠팡 광고에는 넣지 않고 이 장부에서만 그 캠페인 줄에 넣습니다. 마진은 같은 상품 옵션의 마진을 그대로 씁니다(없으면 비워 둠 — 나중에 넣기). 반품·리퍼 등급으로 보이는 옵션은 빼고 연결합니다. 예전 판매까지 모두 반영됩니다.</span></div>` : '';
+  const linkOne = (dd, n) => { const r = recs[n.option_id]; S.addLedgerOption(dd, { option_id: n.option_id, campaign: r.campaign, margin: r.margin || null, name: n.name, product: n.product }); };
+  const linkAllBtn = $('#noad-link-all');
+  if (linkAllBtn) linkAllBtn.onclick = async () => {
+    const camps = [...new Set(linkable.map((n) => recs[n.option_id].campaign))];
+    if (!confirm(`${linkable.length}개 옵션을 ${camps.length}개 캠페인(${camps.slice(0, 5).join(', ')}${camps.length > 5 ? ' 등' : ''}) 장부에 연결할까요?`)) return;
+    const dd = await reload(); for (const n of linkable) linkOne(dd, n); await S.save(dd); await refreshAll(); toast(`${linkable.length}개 옵션을 캠페인 장부에 연결했습니다`);
+  };
   for (const n of list.slice(0, 300)) {
-    const why = n.reason === UNMAPPED ? (n.listed ? '캠페인에 연결되지 않은 옵션' : '옵션 목록에 없는 옵션 (윙 판매 등)') : `연결 캠페인 ${esc(n.linked)} 이(가) 광고센터 목록에서 사라짐 (삭제)`;
+    const rec = recs[n.option_id];
+    const why = (n.reason === UNMAPPED ? (n.listed ? '캠페인에 연결되지 않은 옵션' : '옵션 목록에 없는 옵션 (윙 판매 등)') : `연결 캠페인 ${esc(n.linked)} 이(가) 광고센터 목록에서 사라짐 (삭제)`)
+      + (rec ? (rec.resale ? `<div class="sub">반품·리퍼로 보여 연결 추천 안 함 (${esc(rec.resale)})</div>` : `<div>→ 추천: <b>${esc(rec.campaign)}</b> <span class="sub">(${esc(rec.via)}${rec.margin ? `, 마진 ${fmtWon(rec.margin)}` : ''})</span></div>`) : '');
     const tr = document.createElement('tr'); if (!n.margin) tr.className = 'warnrow';
     tr.innerHTML = `<td class="l num">${esc(n.option_id)}</td><td class="l">${esc(n.product || names[n.option_id] || '')}${n.name ? `<div class="sub">${esc(n.name)}</div>` : ''}</td><td class="l sub">${why}</td><td class="num">${fmtInt(n.qty)}</td><td class="num">${fmtWon(n.revenue)}</td><td class="num ${n.margin ? '' : 'neg'}">${n.margin ? fmtWon(n.margin) : '마진 없음'}</td><td class="num">${n.last.slice(5).replace('-', '/')}</td><td><button class="btn sm ${n.margin ? '' : 'primary'}" data-go="${esc(n.option_id)}" data-listed="${n.listed ? 1 : 0}">${n.listed ? '마진 입력' : '목록에 추가'}</button></td>`;
-    tr.querySelector('button').onclick = () => {
+    if (rec && !rec.resale) { const b2 = document.createElement('button'); b2.className = 'btn sm primary'; b2.textContent = '연결'; b2.title = `${rec.campaign} 장부에 연결`; b2.style.marginRight = '4px'; b2.onclick = async () => { const dd = await reload(); linkOne(dd, n); await S.save(dd); await refreshAll(); toast(`${n.option_id} → ${rec.campaign} 장부에 연결했습니다`); }; const td = tr.lastElementChild; td.prepend(b2); td.querySelector('button[data-go]').classList.remove('primary'); }
+    tr.querySelector('button[data-go]').onclick = () => {
       location.hash = '#options'; showPage('options');
       if (n.listed) { $('#opt-camp').value = ''; $('#opt-filter').value = 'all'; $('#opt-search').value = n.option_id; renderOptions(); $('#options-table').scrollIntoView(); }
       else { $('#unlisted-details').open = true; $('#unlisted-search').value = n.option_id; renderUnlisted(); $('#unlisted-details').scrollIntoView(); }

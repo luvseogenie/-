@@ -829,6 +829,10 @@ console.log('extension logic: all checks passed');
   const led = computeLedger(d, '2026-10-04', '2026-10-06'); const u = led.campaigns.find((c) => c.campaign === '40. 초경량 양우산_20260605');
   assert.equal(u.days['2026-10-05'].actual_qty, 7); assert.equal(u.days['2026-10-05'].margin_total, 2 * 7004 + 5 * 3000); assert.equal(u.days['2026-10-06'].actual_qty, 3); assert.equal(u.days['2026-10-06'].margin_total, 3 * 7004);
   assert.equal(led.ignored_qty, 1);
+  // '광고 없이 팔린 옵션' 의 추천: 같은 등록상품의 옵션이 있는 캠페인, 반품 등급은 resaleChecker 가 걸러 낸다
+  const sug = S.campaignSuggester(d); const r = sug({ option_id: 'W8', option_name: '초경량 양우산, 화이트', product: '초경량 양우산', product_id: '555' });
+  assert.equal(r.campaign, '40. 초경량 양우산_20260605'); assert.equal(r.via, '같은 등록상품');
+  assert.ok(S.resaleChecker(d)('R1', 'U1', '초경량 양우산, 블랙 (반품-최상)'));
   console.log('paused campaign missing from list + auto wing link: all checks passed');
 }
 
