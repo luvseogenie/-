@@ -81,7 +81,8 @@ export function autoAddOptions(d) {
 // ---- 반품·재판매 옵션 가려내기 ----
 // 쿠팡은 반품된 상품을 등급별로 새 옵션ID 로 다시 판다. 이런 옵션은 장부에 자동으로 넣지 않는다 (새 제품 옵션만).
 // 판단: ① 무시 규칙(무시 단어·무시 버튼)에 걸림 ② 옵션 이름의 옵션 부분(상품명 뒤)에 반품·리퍼·중고·등급 같은 말 ③ 같은 옵션 이름의 새 제품 옵션보다 개당 가격이 15% 넘게 쌈
-const GRADE_RE = /반품|리퍼|중고|재판매|개봉|등급|[BCS]\s*급|최상|아울렛/i;
+// 앞 글자가 한글이면 다른 낱말의 일부로 본다 (슬리퍼의 '리퍼', 미개봉의 '개봉' 등)
+const GRADE_RE = /(?<![가-힣])(?:반품|리퍼|중고|재판매|개봉|등급|최상|아울렛)|[BCS]\s*급/i;
 export function optionFacts(d) {
   const f = {};
   for (const date of Object.keys(d.sales || {}).sort()) for (const r of Object.values(d.sales[date])) {
@@ -223,12 +224,17 @@ export function upsertOption(d, { option_id, product_name = '', campaign = '', p
 }
 // 목록에 없는데 판매된 옵션 (최근 N일). 목록은 엑셀 1번 시트/직접 추가한 옵션만 유지한다.
 // ---- 기록하지 않을 판매 (재판매·리퍼 등): 옵션ID 목록 + 옵션명/상품명에 든 단어 ----
-export function ignoreRules(d) { const g = d.ignore || {}; return { ids: new Set(g.ids || []), words: (g.words || []).map((w) => String(w).trim().toLowerCase()).filter(Boolean) }; }
+// 무시 낱말은 다른 낱말 속에 들어 있으면 걸지 않는다: 한글로 시작하는 낱말은 앞 글자가 한글이 아닐 때만 (슬리퍼 ≠ 리퍼, 미개봉 ≠ 개봉)
+const escRe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function ignoreRules(d) {
+  const g = d.ignore || {}; const words = (g.words || []).map((w) => String(w).trim().toLowerCase()).filter(Boolean);
+  return { ids: new Set(g.ids || []), words, res: words.map((w) => new RegExp((/^[가-힣]/.test(w) ? '(?<![가-힣])' : '') + escRe(w), 'i')) };
+}
 export function isIgnoredRow(rules, r) {
   if (rules.ids.has(String(r.option_id))) return true;
   if (!rules.words.length) return false;
   const t = `${r.option_name || ''} ${r.product_name || ''} ${r.sales_type || ''}`.toLowerCase();
-  return rules.words.some((w) => t.includes(w));
+  return (rules.res || rules.words.map((w) => new RegExp(escRe(w), 'i'))).some((re) => re.test(t));
 }
 export function ignoreOption(d, option_id, on = true) { d.ignore ||= { ids: [], words: [] }; const id = String(option_id); d.ignore.ids = (d.ignore.ids || []).filter((x) => x !== id); if (on) d.ignore.ids.push(id); }
 export function setIgnoreWords(d, words) { d.ignore ||= { ids: [], words: [] }; d.ignore.words = [...new Set(words.map((w) => String(w).trim()).filter(Boolean))]; }
@@ -404,6 +410,22 @@ export function autoLinkSameProduct(d, days = 60) {
   }
   if (list.length) d.autoLinked = [...(d.autoLinked || []), ...list.map((u) => ({ option_id: u.option_id, campaign: u.suggest.campaign, via: u.suggest.via, sales_type: u.sales_type, when }))].slice(-300);
   return list;
+}
+// 캠페인 줄에 광고 전환은 있는데 판매가 안 잡힐 때 원인 보기: 이 캠페인에 연결된 옵션, 광고 보고서에서 이 캠페인이 광고한 옵션,
+// 그 옵션들과 같은 등록상품으로 팔린 옵션을 모아 각각 기간 판매 수와 장부에서 실제로 들어간 줄(attribution: computeLedger 결과)을 보여 준다
+export function campaignSalesDiag(d, camp, start, end, attribution = {}) {
+  const facts = optionFacts(d); const linkedTo = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  const conv = {}, ads = new Set();
+  for (const [date, rows] of Object.entries(d.adrows || {})) { if (date < start || date > end) continue; for (const r of rows) if (r.campaign === camp && r.option_id) { const k = String(r.option_id); ads.add(k); conv[k] = (conv[k] || 0) + (r.qty14 || r.orders14 || 0); } }
+  const sold = {}; for (const [date, day] of Object.entries(d.sales || {})) { if (date < start || date > end) continue; for (const r of Object.values(day)) if (r.quantity > 0) sold[r.option_id] = (sold[r.option_id] || 0) + r.quantity; }
+  const base = new Set([...d.options.filter((o) => o.campaign === camp).map((o) => o.option_id), ...ads]);
+  const pids = new Set([...base].map((oid) => facts[oid]?.product_id).filter(Boolean));
+  // 광고에 넣은 옵션이 한 번도 안 팔렸으면 등록상품ID 를 몰라서, 상품명(옵션명의 첫 덩어리)으로도 같은 상품을 찾는다
+  const nm = (x) => String(x || '').split(',')[0].replace(/[\s·_()\[\]-]/g, '').toLowerCase();
+  const names = new Set([...base].map((oid) => nm(facts[oid]?.product || d.options.find((o) => o.option_id === oid)?.product || facts[oid]?.option_name || d.options.find((o) => o.option_id === oid)?.product_name)).filter((x) => x.length >= 2));
+  const all = new Set(base); for (const oid of Object.keys(sold)) if (pids.has(facts[oid]?.product_id) || names.has(nm(facts[oid]?.product)) || names.has(nm(facts[oid]?.option_name))) all.add(oid);
+  return [...all].map((oid) => ({ option_id: oid, name: facts[oid]?.option_name || d.options.find((o) => o.option_id === oid)?.product_name || '', linked: linkedTo[oid] || '', advertised: ads.has(oid), conv: conv[oid] || 0, sold: sold[oid] || 0, went: attribution[oid] || {}, sameProduct: !base.has(oid) }))
+    .sort((a, b) => (b.conv - a.conv) || (b.sold - a.sold));
 }
 // 목록에 없는 옵션(윙 판매 등)을 어느 캠페인 장부에 넣으면 될지 추천: 같은 등록상품ID → 같은 옵션 이름 → 같은 상품명 순으로,
 // 이미 캠페인에 연결된 옵션(대개 로켓그로스 옵션)을 찾는다. 쿠팡 광고에는 넣지 않고 이 프로그램 장부에서만 그 캠페인 줄에 넣는 용도

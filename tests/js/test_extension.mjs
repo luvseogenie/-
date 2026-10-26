@@ -833,6 +833,16 @@ console.log('extension logic: all checks passed');
   const sug = S.campaignSuggester(d); const r = sug({ option_id: 'W8', option_name: '초경량 양우산, 화이트', product: '초경량 양우산', product_id: '555' });
   assert.equal(r.campaign, '40. 초경량 양우산_20260605'); assert.equal(r.via, '같은 등록상품');
   assert.ok(S.resaleChecker(d)('R1', 'U1', '초경량 양우산, 블랙 (반품-최상)'));
+  // 원인 보기: 연결된 옵션 U1 의 판매가 어느 줄로 갔는지, 같은 상품으로 팔린 옵션도 함께
+  const dg = S.campaignSalesDiag(d, '40. 초경량 양우산_20260605', '2026-10-04', '2026-10-06', led.attribution);
+  const u1 = dg.find((x) => x.option_id === 'U1'); assert.equal(u1.sold, 6); assert.equal(u1.went['40. 초경량 양우산_20260605'], 6);
+  assert.ok(dg.find((x) => x.option_id === 'R1')?.sameProduct);
+  // 무시 낱말 '리퍼' 가 '슬리퍼' 안에 들어 있어도 무시하지 않는다 (양털 슬리퍼 판매가 전부 빠지던 문제), 미개봉 ≠ 개봉
+  const rules = S.ignoreRules({ ignore: { ids: [], words: ['반품', '리퍼', '중고'] } });
+  assert.equal(S.isIgnoredRow(rules, { option_id: 'X', option_name: '양털 슬리퍼, 베이지, 240', product_name: '양털 슬리퍼' }), false);
+  assert.equal(S.isIgnoredRow(rules, { option_id: 'X', option_name: '양말 (리퍼)', product_name: '양말' }), true);
+  assert.equal(S.isIgnoredRow(rules, { option_id: 'X', option_name: '초경량 양우산, 블랙 (반품-최상)' }), true);
+  assert.equal(S.resaleChecker({ ...d, ignore: { ids: [], words: [] } })('S1', null, '양털 슬리퍼, 베이지, 240'), '');
   console.log('paused campaign missing from list + auto wing link: all checks passed');
 }
 

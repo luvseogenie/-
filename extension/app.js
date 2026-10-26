@@ -734,6 +734,9 @@ function renderLedgerTable() {
   // 광고 전환은 있는데 캠페인에 연결된 옵션이 하나도 없는 캠페인 (예전엔 전환 수가 전부 '반품'으로 보였음)
   const linkedCamps = new Set(DATA.options.map((o) => o.campaign));
   const noLink = new Set(allCamps.filter((n) => n !== UNMAPPED && n !== ORGANIC && !linkedCamps.has(n) && Object.entries(byName[n]?.days || {}).some(([dd, x]) => dates.includes(dd) && x.ad_orders > 0)));
+  // 옵션은 연결돼 있는데 이 기간 광고 전환만 있고 판매가 하나도 안 잡힌 캠페인 → 원인 보기
+  const sumIn = (n, k) => Object.entries(byName[n]?.days || {}).reduce((a, [dd, x]) => a + (dates.includes(dd) ? x[k] || 0 : 0), 0);
+  const noSale = new Set(allCamps.filter((n) => n !== UNMAPPED && n !== ORGANIC && linkedCamps.has(n) && sumIn(n, 'ad_orders') > 0 && sumIn(n, 'actual_qty') === 0));
   for (const name of allCamps) {
     const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
     if (only && name !== only) continue;
@@ -744,7 +747,7 @@ function renderLedgerTable() {
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
       const trNow = i === 0 ? S.trafficStatus(DATA, name, led.end) : null;
-      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}${noLink.has(name) ? `<div class="warn-link"><span class="neg">⚠ 연결된 옵션 없음</span> — 광고 전환은 있는데 이 캠페인 옵션의 판매가 안 잡혀 판매·마진이 0입니다 <button class="btn sm" data-led-fetch="${esc(name)}">쿠팡에서 옵션 가져오기</button></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl"${METRIC_HINT[mt.key] ? ` title="${esc(METRIC_HINT[mt.key])}"` : ''}>${mt.label}</td>`;
+      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}${noLink.has(name) ? `<div class="warn-link"><span class="neg">⚠ 연결된 옵션 없음</span> — 광고 전환은 있는데 이 캠페인 옵션의 판매가 안 잡혀 판매·마진이 0입니다 <button class="btn sm" data-led-fetch="${esc(name)}">쿠팡에서 옵션 가져오기</button></div>` : ''}${noSale.has(name) ? `<div class="warn-link"><span class="neg">⚠ 광고 전환 ${fmtInt(sumIn(name, 'ad_orders'))}건인데 판매가 안 잡힘</span> <button class="btn sm" data-led-diag="${esc(name)}">원인 보기</button></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl"${METRIC_HINT[mt.key] ? ` title="${esc(METRIC_HINT[mt.key])}"` : ''}>${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';
@@ -774,8 +777,37 @@ function renderLedgerTable() {
   { const th = $('#lg-table thead'); let top = th ? th.getBoundingClientRect().height : 0; for (const tr of $$('#lg-table tr.grand')) { tr.querySelectorAll('td').forEach((td) => td.style.top = top + 'px'); top += tr.getBoundingClientRect().height; } }
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
+  $$('#lg-table button[data-led-diag]').forEach((b) => b.onclick = () => showSalesDiag(b.dataset.ledDiag, dates[0], dates[dates.length - 1]));
   $$('#lg-table button[data-led-fetch]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = '광고센터에서 읽는 중… (1분쯤)'; const camp = b.dataset.ledFetch; await fetchCampOpts([camp]); await reload(); renderLedgerTable(); if (!DATA.options.some((o) => o.campaign === camp)) toast(`${camp}: 옵션을 바로 넣지 못했습니다. 캠페인 · 옵션 탭 위쪽의 확인 상자(또는 실패 이유)를 봐 주세요`, 'err'); else toast(`${camp}: 옵션을 연결했습니다. 판매·마진이 다시 계산됐습니다`); });
   $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-details').open = true; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
+}
+
+// 캠페인 줄에 판매가 안 잡히는 원인: 연결된 옵션 / 이 캠페인이 광고한 옵션 / 같은 상품으로 팔린 옵션이 각각 어디(어느 줄)로 들어갔는지
+function showSalesDiag(camp, start, end) {
+  const led = ledgerCache; const rows = S.campaignSalesDiag(DATA, camp, start, end, led?.attribution || {});
+  const facts = S.optionFacts(DATA); const mOf = S.marginLookup(DATA);
+  const mine = rows.filter((r) => r.linked === camp);
+  const marginFor = (oid) => { const pid = facts[oid]?.product_id; const sib = mine.find((r) => pid && facts[r.option_id]?.product_id === pid && mOf(r.option_id, end)); return sib ? mOf(sib.option_id, end) : null; };
+  const resale = S.resaleChecker(DATA);
+  const wentTxt = (w) => Object.entries(w).map(([c, q]) => `${esc(c)} ${fmtInt(q)}개`).join(', ') || '<span class="sub">없음</span>';
+  const tip = !rows.some((r) => r.sold) ? '이 캠페인 옵션과 같은 상품의 판매가 이 기간 판매 데이터에 하나도 없습니다. 판매 리포트가 빠졌거나(날짜를 정해 가져오기), 광고센터 옵션ID 와 판매 옵션ID 가 다른 경우입니다.'
+    : rows.some((r) => r.linked === camp && r.sold && !r.went[camp]) ? '연결된 옵션의 판매가 다른 캠페인 줄로 들어갔습니다(그날 다른 캠페인이 같은 옵션을 광고). 그 캠페인이 여러 상품을 함께 돌리는 모음(AI) 캠페인이면 장부 위쪽 안내에서 지정하세요.'
+    : '팔린 옵션이 이 캠페인에 연결돼 있지 않습니다. 아래 [이 캠페인에 연결] 을 누르면 예전 판매까지 이 줄에 들어갑니다.';
+  let h = `<div class="notice" id="lg-diag"><div class="row"><b>🔎 ${esc(camp)} — 판매가 안 잡히는 원인 (${start} ~ ${end})</b><span class="grow"></span><button class="btn sm" id="lg-diag-close">닫기</button></div><p class="sub" style="margin:4px 0">${tip}</p>`;
+  h += `<div class="tablewrap" style="max-height:320px"><table><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">지금 연결</th><th>이 캠페인 광고 전환</th><th>기간 판매</th><th class="l">장부에서 들어간 줄</th><th></th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const why = r.linked !== camp ? resale(r.option_id, null, r.name) : '';
+    h += `<tr><td class="l num">${esc(r.option_id)}</td><td class="l">${esc(r.name)}${r.sameProduct ? ' <span class="pill gray">같은 상품</span>' : ''}${r.advertised ? ' <span class="pill">광고함</span>' : ''}</td><td class="l">${r.linked ? esc(r.linked) : '<span class="neg">연결 없음</span>'}</td><td class="num">${fmtInt(r.conv)}</td><td class="num">${fmtInt(r.sold)}</td><td class="l">${wentTxt(r.went)}</td><td>${r.linked !== camp && r.sold ? (why ? `<span class="sub">반품·리퍼로 보임</span>` : `<button class="btn sm primary" data-diag-link="${esc(r.option_id)}">이 캠페인에 연결</button>`) : ''}</td></tr>`;
+  }
+  h += '</tbody></table></div></div>';
+  const old = $('#lg-diag'); if (old) old.remove();
+  $('#lg-warn').insertAdjacentHTML('afterbegin', h); $('#lg-diag').scrollIntoView({ block: 'center' });
+  $('#lg-diag-close').onclick = () => $('#lg-diag').remove();
+  $$('#lg-diag button[data-diag-link]').forEach((b) => b.onclick = async () => {
+    const oid = b.dataset.diagLink; const r = rows.find((x) => x.option_id === oid); const dd = await reload();
+    S.addLedgerOption(dd, { option_id: oid, campaign: camp, margin: marginFor(oid), name: r?.name || '' }); await S.save(dd); await refreshAll();
+    toast(`${oid} → ${camp} 장부에 연결했습니다${marginFor(oid) ? '' : ' (마진은 캠페인 · 옵션 탭에서 넣어 주세요)'}`); showSalesDiag(camp, start, end);
+  });
 }
 
 /* ===== 트래픽 슬롯 설정 ===== */

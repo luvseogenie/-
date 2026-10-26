@@ -104,7 +104,7 @@ export function computeLedger(d, start, end) {
         ctr: a.ctr, conversion: a.conversion, ad_orders: a.ad_orders, action: a.action || '' });
     }
   }
-  const unmapped = new Set();
+  const unmapped = new Set(); const attribution = {};
   const noad = {};   // 광고 없이 팔린 옵션: { option_id: { qty, revenue, days, reason, linked, name, product } }
   const ign = ignoreRules(d); let ignoredQty = 0;   // 기록하지 않기로 한 판매(재판매·리퍼 등)는 장부에서 뺀다
   for (const [date, day] of Object.entries(d.sales)) {
@@ -114,6 +114,7 @@ export function computeLedger(d, start, end) {
       if (isIgnoredRow(ign, s)) { ignoredQty += s.quantity || 0; continue; }
       let camp = campaignFor(s.option_id, date);
       if (!camp) { unmapped.add(s.option_id); camp = UNMAPPED; }
+      if (s.quantity) { const at = (attribution[s.option_id] ||= {}); at[camp] = (at[camp] || 0) + s.quantity; }   // 옵션별로 어느 줄에 몇 개 들어갔는지 (원인 보기용)
       if ((camp === UNMAPPED || camp === ORGANIC) && !excel && s.quantity) {
         const n = (noad[s.option_id] ||= { option_id: s.option_id, qty: 0, revenue: 0, days: 0, reason: camp, linked: campaignOf[s.option_id] || '', name: '', product: '', last: '' });
         n.qty += s.quantity; n.revenue += s.revenue || 0; n.days++; if (date > n.last) n.last = date;
@@ -181,5 +182,5 @@ export function computeLedger(d, start, end) {
   const month_profit_net = {}; for (const mk of new Set([...Object.keys(month_profit), ...Object.keys(month_expense)])) month_profit_net[mk] = (month_profit[mk] || 0) - (month_expense[mk] || 0);
   return { start, end, dates, metrics: METRICS.map(([key, label, fmt]) => ({ key, label, fmt })), campaigns: result,
     total_profit, month_profit, month_expense, month_profit_net, daily, grand, expense_by_day: expDay, unmapped_options: [...unmapped].sort(), legacyCutoff,
-    ignored_qty: ignoredQty, noad_options: Object.values(noad).map((n) => ({ ...n, margin: margin(n.option_id, n.last || end), listed: n.option_id in campaignOf })).sort((a, b) => b.qty - a.qty) };
+    ignored_qty: ignoredQty, attribution, noad_options: Object.values(noad).map((n) => ({ ...n, margin: margin(n.option_id, n.last || end), listed: n.option_id in campaignOf })).sort((a, b) => b.qty - a.qty) };
 }
