@@ -714,6 +714,9 @@ function renderLedgerTable() {
   if (cur && !visibleCamps.includes(cur)) sel.value = '';
   const only = sel.value;
   if (led.legacyCutoff && led.start <= led.legacyCutoff) $('#lg-warn').innerHTML += `<div class="notice" style="background:var(--accent-soft);border-color:#c7dbf7;color:#1c4f8f">${led.legacyCutoff} 까지는 광고비·판매 수·마진·순이익을 엑셀 4번 시트 확정값으로 씁니다 (매출은 판매 리포트에서).</div>`;
+  // 광고 전환은 있는데 캠페인에 연결된 옵션이 하나도 없는 캠페인 (예전엔 전환 수가 전부 '반품'으로 보였음)
+  const linkedCamps = new Set(DATA.options.map((o) => o.campaign));
+  const noLink = new Set(allCamps.filter((n) => n !== UNMAPPED && n !== ORGANIC && !linkedCamps.has(n) && Object.entries(byName[n]?.days || {}).some(([dd, x]) => dates.includes(dd) && x.ad_orders > 0)));
   for (const name of allCamps) {
     const v = visOf(name); const c = byName[name] || { campaign: name, days: {}, months: {} };
     if (only && name !== only) continue;
@@ -724,7 +727,7 @@ function renderLedgerTable() {
     metrics.forEach((mt, i) => {
       const isProfit = mt.key === 'profit';
       const trNow = i === 0 ? S.trafficStatus(DATA, name, led.end) : null;
-      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl"${METRIC_HINT[mt.key] ? ` title="${esc(METRIC_HINT[mt.key])}"` : ''}>${mt.label}</td>`;
+      h += `<tr class="${isProfit ? 'profit' : ''}${QTY_ROWS.has(mt.key) ? ' qty' : ''}${mt.key === 'traffic_slots' ? ' traffic' : ''}">` + (i === 0 ? `<td class="camp" rowspan="${rowCount}">${esc(c.campaign)}${v === 'always' ? ' <span class="pill gray">항상</span>' : v === 'hidden' ? ' <span class="pill warn">숨김</span>' : ''}${trNow ? `<div><span class="pill traffic" title="${esc(trNow.memo)}">🚦 ${trNow.slots}슬롯 (${trNow.since.slice(5).replace('-', '/')}~)</span></div>` : ''}${noLink.has(name) ? `<div class="warn-link"><span class="neg">⚠ 연결된 옵션 없음</span> — 광고 전환은 있는데 이 캠페인 옵션의 판매가 안 잡혀 판매·마진이 0입니다 <button class="btn sm" data-led-fetch="${esc(name)}">쿠팡에서 옵션 가져오기</button></div>` : ''}<div><a href="#" class="sub" data-vis="${esc(name)}">${v === 'hidden' ? '다시 보기' : '숨기기'}</a> · <a href="#" class="sub" data-tr="${esc(name)}">트래픽</a></div></td>` : '') + `<td class="lbl"${METRIC_HINT[mt.key] ? ` title="${esc(METRIC_HINT[mt.key])}"` : ''}>${mt.label}</td>`;
       for (const col of cols) {
         const cell = col.date ? c.days[col.date] : c.months[col.sum];
         let cls = col.sum ? 'sum ' : '';
@@ -754,6 +757,7 @@ function renderLedgerTable() {
   { const th = $('#lg-table thead'); let top = th ? th.getBoundingClientRect().height : 0; for (const tr of $$('#lg-table tr.grand')) { tr.querySelectorAll('td').forEach((td) => td.style.top = top + 'px'); top += tr.getBoundingClientRect().height; } }
   syncLedgerScroll(true);
   $$('#lg-table a[data-vis]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const c = a.dataset.vis; if (visOf(c) === 'hidden') delete campVis[c]; else campVis[c] = 'hidden'; await saveCampVis(); renderVisPanel(); renderLedgerTable(); });
+  $$('#lg-table button[data-led-fetch]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = '광고센터에서 읽는 중… (1분쯤)'; const camp = b.dataset.ledFetch; await fetchCampOpts([camp]); await reload(); renderLedgerTable(); if (!DATA.options.some((o) => o.campaign === camp)) toast(`${camp}: 옵션을 바로 넣지 못했습니다. 캠페인 · 옵션 탭 위쪽의 확인 상자(또는 실패 이유)를 봐 주세요`, 'err'); else toast(`${camp}: 옵션을 연결했습니다. 판매·마진이 다시 계산됐습니다`); });
   $$('#lg-table a[data-tr]').forEach((a) => a.onclick = (ev) => { ev.preventDefault(); $('#tr-details').open = true; $('#tr-camp').value = a.dataset.tr; renderTrafficPanel(); $('#tr-panel').scrollIntoView({ block: 'nearest' }); $('#tr-start').focus(); });
 }
 

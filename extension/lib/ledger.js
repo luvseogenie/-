@@ -21,7 +21,9 @@ const cell = () => ({ target_roas: 0, roas: 0, budget: 0, spend: 0, spend_vat: 0
 export function finalizeCell(c) {
   c.profit = c.margin_total - c.spend_vat;
   // 반품·취소 수: 리포트에 열이 있으면 그 값(리포트는 -1 처럼 음수로 적는다), 없으면 광고 전환 판매 수가 실제 판매 수보다 많은 만큼
-  c.returns_cancels = c.has_returns ? Math.abs(c.returns || 0) + Math.abs(c.cancels || 0) : Math.max(0, c.ad_orders - c.actual_qty);
+  // 단, 그날 이 캠페인 줄에 판매 기록이 하나도 없으면(캠페인에 연결된 옵션이 없거나 다른 줄로 잡힌 것) 반품으로 보지 않는다 — 옵션 연결이 빠진 것
+  c.returns_cancels = c.has_returns ? Math.abs(c.returns || 0) + Math.abs(c.cancels || 0) : c.has_sales ? Math.max(0, c.ad_orders - c.actual_qty) : 0;
+  c.no_sales_link = !c.has_sales && c.ad_orders > 0;
   // 총 판매 수 = 취소 반영 전 판매 수. 리포트에 '총 판매수' 열이 있으면 그 값, 없으면 실제 판매 수 + 반품·취소 수.
   if (!c.has_gross) c.gross_qty = c.actual_qty + c.returns_cancels;
   // 자연 판매 수 = 총 판매 수 − 광고 전환 판매 수. (광고센터의 전환도 취소 전 기준이라 같은 기준끼리 뺀다)

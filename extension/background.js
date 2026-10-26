@@ -556,7 +556,10 @@ async function refreshCampaignOptions() {
   try {
     const d = await S.load(); const st = S.campaignStatus(d); const ca = S.catchAllCampaigns(d);
     const old = new Date(); old.setDate(old.getDate() - 7); const oldIso = `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`;
-    const want = Object.keys(st).filter((c) => st[c] === 'running' && !ca.has(c) && (!d.campaignOptions?.[c] || (d.campaignOptions[c].at || '') < oldIso)).slice(0, 8);
+    // 연결된 옵션이 하나도 없는 캠페인을 먼저 (장부에 판매가 0으로 보이는 캠페인)
+    const linked = new Set(d.options.map((o) => o.campaign));
+    const want = Object.keys(st).filter((c) => st[c] === 'running' && !ca.has(c) && (!linked.has(c) || !d.campaignOptions?.[c] || (d.campaignOptions[c].at || '') < oldIso))
+      .sort((a, b) => linked.has(a) - linked.has(b)).slice(0, 8);
     if (!want.length) return;
     await log(`[옵션] 광고센터에서 캠페인 옵션 목록 읽기: ${want.join(', ')}`);
     await fetchCampaignOptions(want);

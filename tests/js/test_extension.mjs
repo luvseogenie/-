@@ -232,6 +232,11 @@ console.log('extension logic: all checks passed');
   const c9 = computeLedger(d, '2025-06-09', '2025-06-09').campaigns[0].days['2025-06-09'];
   assert.equal(c9.ad_orders, 5); assert.equal(c9.actual_qty, 4); assert.equal(c9.organic_qty, 0); assert.equal(c9.returns_cancels, 1); assert.equal(c9.gross_qty, 5);
   const m = computeLedger(d, '2025-06-08', '2025-06-09').campaigns[0].months['2025-06']; assert.equal(m.returns_cancels, 4); assert.equal(m.gross_qty, 23); // 일별 합
+  // 연결된 옵션이 없어 판매가 하나도 안 잡힌 캠페인: 광고 전환이 있어도 반품으로 보지 않는다 (양털 슬리퍼 사례)
+  S.upsertAds(d, [{ date: '2025-06-09', campaign: 'NOLINK', target_roas: 4, budget: 0, spend: 500, ad_revenue: 3000, conversion: 0, ctr: 0, impressions: 10, clicks: 2, ad_orders: 5, action: '' }]); await S.save(d);
+  const nl = computeLedger(d, '2025-06-09', '2025-06-09').campaigns.find((x) => x.campaign === 'NOLINK').days['2025-06-09'];
+  assert.equal(nl.ad_orders, 5); assert.equal(nl.actual_qty, 0); assert.equal(nl.returns_cancels, 0); assert.equal(nl.no_sales_link, true);
+  assert.equal(computeLedger(d, '2025-06-09', '2025-06-09').campaigns.find((x) => x.campaign === 'C').days['2025-06-09'].returns_cancels, 1);   // 판매가 잡힌 캠페인은 그대로
 
   // 실제 리포트 열 이름: 취소가 음수(-1)로 오고 '총 판매수' 열이 따로 있다
   const real = normalizeSales([{ '옵션 ID': '1', '옵션명': 'a', '매출(원)': '71600', '주문': '4', '판매량': '4', '방문자': '10', '조회': '12', '장바구니': '1', '구매전환율': '0.98%', '아이템위너 비율(%)': '100', '총 매출(원)': '89500', '총 판매수': '5', '총 취소 금액(원)': '-17900', '총 취소된 상품수': '-1', '즉시 취소된 상품수': '0' }], '2025-06-10');
