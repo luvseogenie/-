@@ -535,7 +535,20 @@ async function fetchCampaignOptions(campaigns) {
         // 상품 목록이 뜰 때까지 (ID: 숫자 가 보이면)
         let opts = []; const t0 = Date.now();
         let lastR = null, via = '';
-        while (Date.now() - t0 < 30000) { await sleep(2500); await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); lastR = r || lastR; if (r?.ok && r.options.length) { opts = r.options; via = r.via || ''; break; } }
+        const readOnce = async () => { await inject(tab.id); const r = await chrome.tabs.sendMessage(tab.id, { type: 'readCampaignOptions' }).catch(() => null); lastR = r || lastR; return r; };
+        while (Date.now() - t0 < 30000) { await sleep(2500); const r = await readOnce(); if (r?.ok && r.options.length) { opts = r.options; via = r.via || ''; break; } }
+        // 처음 읽은 뒤에도 줄이 더 그려질 수 있어, 개수가 두 번 연속 같을 때까지 더 읽는다 (최대 15초)
+        const merge = (list) => { let added = 0; for (const o of list || []) if (!opts.some((x) => String(x.option_id) === String(o.option_id))) { opts.push(o); added++; } return added; };
+        if (opts.length) { const t1 = Date.now(); let same = 0; while (same < 2 && Date.now() - t1 < 15000) { await sleep(2000); const r = await readOnce(); same = r?.ok && merge(r.options) === 0 ? same + 1 : 0; } }
+        // 상품 표가 여러 쪽이면(한 쪽에 10개 등) 다음 쪽을 눌러 가며 모은다 (최대 10쪽)
+        let pages = 1, pagerNote = '';
+        for (let i = 0; opts.length && i < 9; i++) {
+          const pg = await chrome.tabs.sendMessage(tab.id, { type: 'optionsPager', click: true }).catch(() => null);
+          if (!pg?.ok) { pagerNote = pg?.total ? `화면의 총 개수 ${pg.total}개` : ''; break; }
+          await sleep(3000); const r = await readOnce(); pages++; if (!merge(r?.options)) { await sleep(2500); const r2 = await readOnce(); if (!merge(r2?.options)) break; }
+        }
+        if (pages > 1) via = `${via || 'screen'}, ${pages}쪽`;
+        if (pagerNote) via = `${via || 'screen'}, ${pagerNote}`;
         if (!opts.length && lastR?.diag) { const g = lastR.diag; await log(`[옵션] ${camp} 상품 목록을 못 읽음 — 주소 ${g.url} · 제목 ${g.title} · 'ID' 글자: ${(g.bits || []).join(' / ').slice(0, 300)} · 표 제목: ${(g.heads || []).join(' ; ').slice(0, 200)} · 받은 데이터 ${g.responses}건, 옵션 ${g.sniffed}개 · 데이터 키: ${(g.keys || '').slice(0, 300)}`); }
         if (!opts.length) { const st = await tabState(tab.id); results[camp] = { ok: false, diag: lastR?.diag || null, error: `상품 목록(옵션ID)을 찾지 못했습니다 — ${how}, 지금 주소 ${st.url.slice(0, 80)}, 줄 구조 ${rl?.rowTag || '?'} 링크 ${(rl?.anchors || []).join(', ').slice(0, 120) || '없음'}, 이름 요소 ${rl?.html || ''}` }; continue; }
         // 바로 반영하지 않고 '확인 대기'로 둔다 → 앱에서 목록을 보여 주고 사용자가 '이대로 맞추기' 를 누르면 반영
@@ -545,7 +558,7 @@ async function fetchCampaignOptions(campaigns) {
         if (imp?.safe) { const r = S.applyPendingCampaignOptions(d, camp); applied = { added: r.added.length, moved: r.moved.length }; await log(`[옵션] ${camp}: 광고센터 목록대로 바로 반영 (추가 ${r.added.length}, 옮김 ${r.moved.length})`); }
         await S.save(d);
         results[camp] = { ok: true, options: opts, via, applied };
-        await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${via === 'data' ? '화면 데이터' : '화면 글자'}에서, 확인 대기) ${opts.map((o) => o.option_id).join(', ').slice(0, 120)}`);
+        await log(`[옵션] ${camp}: 광고센터에서 옵션 ${opts.length}개 읽음 (${String(via).startsWith('data') ? '화면 데이터' : '화면 글자'}에서${String(via).includes(',') ? ` · ${String(via).split(', ').slice(1).join(', ')}` : ''}, 확인 대기) ${opts.map((o) => o.option_id).join(', ').slice(0, 120)}`);
       } catch (e) { results[camp] = { ok: false, error: e.message }; }
     }
     return { ok: true, results };

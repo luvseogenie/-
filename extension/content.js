@@ -515,6 +515,29 @@
     list.via = via; return list;
   }
 
+  // 캠페인 상세의 상품(옵션) 표가 여러 쪽이면 '다음 쪽' 을 누른다. 옵션ID 글자에서 위로 올라가며 가장 가까운 쪽 넘김 버튼을 찾는다
+  // (키워드 표 등 다른 표의 쪽 넘김을 누르지 않게). 표 근처의 '총 N개' 글자도 돌려준다
+  function optionsPager(click) {
+    const ID = /(?:옵션\s*ID|옵션ID|vendorItemId|ID)\s*[:：]?\s*(\d{8,})/;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let anchor = null, n;
+    while ((n = walker.nextNode())) if (ID.test(n.textContent || '') && n.parentElement && visible(n.parentElement)) { anchor = n.parentElement; break; }
+    if (!anchor) return { ok: false, reason: '옵션ID 글자 없음' };
+    const isOff = (e) => e.disabled || e.getAttribute('aria-disabled') === 'true' || /disabled/i.test(String(e.className || '')) || !!e.closest('[aria-disabled="true"], .disabled, [class*="disabled"]');
+    const isNext = (e) => { const t = clean(e.innerText || ''); const al = `${e.getAttribute('aria-label') || ''} ${e.title || ''} ${String(e.className || '')}`; return /^(다음|›|>|»|next)$/i.test(t) || (/next|다음/i.test(al) && !/prev|이전/i.test(al)); };
+    let box = anchor;
+    for (let i = 0; i < 14 && box && box !== document.body; i++) {
+      box = box.parentElement; if (!box) break;
+      const total = (clean(box.innerText || '').match(/총\s*([\d,]+)\s*개/) || [])[1];
+      const nexts = [...box.querySelectorAll('button, a, li, span')].filter((e) => visible(e) && isNext(e));
+      if (nexts.length) {
+        const live = nexts.find((e) => !isOff(e));
+        if (!live) return { ok: false, last: true, total: total ? Number(total.replace(/,/g, '')) : null, reason: '마지막 쪽' };
+        if (click) (live.closest('button, a, li') || live).click();
+        return { ok: true, total: total ? Number(total.replace(/,/g, '')) : null, how: clean(live.outerHTML.slice(0, 80)) };
+      }
+    }
+    return { ok: false, reason: '쪽 넘김 없음' };
+  }
   // 캠페인 목록에서 이름이 든 줄을 찾아, 그 줄 안의 링크 주소와 구조를 돌려준다 (이름 클릭이 안 먹을 때 주소로 이동하기 위해)
   function findRowLink(text) {
     const norm = (t) => clean(t).replace(/\s+/g, '');
@@ -789,6 +812,8 @@
       const r = findRowLink(msg.text || ''); delete r.el; sendResponse(r);
     } else if (msg?.type === 'clickRowName') {
       sendResponse(clickRowName(msg.text || ''));
+    } else if (msg?.type === 'optionsPager') {
+      try { sendResponse(optionsPager(!!msg.click)); } catch (e) { sendResponse({ ok: false, reason: e.message }); }
     } else if (msg?.type === 'readCampaignOptions') {
       try { const o = readCampaignOptions(); sendResponse({ ok: true, options: o, via: o.via, url: location.href, diag: o.length ? null : campaignPageDiag() }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
     } else if (msg?.type === 'findLink') {
