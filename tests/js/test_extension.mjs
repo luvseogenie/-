@@ -843,6 +843,13 @@ console.log('extension logic: all checks passed');
   assert.equal(S.isIgnoredRow(rules, { option_id: 'X', option_name: '양말 (리퍼)', product_name: '양말' }), true);
   assert.equal(S.isIgnoredRow(rules, { option_id: 'X', option_name: '초경량 양우산, 블랙 (반품-최상)' }), true);
   assert.equal(S.resaleChecker({ ...d, ignore: { ids: [], words: [] } })('S1', null, '양털 슬리퍼, 베이지, 240'), '');
+  // 내 브랜드(DUGN, DUGNSTUDIO 포함)가 아닌 상품은 추천·한꺼번에 넣기에서 뺀다
+  const mine = S.brandChecker({ brands: ['DUGN'] });
+  assert.ok(mine('DUGN 여성 끈나시 브라캡 나시 세트, 화이트')); assert.ok(mine('DUGNSTUDIO 문풍지')); assert.ok(mine('[DUGN] 양말'));
+  assert.ok(!mine('예쁜 다기능 보냉가방 방수 보온 보냉백, LG 블루그')); assert.ok(mine('')); assert.ok(S.brandChecker({ brands: [] })('아무 상품'));
+  assert.deepEqual(S.detectBrands({ sales: { x: { a: { product_name: 'DUGN 조끼' } } } }), ['DUGN']); assert.deepEqual(S.detectBrands({ sales: { x: { a: { product_name: '남의 상품' } } } }), []);
+  const d2 = { ...d, brands: ['DUGN'], options: [], sales: { '2026-10-05': { Z1: { option_id: 'Z1', option_name: '예쁜 보냉가방, 블루', product_name: '예쁜 보냉가방', quantity: 3 }, Z2: { option_id: 'Z2', option_name: 'DUGN 패딩 조끼, 블랙', product_name: 'DUGN 패딩 조끼', quantity: 2 } } } };
+  const ul = S.unlistedSoldOptions(d2, '2026-10-01'); assert.deepEqual(ul.map((x) => x.option_id), ['Z2']); assert.equal(ul.notMine, 1);
   console.log('paused campaign missing from list + auto wing link: all checks passed');
 }
 

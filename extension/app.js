@@ -648,9 +648,9 @@ let ledgerCache = null;
 async function renderLedger() { renderMetricPicker(); await loadCampVis(); ledgerCache = computeLedger(DATA, range.start, range.end); renderRoasCheck(); renderVisPanel(); renderTrafficPanel(); renderLedgerTable(); renderNoAd(); }
 // 광고 없이 팔린 옵션 목록 (마진 입력 유도)
 function renderNoAd() {
-  const led = ledgerCache; const list = led?.noad_options || []; const names = S.productNames(DATA);
+  const led = ledgerCache; const mineChk = S.brandChecker(DATA); const all0 = led?.noad_options || []; const list = all0.filter((n) => mineChk(n.name, n.product)); const notMine = all0.length - list.length; const names = S.productNames(DATA);
   const noMargin = list.filter((n) => !n.margin).length;
-  $('#noad-count').textContent = list.length ? `— ${list.length}개 · 판매 ${fmtInt(list.reduce((a, n) => a + n.qty, 0))}개${noMargin ? ` · 마진 없음 ${noMargin}개` : ''}` : '— 없음';
+  $('#noad-count').textContent = (list.length ? `— ${list.length}개 · 판매 ${fmtInt(list.reduce((a, n) => a + n.qty, 0))}개${noMargin ? ` · 마진 없음 ${noMargin}개` : ''}` : '— 없음') + (notMine ? ` · 내 브랜드가 아닌 ${notMine}개 숨김` : '');
   const tb = $('#noad-table tbody'); tb.innerHTML = '';
   // 같은 등록상품(또는 같은 옵션 이름)의 옵션이 이미 캠페인에 있으면 그 캠페인을 추천. 반품·리퍼 등급 옵션은 추천하지 않는다
   const sug = S.campaignSuggester(DATA); const resale = S.resaleChecker(DATA); const mOf = S.marginLookup(DATA);
@@ -797,7 +797,7 @@ function showSalesDiag(camp, start, end) {
   h += `<div class="tablewrap" style="max-height:320px"><table><thead><tr><th class="l">옵션ID</th><th class="l">옵션명</th><th class="l">지금 연결</th><th>이 캠페인 광고 전환</th><th>기간 판매</th><th class="l">장부에서 들어간 줄</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const why = r.linked !== camp ? resale(r.option_id, null, r.name) : '';
-    h += `<tr><td class="l num">${esc(r.option_id)}</td><td class="l">${esc(r.name)}${r.sameProduct ? ' <span class="pill gray">같은 상품</span>' : ''}${r.advertised ? ' <span class="pill">광고함</span>' : ''}</td><td class="l">${r.linked ? esc(r.linked) : '<span class="neg">연결 없음</span>'}</td><td class="num">${fmtInt(r.conv)}</td><td class="num">${fmtInt(r.sold)}</td><td class="l">${wentTxt(r.went)}</td><td>${r.linked !== camp && r.sold ? (why ? `<span class="sub">반품·리퍼로 보임</span>` : `<button class="btn sm primary" data-diag-link="${esc(r.option_id)}">이 캠페인에 연결</button>`) : ''}</td></tr>`;
+    h += `<tr><td class="l num">${esc(r.option_id)}</td><td class="l">${esc(r.name)}${r.sameProduct ? ' <span class="pill gray">같은 상품</span>' : ''}${r.advertised ? ' <span class="pill">광고함</span>' : ''}</td><td class="l">${r.linked ? esc(r.linked) : '<span class="neg">연결 없음</span>'}</td><td class="num">${fmtInt(r.conv)}</td><td class="num">${fmtInt(r.sold)}</td><td class="l">${wentTxt(r.went)}</td><td>${r.linked !== camp && r.sold && !r.mine ? '<span class="sub">내 브랜드 아님</span>' : r.linked !== camp && r.sold ? (why ? `<span class="sub">반품·리퍼로 보임</span>` : `<button class="btn sm primary" data-diag-link="${esc(r.option_id)}">이 캠페인에 연결</button>`) : ''}</td></tr>`;
   }
   h += '</tbody></table></div></div>';
   const old = $('#lg-diag'); if (old) old.remove();
@@ -1188,7 +1188,7 @@ function renderNewCampaigns(d) {
 function renderUnlisted() {
   const days = Number($('#unlisted-days').value || 30); const since = addDays(localIso(yday), -(days - 1));
   const list = S.unlistedSoldOptions(DATA, since); const q = ($('#unlisted-search').value || '').toLowerCase();
-  $('#unlisted-count').textContent = list.length ? `— 최근 ${days}일 ${list.length}개` : `— 없음 (최근 ${days}일)`;
+  $('#unlisted-count').textContent = (list.length ? `— 최근 ${days}일 ${list.length}개` : `— 없음 (최근 ${days}일)`) + (list.notMine ? ` · 내 브랜드가 아닌 ${list.notMine}개 숨김` : '');
   const tb = $('#unlisted-table tbody'); tb.innerHTML = '';
   for (const u of list.filter((x) => !q || `${x.option_id} ${x.option_name} ${x.product}`.toLowerCase().includes(q)).slice(0, 300)) {
     const tr = document.createElement('tr');
@@ -1287,7 +1287,7 @@ $('#opt-prune').onclick = async () => {
   const r = S.pruneToCampaignOptions(dd); await S.save(dd); await reload(); renderOptions(); renderFoot(); toast(`${r.removed.length}개 뺐습니다`);
 };
 function renderIgnored(since) {
-  const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', ');
+  const d = DATA; $('#ignore-words').value = (d.ignore?.words || []).join(', '); $('#brands').value = (d.brands || []).join(', ');
   const list = S.ignoredSoldOptions(d, since); $('#ignored-count').textContent = list.length ? `— ${list.length}개` : '— 없음';
   const tb = $('#ignored-table tbody'); tb.innerHTML = '';
   for (const u of list.slice(0, 200)) {
@@ -1297,6 +1297,7 @@ function renderIgnored(since) {
     tb.appendChild(tr);
   }
 }
+$('#brands-save').onclick = async () => { const dd = await reload(); S.setBrands(dd, $('#brands').value.split(/[,，\n]/)); await S.save(dd); await reload(); renderOptions(); refreshAll(); msg('#brands-msg', `내 브랜드 ${(dd.brands || []).join(', ') || '(없음 — 모두 내 것으로 봄)'} 저장`, 'ok'); };
 $('#ignore-words-save').onclick = async () => { const dd = await reload(); S.setIgnoreWords(dd, $('#ignore-words').value.split(/[,，\n]/)); await S.save(dd); await reload(); renderOptions(); refreshAll(); msg('#ignore-msg', `무시 단어 ${dd.ignore.words.length}개 저장`, 'ok'); };
 $('#unlisted-days').onchange = renderUnlisted; $('#unlisted-search').oninput = renderUnlisted;
 // 정리: 마진 이력이 없고 직접 추가한 것도 아닌 옵션(= 예전 버전이 판매 리포트에서 자동 등록한 것)을 목록에서 뺀다. 되돌릴 수 있게 보관.

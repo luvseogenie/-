@@ -53,6 +53,9 @@ export async function load() {
   // 옵션 이름 통일 (한 번): 엑셀·광고 보고서·판매 리포트에서 온 이름이 섞여 있어 판매 리포트의 '상품명, 옵션' 이름으로 맞춘다
   let nameFlag = false; if (!d.nameNorm1) { normalizeOptionNames(d); d.nameNorm1 = true; nameFlag = true; }
   let autoNmFlag = false; if (!d.autoNoMargin1) { removeAutoNoMargin(d); d.autoNoMargin1 = true; autoNmFlag = true; }
+  // 내 브랜드가 아닌 상품을 예전에 '추천 캠페인 모두 장부에 넣기' 등으로 넣었으면 뺀다 (한 번). 광고센터 캠페인 목록에 있는 것은 그대로
+  if (!Array.isArray(d.brands)) { d.brands = detectBrands(d); autoNmFlag = true; }
+  if (!d.notMine1) { removeNotMine(d); d.notMine1 = true; autoNmFlag = true; }
   const removedResale = removeAutoResale(d);
   // 옵션 목록 = 쿠팡 광고 캠페인에 실제로 들어 있는 옵션 + 직접 '장부에 옵션 추가' 한 옵션. 나머지는 지운다 (한 번, 이후는 옵션 탭의 정리 버튼)
   let pruneFlag = false; if (!d.pruneFix1) { const back = restoreReportPrune(d); d.pruneFix1 = true; d.pruneV1 = true; pruneFlag = true; if (back.length) { const when = new Date().toISOString().slice(0, 10); d.restoredPrune = [...(d.restoredPrune || []), ...back.map((x) => ({ option_id: x.option_id, campaign: x.campaign, when }))].slice(-500); } }
@@ -244,11 +247,39 @@ export function ignoredSoldOptions(d, sinceIso) {
   for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (!isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, qty: 0, revenue: 0, last: '', byId: rules.ids.has(String(r.option_id)) }); o.qty += r.quantity || 0; o.revenue += r.revenue || 0; if (date > o.last) o.last = date; } }
   return Object.values(out).sort((a, b) => b.qty - a.qty);
 }
+// 내 제품인지: 상품명·옵션명이 내 브랜드 이름(기본 DUGN — DUGNSTUDIO 도 포함)으로 시작하는가. 이름을 모르면 내 것으로 본다.
+// 남의 제품(판매 데이터에 섞여 들어온 것)은 장부 추천·자동 넣기·한꺼번에 넣기에서 뺀다
+export const DEFAULT_BRANDS = ['DUGN'];
+export function brandChecker(d) {
+  const b = (Array.isArray(d.brands) ? d.brands : []).map((x) => String(x).trim().toLowerCase().replace(/\s+/g, '')).filter(Boolean);
+  if (!b.length) return () => true;
+  const norm = (n) => String(n || '').trim().toLowerCase().replace(/^[\[(【「<\s]+/, '').replace(/\s+/g, '');
+  return (...names) => { const ns = names.map(norm).filter((n) => n && n !== '-'); return !ns.length || ns.some((n) => b.some((x) => n.startsWith(x))); };
+}
+export function removeNotMine(d) {
+  const mine = brandChecker(d); const facts = optionFacts(d); const ev = campaignEvidence(d); const out = [];
+  d.options = d.options.filter((o) => {
+    if (!['wing-link', 'adreport', 'restored'].includes(o.source)) return true;
+    if (o.campaign && ev[o.campaign]?.has(o.option_id)) return true;
+    if (mine(facts[o.option_id]?.option_name || o.product_name, facts[o.option_id]?.product || o.product)) return true;
+    out.push({ option_id: o.option_id, campaign: o.campaign || '', name: facts[o.option_id]?.option_name || o.product_name, why: '내 브랜드 아님' }); return false;
+  });
+  if (out.length) { const when = new Date().toISOString().slice(0, 10); d.removedResale = [...(d.removedResale || []), ...out.map((x) => ({ ...x, when }))].slice(-500); }
+  return out;
+}
+// 처음 한 번: 판매 데이터의 상품명이 기본 브랜드(DUGN)로 시작하는 게 있으면 그것을 내 브랜드로 (없으면 비워 둠 = 모두 내 것)
+export function detectBrands(d) {
+  for (const day of Object.values(d.sales || {})) for (const r of Object.values(day)) { const n = String(r.product_name || r.option_name || '').trim().toLowerCase(); if (DEFAULT_BRANDS.some((b) => n.startsWith(b.toLowerCase()))) return [...DEFAULT_BRANDS]; }
+  return [];
+}
+export function setBrands(d, list) { d.brands = [...new Set(list.map((w) => String(w).trim()).filter(Boolean))]; }
 export function unlistedSoldOptions(d, sinceIso) {
-  const listed = new Set(d.options.map((o) => o.option_id)); const out = {}; const rules = ignoreRules(d);
+  const listed = new Set(d.options.map((o) => o.option_id)); const out = {}; const rules = ignoreRules(d); const mine = brandChecker(d);
   for (const [date, day] of Object.entries(d.sales)) { if (date < sinceIso) continue; for (const r of Object.values(day)) { if (listed.has(r.option_id) || !(r.quantity > 0) || isIgnoredRow(rules, r)) continue; const o = (out[r.option_id] ||= { option_id: r.option_id, option_name: r.option_name, product: r.product_name, product_id: r.product_id || '', sales_type: r.sales_type || '', qty: 0, revenue: 0, last: '' }); o.qty += r.quantity; o.revenue += r.revenue || 0; if (date > o.last) { o.last = date; if (r.sales_type) o.sales_type = r.sales_type; if (r.product_id) o.product_id = r.product_id; } } }
   const sug = campaignSuggester(d); const resale = resaleChecker(d, undefined, { byPrice: true });
-  return Object.values(out).map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
+  const all = Object.values(out); const list = all.filter((o) => mine(o.option_name, o.product));
+  const res = list.map((o) => { const g = sug(o); return { ...o, suggest: g, resale: resale(o.option_id, g?.option_id || null, o.option_name) }; }).sort((a, b) => b.qty - a.qty);
+  res.notMine = all.length - list.length; return res;
 }
 // 캠페인별 '쿠팡 광고에 들어 있는 옵션' 근거: 광고센터 캠페인 상품 목록(campaignOptions) + 광고 보고서에서 그 캠페인이 광고한 옵션(adrows)
 // 프로그램이 자동으로 넣은 옵션 중 마진이 없는 것(장부에 노란 줄)을 뺀다: 광고 보고서·되살리기 등으로 들어왔고 광고센터 목록에서 확인되지 않은 것.
@@ -373,12 +404,12 @@ export function addLedgerOption(d, { option_id, campaign, margin = null, name = 
 // 캠페인 장부에 추가할 수 있는 옵션 후보: 판매된 적 있는 옵션 중 이 캠페인에 없는 것. 같은 등록상품(이 캠페인 옵션과)인 것을 먼저
 export function ledgerOptionCandidates(d, campaign, days = 180) {
   const y = new Date(); y.setDate(y.getDate() - days); const since = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-  const facts = optionFacts(d); const resale = resaleChecker(d, facts, { byPrice: true }); const linked = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign]));
+  const facts = optionFacts(d); const resale = resaleChecker(d, facts, { byPrice: true }); const linked = Object.fromEntries(d.options.map((o) => [o.option_id, o.campaign])); const mine = brandChecker(d);
   const pids = new Set(d.options.filter((o) => o.campaign === campaign).map((o) => facts[o.option_id]?.product_id).filter(Boolean));
   const agg = {};
   for (const [date, day] of Object.entries(d.sales || {})) { if (date < since) continue; for (const r of Object.values(day)) { if (linked[r.option_id] === campaign || !(r.quantity > 0)) continue; const a = (agg[r.option_id] ||= { option_id: r.option_id, qty: 0, revenue: 0, last: '', sales_type: '' }); a.qty += r.quantity; a.revenue += r.revenue || 0; if (date > a.last) { a.last = date; a.sales_type = r.sales_type || a.sales_type; } } }
   const byBase = {}; for (const o of d.options) if (o.campaign === campaign) { const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k) byBase[k] = o.option_id; }
-  return Object.values(agg).map((a) => { const f = facts[a.option_id] || {}; return { ...a, option_name: f.option_name || '', product: f.product || '', unit: a.qty ? a.revenue / a.qty : 0, same: !!(f.product_id && pids.has(f.product_id)), linked: linked[a.option_id] || '', resale: resale(a.option_id, byBase[baseName(f.option_name)] || null, f.option_name) }; })
+  return Object.values(agg).filter((a) => mine(facts[a.option_id]?.option_name, facts[a.option_id]?.product)).map((a) => { const f = facts[a.option_id] || {}; return { ...a, option_name: f.option_name || '', product: f.product || '', unit: a.qty ? a.revenue / a.qty : 0, same: !!(f.product_id && pids.has(f.product_id)), linked: linked[a.option_id] || '', resale: resale(a.option_id, byBase[baseName(f.option_name)] || null, f.option_name) }; })
     .sort((x, y) => (y.same - x.same) || (y.qty - x.qty));
 }
 // 자동으로 들어간(광고 보고서·같은 상품 연결) 옵션 중 반품·재판매로 보이는 것을 목록에서 뺀다. 직접 넣었거나 마진을 넣은 옵션은 그대로
@@ -424,7 +455,8 @@ export function campaignSalesDiag(d, camp, start, end, attribution = {}) {
   const nm = (x) => String(x || '').split(',')[0].replace(/[\s·_()\[\]-]/g, '').toLowerCase();
   const names = new Set([...base].map((oid) => nm(facts[oid]?.product || d.options.find((o) => o.option_id === oid)?.product || facts[oid]?.option_name || d.options.find((o) => o.option_id === oid)?.product_name)).filter((x) => x.length >= 2));
   const all = new Set(base); for (const oid of Object.keys(sold)) if (pids.has(facts[oid]?.product_id) || names.has(nm(facts[oid]?.product)) || names.has(nm(facts[oid]?.option_name))) all.add(oid);
-  return [...all].map((oid) => ({ option_id: oid, name: facts[oid]?.option_name || d.options.find((o) => o.option_id === oid)?.product_name || '', linked: linkedTo[oid] || '', advertised: ads.has(oid), conv: conv[oid] || 0, sold: sold[oid] || 0, went: attribution[oid] || {}, sameProduct: !base.has(oid) }))
+  const mine = brandChecker(d);
+  return [...all].map((oid) => ({ option_id: oid, name: facts[oid]?.option_name || d.options.find((o) => o.option_id === oid)?.product_name || '', linked: linkedTo[oid] || '', advertised: ads.has(oid), conv: conv[oid] || 0, sold: sold[oid] || 0, went: attribution[oid] || {}, sameProduct: !base.has(oid), mine: mine(facts[oid]?.option_name, facts[oid]?.product) }))
     .sort((a, b) => (b.conv - a.conv) || (b.sold - a.sold));
 }
 // 목록에 없는 옵션(윙 판매 등)을 어느 캠페인 장부에 넣으면 될지 추천: 같은 등록상품ID → 같은 옵션 이름 → 같은 상품명 순으로,
