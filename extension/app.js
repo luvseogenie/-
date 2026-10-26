@@ -1661,8 +1661,21 @@ async function renderUpdate(force = false) {
 // 한 번에 업데이트: 폴더 확인 → 파일 내려받아 덮어쓰기 → 버전 확인 → 새로고침
 let updating = false;
 // 다운로드 권한을 가진 다른 확장(켜진 것) — 이런 확장이 다운로드 이름을 정하면 크롬이 우리가 준 파일 이름을 무시한다
-async function downloadExtensions() {
-  try { const all = await chrome.management.getAll(); return all.filter((x) => x.enabled && x.id !== chrome.runtime.id && x.type === 'extension' && (x.permissions || []).includes('downloads')).map((x) => x.name); } catch { return []; }
+async function downloadExtList() {
+  try { const all = await chrome.management.getAll(); return all.filter((x) => x.enabled && x.id !== chrome.runtime.id && x.type === 'extension' && (x.permissions || []).includes('downloads')); } catch { return []; }
+}
+async function downloadExtensions() { return (await downloadExtList()).map((x) => x.name); }
+// 업데이트하는 동안만 그 확장들을 잠깐 끈다 (끝나면 바로 다시 켬. 도중에 새로고침돼도 background 가 시작할 때 다시 켠다)
+async function pauseDownloadExts() {
+  const list = await downloadExtList(); const off = [];
+  for (const x of list) { try { await chrome.management.setEnabled(x.id, false); off.push(x.id); } catch { /* 못 끄는 것(정책 설치 등)은 그대로 */ } }
+  if (off.length) await chrome.storage.local.set({ pausedForUpdate: { ids: off, at: Date.now() } });
+  return list.filter((x) => off.includes(x.id)).map((x) => x.name);
+}
+async function resumeDownloadExts() {
+  const { pausedForUpdate } = await chrome.storage.local.get('pausedForUpdate'); if (!pausedForUpdate) return;
+  for (const id of pausedForUpdate.ids || []) { try { await chrome.management.setEnabled(id, true); } catch { /* 무시 */ } }
+  await chrome.storage.local.remove('pausedForUpdate');
 }
 async function runInAppUpdate() {
   if (updating) return; updating = true; const btn = $('#upd-apply'); btn.disabled = true;
@@ -1684,7 +1697,13 @@ async function runInAppUpdate() {
     // 흔한 경우를 차례로 시험: 적은 폴더 → 윈도우 '압축 풀기'가 만드는 같은 이름 두 겹 → 다운로드 폴더 바로 아래 extension
     const cands = [...new Set([folder, folder ? `${folder}/${folder.split('/').pop()}` : null, ''].filter((x) => x != null))];
     let pr = null, hit = null;
-    for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } }
+    const tryAll = async () => { for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } } };
+    await tryAll();
+    // 다른 확장(이미지·영상 다운로더 등)이 파일 이름을 바꿔 저장했으면: 그 확장들을 업데이트하는 동안만 잠깐 끄고 다시 시도
+    if (hit == null && pr && !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path)) {
+      const paused = await pauseDownloadExts();
+      if (paused.length) { say(`다운로드 이름을 바꾸는 확장 ${paused.length}개(${paused.join(', ')})를 업데이트하는 동안만 잠깐 끕니다…`); await new Promise((r) => setTimeout(r, 1500)); await tryAll(); }
+    }
     if (hit == null) {
       // 크롬이 파일 이름을 바꿔 저장했으면(다른 확장이 다운로드 이름을 정하는 경우 등) 그 파일이 놓인 폴더를 다운로드 위치로 본다
       const renamed = !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path);
@@ -1704,7 +1723,7 @@ async function runInAppUpdate() {
       setTimeout(() => chrome.runtime.reload(), 3000);
     } else say(`파일 ${r.files}개를 받았지만 버전이 그대로입니다 (v${r.diskVersion || cur}). 이미 최신이거나, 폴더가 실행 중인 확장 폴더가 아닐 수 있습니다.`, r.diskVersion === latest ? 'ok' : 'err');
   } catch (e) { say('업데이트 실패: ' + e.message + ' — 폴더의 업데이트.bat 을 실행하세요.', 'err'); }
-  finally { updating = false; btn.disabled = false; }
+  finally { await resumeDownloadExts().catch(() => {}); updating = false; btn.disabled = false; }
 }
 $('#upd-apply').onclick = runInAppUpdate;
 chrome.storage.local.get('updateFolder').then((r) => { $('#upd-folder').value = r.updateFolder ?? DEFAULT_FOLDER; });

@@ -958,6 +958,16 @@ async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
   checkRemote(true);
 }
+// 앱 안 업데이트가 잠깐 꺼 둔 다른 확장을 다시 켠다 (업데이트 도중 새로고침돼 앱이 못 켠 경우 대비)
+async function resumePausedExts() {
+  try {
+    const { pausedForUpdate } = await chrome.storage.local.get('pausedForUpdate'); if (!pausedForUpdate) return;
+    if (Date.now() - (pausedForUpdate.at || 0) < 180000) return;   // 앱이 지금 업데이트 중이면(3분 안) 건드리지 않는다 — 앱이 끝나면 직접 켠다
+    for (const id of pausedForUpdate.ids || []) { try { await chrome.management.setEnabled(id, true); } catch { /* 무시 */ } }
+    await chrome.storage.local.remove('pausedForUpdate'); await log(`[업데이트] 잠깐 꺼 두었던 확장 ${(pausedForUpdate.ids || []).length}개를 다시 켰습니다`);
+  } catch { /* 무시 */ }
+}
+setTimeout(resumePausedExts, 5000);
 chrome.runtime.onStartup.addListener(() => { tick('startup'); fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
 
 // 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
@@ -988,7 +998,7 @@ async function tick(kind) {
     await chrome.storage.local.set({ ticks: keep });
   } catch { /* 무시 */ }
 }
-chrome.alarms.onAlarm.addListener((a) => { tick(a.name); });
+chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
