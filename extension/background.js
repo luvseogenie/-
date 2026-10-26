@@ -527,8 +527,16 @@ async function fetchCampaignOptions(campaigns) {
         const st0 = await tabState(tab.id);
         if (st0.url !== url) { await chrome.tabs.update(tab.id, { url }); await sleep(Math.min(s.waitSeconds, 8) * 1000); await inject(tab.id); await readWithRetry(tab.id, 'ads', Date.now() + 30000); }
         // 목록에서 이름이 든 줄의 링크 주소로 이동. 링크가 없으면 이름을 눌러 본다
-        const rl = await chrome.tabs.sendMessage(tab.id, { type: 'findRowLink', text: camp }).catch(() => ({ ok: false, reason: '스크립트 없음' }));
-        if (rl?.reason === '이름 없음') { results[camp] = { ok: false, error: '광고센터 목록에 이 캠페인이 없습니다 (끝났거나 지운 캠페인이면 정상)' }; continue; }
+        let rl = await chrome.tabs.sendMessage(tab.id, { type: 'findRowLink', text: camp }).catch(() => ({ ok: false, reason: '스크립트 없음' }));
+        // 캠페인 목록이 여러 쪽이면 다음 쪽들에서도 찾는다 (최대 10쪽)
+        let listPages = 1;
+        for (let n = 2; rl?.reason === '이름 없음' && n <= 10; n++) {
+          const pg = await chrome.tabs.sendMessage(tab.id, { type: 'listPage', n }).catch(() => null); if (!pg?.ok) break;
+          listPages = n; await sleep(1500); await inject(tab.id);
+          rl = await chrome.tabs.sendMessage(tab.id, { type: 'findRowLink', text: camp }).catch(() => ({ ok: false, reason: '스크립트 없음' }));
+        }
+        if (rl?.reason === '이름 없음') { results[camp] = { ok: false, error: `광고센터 목록(${listPages}쪽까지 봄)에 이 이름의 캠페인이 없습니다. 끝났거나 지운 캠페인이면 정상이고, 광고센터에서 이름을 바꿨다면(목표효율 숫자 등) 장부의 이름과 달라서입니다` }; continue; }
+        if (rl?.fuzzy) await log(`[옵션] ${camp}: 광고센터 목록에서 같은 이름이 없어 ${rl.fuzzy}로 '${rl.matched}' 을(를) 찾았습니다`);
         let how = '';
         if (rl?.ok && rl.href && rl.href !== url) { await chrome.tabs.update(tab.id, { url: rl.href }); how = `줄 링크 ${rl.href.slice(0, 70)}`; }
         else { const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickRowName', text: camp }).catch(() => ({ ok: false })); how = `이름 클릭(${c?.ok ? '됨' : '실패'})`; }

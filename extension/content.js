@@ -543,13 +543,26 @@
     const norm = (t) => clean(t).replace(/\s+/g, '');
     const nt = norm(text);
     // 같은 글자를 가진 요소가 겹겹이면(칸 > 링크 > 글자) 가장 안쪽 것을 고른다 — 클릭 처리기가 보통 거기 붙어 있다
-    const el = deepAll('a, span, div, td, button').filter((e) => visible(e) && e.children.length <= 2 && norm(e.innerText) === nt).sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length)[0];
+    const inner = (list) => list.sort((x, y) => x.querySelectorAll('*').length - y.querySelectorAll('*').length)[0];
+    const cands = deepAll('a, span, div, td, button').filter((e) => visible(e) && e.children.length <= 2);
+    let el = inner(cands.filter((e) => norm(e.innerText) === nt)); let fuzzy = '';
+    if (!el) {
+      // 정확히 같은 이름이 없으면: 이름이 말줄임(…)으로 잘렸거나 배지 글자가 붙은 경우, 그리고 캠페인 이름을 바꾼 경우(앞 번호 '54.' 가 같은 줄이 하나뿐일 때)
+      const cut = (t) => t.replace(/(…|\.\.\.)$/, '');
+      el = inner(cands.filter((e) => { const t = norm(e.innerText); return t && t.length < nt.length + 30 && (t.includes(nt) || (cut(t) !== t && cut(t).length >= 8 && nt.startsWith(cut(t)))); }));
+      if (el) fuzzy = '이름 일부';
+      const num = (String(text).match(/^\s*(\d+)\s*[.)]/) || [])[1];
+      if (!el && num) {
+        const re = new RegExp('^' + num + '[.)]'); const hits = cands.filter((e) => { const t = norm(e.innerText); return re.test(t) && t.length < 120; });
+        if (new Set(hits.map((e) => norm(e.innerText))).size === 1) { el = inner(hits); fuzzy = '앞 번호'; }
+      }
+    }
     if (!el) return { ok: false, reason: '이름 없음' };
     let row = el.closest('.rt-tr, tr, [role="row"]'); if (!row) { row = el; for (let i = 0; i < 6 && row.parentElement && row.parentElement.children.length < 3; i++) row = row.parentElement; }
     const anchors = [...row.querySelectorAll('a[href]')].map((a) => a.href).filter((h) => !/^javascript:|#$/.test(h));
     const selfA = el.closest('a[href]'); if (selfA && !/^javascript:|#$/.test(selfA.href)) anchors.unshift(selfA.href);
     const html = el.outerHTML.slice(0, 200).replace(/\s+/g, ' ');
-    return { ok: anchors.length > 0, href: anchors[0] || null, anchors: anchors.slice(0, 5), html, rowTag: row.tagName.toLowerCase() + (row.className ? '.' + String(row.className).split(' ')[0] : ''), el };
+    return { ok: anchors.length > 0, href: anchors[0] || null, anchors: anchors.slice(0, 5), html, rowTag: row.tagName.toLowerCase() + (row.className ? '.' + String(row.className).split(' ')[0] : ''), el, fuzzy, matched: clean(el.innerText) };
   }
   function clickRowName(text) {
     const r = findRowLink(text); if (!r.el) return { ok: false, reason: r.reason };
@@ -812,6 +825,10 @@
       const r = findRowLink(msg.text || ''); delete r.el; sendResponse(r);
     } else if (msg?.type === 'clickRowName') {
       sendResponse(clickRowName(msg.text || ''));
+    } else if (msg?.type === 'listPage') {
+      // 캠페인 목록의 n쪽으로 (목록이 여러 쪽이라 찾는 캠페인이 다음 쪽에 있을 때)
+      (async () => { const total = pageTotal(); if (msg.n > total) return { ok: false, total }; const ok = await gotoPage(msg.n, 'ads'); return { ok, total }; })().then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+      return true;
     } else if (msg?.type === 'optionsPager') {
       try { sendResponse(optionsPager(!!msg.click)); } catch (e) { sendResponse({ ok: false, reason: e.message }); }
     } else if (msg?.type === 'readCampaignOptions') {
