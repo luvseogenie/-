@@ -1049,3 +1049,26 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(d.options.map((o) => o.option_id), ['95759091932', 'M', 'L', 'P']);
   console.log('remove auto-added no-margin options: all checks passed');
 }
+
+// 실시간 ROAS: 캠페인에 연결된 옵션의 등록상품ID 로 오늘 판매를 모아 광고비와 비교. 남의 브랜드 판매는 빼고, 직전 기록과의 차이도
+{
+  const RT = await import('../../extension/lib/realtime.js');
+  const C = '61. 양털 슬리퍼', C2 = '63. 패딩 조끼';
+  const d = { brands: ['DUGN'], options: [{ option_id: 'G1', campaign: C }, { option_id: 'V1', campaign: C2 }], margins: [{ option_id: 'G1', effective_from: '', margin: 5000 }, { option_id: 'W1', effective_from: '', margin: 4000 }],
+    sales: { '2026-10-30': { G1: { option_id: 'G1', product_id: '777', option_name: 'DUGN 슬리퍼, 240', product_name: 'DUGN 슬리퍼', quantity: 1 } } }, ads: {}, adrows: {} };
+  const sales = [{ option_id: 'W1', product_id: '777', option_name: 'DUGN 슬리퍼, 250', product_name: 'DUGN 슬리퍼', quantity: 3, revenue: 60000 },   // 같은 등록상품의 다른 옵션(윙)
+    { option_id: 'G1', product_id: '777', option_name: 'DUGN 슬리퍼, 240', product_name: 'DUGN 슬리퍼', quantity: 2, revenue: 40000 },
+    { option_id: 'X9', product_id: '888', option_name: '남의 보냉가방', product_name: '남의 보냉가방', quantity: 5, revenue: 99000 }];
+  const ads = [{ campaign: C, spend: 20000, ad_revenue: 40000, ad_orders: 2 }, { campaign: C2, spend: 5000, ad_revenue: 0 }];
+  const at = new Date(2026, 10, 2, 14, 2);
+  const snap = RT.computeSnapshot(d, sales, ads, at);
+  assert.equal(snap.camps[C].revenue, 100000); assert.equal(snap.camps[C].qty, 5); assert.equal(snap.camps[C].roas, 5); assert.equal(snap.camps[C].ad_roas, 2);
+  assert.equal(snap.camps[C].margin, 3 * 4000 + 2 * 5000); assert.equal(snap.camps[C].profit, 22000 - 22000);
+  assert.equal(snap.camps[C2].revenue, 0); assert.equal(snap.camps[C2].products, 0);
+  assert.equal(snap.total.revenue, 100000); assert.equal(snap.total.spend, 25000); assert.equal(snap.total.roas, 4);   // 남의 상품 99,000 은 뺌
+  const prev = { ...snap, at: at.getTime() - 3600000, hour: 13, total: { ...snap.total, spend: 15000, revenue: 60000, profit: 0 } };
+  const dl = RT.deltaOf(snap, prev); assert.equal(dl.spend, 10000); assert.equal(dl.revenue, 40000); assert.equal(dl.roas, 4); assert.equal(dl.minutes, 60);
+  assert.ok(/14시 실시간/.test(RT.summaryText(snap, prev)));
+  const st = RT.addSnapshot(RT.addSnapshot({}, prev), snap); assert.equal(st[snap.date].length, 2);
+  console.log('realtime roas snapshot: all checks passed');
+}

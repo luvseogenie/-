@@ -6,8 +6,9 @@ import { gzip } from './lib/gz.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js';
+import * as RT from './lib/realtime.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23 };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -160,7 +161,7 @@ async function fetchAndImportInner(url, how) {
     const res = await importAnyFile(buf, name, expectDate);
     expectDate = null;
     const label = res.kind === 'ads' ? '광고' : '판매';
-    await log(`[다운로드] ${how} 로 받은 ${name} → ${res.date} ${label} ${res.saved}건 저장`);
+    await log(`[다운로드] ${how} 로 받은 ${name} → ${res.date} ${label} ${res.saved}건 ${res.realtime ? '읽음 (오늘 실시간 ROAS 용 — 장부에는 넣지 않음)' : '저장'}`);
     lastReportSavedAt = Date.now();
     settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
   } catch (e) {
@@ -264,10 +265,10 @@ function urlHint(kind, baseUrl) {
 
 async function collectKind(kind, dateOverride, opts = {}) {
   const s = await getSettings();
-  const target = dateOverride || yesterdayIso();
+  const target = opts.realtime ? RT.todayIso() : dateOverride || yesterdayIso();   // 실시간: 오늘 (장부에는 넣지 않음)
   const baseUrl = kind === 'sales' ? s.salesUrl : s.adsUrl;
   // 날짜를 콕 집어 받는데 주소에 {date} 가 없으면, 화면에 뜬 날(보통 어제) 값을 그 날짜로 잘못 저장하게 된다 → 미리 막는다
-  if (dateOverride && !baseUrl.includes('{date}') && dateOverride !== yesterdayIso()) {
+  if (!opts.realtime && dateOverride && !baseUrl.includes('{date}') && dateOverride !== yesterdayIso()) {
     throw new Error(`${kind === 'sales' ? '판매분석' : '광고 관리'} 주소에 {date} 가 없어 ${dateOverride} 를 열 수 없습니다. 광고센터에서 기간을 정해 보고서를 받아 '파일 올리기' 로 올리거나, 주소에 {date} 를 넣어 주세요`);
   }
   const url = baseUrl.replace(/\{date\}/g, target);
@@ -282,17 +283,19 @@ async function collectKind(kind, dateOverride, opts = {}) {
     if (!acc.ok) throw new Error(acc.reason);
     if (!(kind === 'sales' ? s.sellerName : s.adsAccount)) await log(`[계정] ${KIND_NAME[kind]} 화면의 이름 후보: ${acc.seen.filter(Boolean).slice(0, 8).join(' / ')} — 설정의 '${kind === 'sales' ? '판매자센터 상호' : '광고 계정 이름'}' 에 내 것을 적어 두면 다른 계정이 열렸을 때 저장하지 않습니다`);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
-    if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }); await sleep(4000); } catch { /* 무시 */ } }
+    const periodMsg = opts.realtime ? 'clickToday' : 'clickYesterday';
+    if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
     if (r && kind === 'ads') {
       // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
       const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
       if (wrong(r)) {
-        const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickYesterday' }).catch(() => ({ clicked: false }));
+        const c = await chrome.tabs.sendMessage(tab.id, { type: periodMsg }).catch(() => ({ clicked: false }));
         await sleep(4000); await inject(tab.id);
         r = (await readFromTab(tab.id, kind)) || r;
         if (wrong(r)) {
           const shown = r.period && r.period.start !== r.period.end ? `${r.period.start} ~ ${r.period.end} (여러 날 합계)` : r.date;
+          if (opts.realtime) throw new Error(`광고센터 화면 기간이 ${shown} 이라 오늘(${target}) 값이 아닙니다. '오늘' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'}`);
           throw new Error(`광고센터 화면 기간이 ${shown} 이라 어제(${target}) 값이 아닙니다. '어제' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'} — 저장하지 않았습니다. 광고센터에서 기간을 '어제' 로 바꿔 두면 다음부터 그대로 열립니다`);
         }
       }
@@ -301,6 +304,7 @@ async function collectKind(kind, dateOverride, opts = {}) {
       if (full && full.total > 1 && (full.pages || 0) < full.total) { await sleep(3000); const again = await readFromTab(tab.id, kind, 'readAll'); if (again?.records?.length > (full.records?.length || 0)) full = again; }
       if (full?.records?.length > r.records.length) r = { ...full, notes: [...(r.notes || []), ...(full.notes || [])] };
       else if (full) r.notes = [...(r.notes || []), ...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
+      if (opts.realtime) return { ok: true, records: r.records, notes: r.notes || [], date: target };   // 실시간: 저장하지 않고 돌려준다
       // 끝 쪽까지 못 갔거나 화면의 전체 개수보다 적게 읽었으면 '일부만 읽음' → 창을 새로 열어 다시 (마지막 시도면 일부라도 저장)
       const partial = full && ((full.total > 1 && (full.pages || 0) < full.total) || (full.shownTotal && full.shownTotal > (r.records?.length || 0)));
       if (partial && !opts.lastTry) throw new Error(`광고 목록 일부만 읽혔습니다 (${r.records.length}건, ${(r.notes || []).join(', ')})`);
@@ -682,6 +686,7 @@ async function missingDates(dates, kinds) {
 }
 async function collectRange(start, end, kinds, onlyMissing) {
   if (job.running) return { ok: false, error: '이미 수집 중입니다' };
+  for (let i = 0; rtRunning && i < 60; i++) await sleep(5000);
   const safe = await S.safeEndIso();
   let dates = isoRange(start, end).filter((x) => x <= safe);
   const cut = isoRange(start, end).filter((x) => x > safe && x <= yesterdayIso());
@@ -747,6 +752,33 @@ async function collectWithRetry(kind, dateOverride, tries = 3) {
 const RETRY_MAX = 3;
 const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' };
 let autoRunning = false;
+// ---- 실시간(오늘) ROAS: 매 정시(설정한 시간대) 광고센터 '오늘' + 판매분석 '오늘' 판매 리포트 → 캠페인별 등록상품 매출 합 ÷ 광고비 ----
+let rtRunning = false;
+async function realtimeRun(manual = false) {
+  const s = await getSettings(); const h = new Date().getHours();
+  if (!manual && (!s.realtimeEnabled || h < Number(s.realtimeFrom) || h > Number(s.realtimeTo))) return { ok: false, skipped: true };
+  if (rtRunning || autoRunning || job.running) { if (!manual) await log('[실시간] 다른 수집 중이라 이번 시각은 건너뜁니다'); return { ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }; }
+  rtRunning = true; const t = RT.todayIso(); const errs = []; let ads = null, sales = null;
+  try {
+    try { const r = await collectKind('ads', null, { realtime: true, lastTry: true }); ads = normalizeAds(r.records, t); if (!ads.length) errs.push('광고: 캠페인 줄을 못 읽음'); } catch (e) { errs.push('광고: ' + e.message); }
+    const t0 = Date.now();
+    try { await collectKind('sales', t, { realtime: true }); } catch (e) { errs.push('판매: ' + e.message); }
+    const got = (await chrome.storage.local.get(RT.KEY_RT_SALES))[RT.KEY_RT_SALES];
+    if (got && got.date === t && got.at >= t0 - 1000) sales = got.rows; else if (!errs.some((x) => x.startsWith('판매'))) errs.push('판매: 오늘 판매 리포트를 받지 못함');
+    if (!ads || !sales) { await log(`[실시간] ${h}시 실패 — ${errs.join(' / ').slice(0, 500)}`); if (manual) notify(`실시간 ROAS 를 받지 못했습니다: ${errs[0] || ''}`.slice(0, 200)); return { ok: false, error: errs.join(' / ') }; }
+    const d = await S.load(); const snap = RT.computeSnapshot(d, sales, ads);
+    const store = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {}; const prev = (store[t] || []).filter((x) => x.hour !== snap.hour).slice(-1)[0] || null;
+    await chrome.storage.local.set({ [RT.KEY_RT]: RT.addSnapshot(store, snap) });
+    const text = RT.summaryText(snap, prev); await log(`[실시간] ${text}`); notify(text.slice(0, 250));
+    return { ok: true, snap };
+  } finally { rtRunning = false; }
+}
+async function scheduleRealtime() {
+  const s = await getSettings(); await chrome.alarms.clear('realtime');
+  if (!s.realtimeEnabled) return;
+  const next = new Date(); next.setMinutes(2, 0, 0); if (next <= new Date()) next.setHours(next.getHours() + 1);   // 매 정시 2분
+  await chrome.alarms.create('realtime', { when: next.getTime(), periodInMinutes: 60 });
+}
 async function beforeAutoTime(s) { const [hh, mm] = String(s.autoTime || '13:00').split(':').map(Number); const n = new Date(); return n.getHours() * 60 + n.getMinutes() < hh * 60 + mm; }
 async function runAuto(dateOverride, kinds = null) {
   const s0 = await getSettings();
@@ -755,6 +787,7 @@ async function runAuto(dateOverride, kinds = null) {
   if (!dateOverride && await beforeAutoTime(s0)) { await log(`[자동] 지금은 예약 시각(${s0.autoTime}) 전이라 어제(${yesterdayIso()}) 수집을 하지 않습니다. 예약 시각 이후 매시간 점검에서 실행됩니다`); return [{ ok: false, error: `예약 시각(${s0.autoTime}) 전` }]; }
   if (autoRunning) { await log('[자동] 이미 수집 중이라 건너뜀'); return [{ ok: false, error: '이미 수집 중' }]; }
   autoRunning = true;
+  for (let i = 0; rtRunning && i < 60; i++) await sleep(5000);   // 실시간 ROAS 를 받는 중이면 끝날 때까지 (최대 5분)
   try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
 }
 // 서비스 워커에서 큰 파일 내려받기: 내용을 IndexedDB 에 두고 숨은 문서(offscreen)가 blob: 주소를 만들어 주면 chrome.downloads 로 받는다 (data: 주소는 2MB 제한이라 못 쓴다)
@@ -973,7 +1006,7 @@ async function fixUrls() {
   if (Object.keys(out).length) { await chrome.storage.sync.set(out); await log(`[설정] 주소가 도메인만 있어 기본값으로 되돌렸습니다: ${Object.entries(out).map(([k, v]) => `${k}=${v}`).join(', ')}`); }
 }
 
-chrome.runtime.onInstalled.addListener((d) => { tick(d.reason === 'install' ? 'install' : 'update'); if (d.reason === 'install') chrome.storage.local.set({ installedAt: Date.now() }); fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
+chrome.runtime.onInstalled.addListener((d) => { tick(d.reason === 'install' ? 'install' : 'update'); if (d.reason === 'install') chrome.storage.local.set({ installedAt: Date.now() }); fixUrls(); scheduleAlarm(); scheduleRealtime(); scheduleUpdateAlarms(); purgeEarlyYesterday(); if (d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }); if (d.reason === 'update') { chrome.storage.local.set({ justUpdatedTo: chrome.runtime.getManifest().version }); chrome.storage.local.get('reopenAppAfterUpdate').then((r) => { if (r.reopenAppAfterUpdate) { chrome.storage.local.remove('reopenAppAfterUpdate'); chrome.tabs.create({ url: chrome.runtime.getURL('app.html' + r.reopenAppAfterUpdate) }); } }); } });
 async function scheduleUpdateAlarms() {
   await chrome.alarms.create('update-remote', { periodInMinutes: 60 });    // 새 버전 있는지
   await chrome.alarms.create('update-disk', { periodInMinutes: 1 });       // 업데이트.bat 이 파일을 바꿨는지
@@ -989,7 +1022,7 @@ async function resumePausedExts() {
   } catch { /* 무시 */ }
 }
 setTimeout(resumePausedExts, 5000);
-chrome.runtime.onStartup.addListener(() => { tick('startup'); fixUrls(); scheduleAlarm(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
+chrome.runtime.onStartup.addListener(() => { tick('startup'); fixUrls(); scheduleAlarm(); scheduleRealtime(); scheduleUpdateAlarms(); purgeEarlyYesterday(); flushQueue(); chrome.alarms.create('catchup', { delayInMinutes: 2 }); });
 
 // 크롬이 꺼져 있어서 정해진 시각을 놓쳤으면, 켜진 뒤 한 번 따라잡는다.
 async function catchUp() {
@@ -1004,7 +1037,7 @@ async function catchUp() {
   await log(`[자동] 놓친 ${y} 수집을 지금 따라잡습니다`);
   await runAuto();
 }
-chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); });
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'sync' && (ch.autoEnabled || ch.autoTime)) scheduleAlarm(); if (area === 'sync' && (ch.realtimeEnabled || ch.realtimeFrom || ch.realtimeTo)) scheduleRealtime(); });
 async function retryAuto() {
   const { autoRetry } = await chrome.storage.local.get('autoRetry');
   if (!autoRetry || autoRetry.date !== yesterdayIso()) return;
@@ -1020,7 +1053,7 @@ async function tick(kind) {
   } catch { /* 무시 */ }
 }
 chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
@@ -1047,7 +1080,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     const res = await importAnyFile(buf, name, expectDate);
     expectDate = null;
     const label = res.kind === 'ads' ? '광고' : '판매';
-    await log(`[다운로드] ${name} → ${res.date} ${label} ${res.saved}건 저장`);
+    await log(`[다운로드] ${name} → ${res.date} ${label} ${res.saved}건 ${res.realtime ? '읽음 (오늘 실시간 ROAS 용 — 장부에는 넣지 않음)' : '저장'}`);
     if (!reportWaiter) notify(`${res.date} ${label} 데이터 ${res.saved}건 저장 완료` + (res.unmapped ? ` · 캠페인/마진 미입력 옵션 ${res.unmapped}개` : ''));
     settle({ ok: true, saved: res.saved, date: res.date, kind: res.kind });
   } catch (e) {
@@ -1097,6 +1130,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     else if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
+    else if (msg.type === 'realtimeNow') { sendResponse(await realtimeRun(true)); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
     else if (msg.type === 'checkUpdate') { sendResponse({ latest: await checkRemote(true), reloaded: await reloadIfFilesChanged() }); }

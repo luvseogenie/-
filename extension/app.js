@@ -152,7 +152,33 @@ function renderFoot() {
 }
 
 /* ===== 대시보드 ===== */
+// ---- 실시간(오늘) ROAS 카드 ----
+async function renderRealtime() {
+  const box = $('#rt-card'); if (!box) return;
+  const store = (await chrome.storage.local.get('ccrealtime')).ccrealtime || {}; const { realtimeEnabled = false, realtimeFrom = 9, realtimeTo = 23 } = await chrome.storage.sync.get(['realtimeEnabled', 'realtimeFrom', 'realtimeTo']);
+  const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? store[day] : [];
+  const won = (v) => fmtWon(v) + '원'; const pct = (v) => Math.round((v || 0) * 100) + '%';
+  let h = `<div class="row"><h2 style="margin:0">⏱ 실시간 ROAS <span class="sub">${day ? `${day}${day === localIso(today) ? ' (오늘)' : ''}` : '아직 기록 없음'}</span></h2><span class="grow"></span><span class="sub">매 정시 자동: ${realtimeEnabled ? `<b>켜짐</b> (${realtimeFrom}시~${realtimeTo}시)` : '꺼짐 — 데이터 · 설정 → 매일 자동 수집에서 켜기'}</span><button class="btn sm primary" id="rt-now">지금 받기</button></div>`;
+  h += `<p class="sub" style="margin:4px 0 8px">광고센터 '오늘' 광고비와 판매분석 '오늘' 매출(캠페인에 들어 있는 등록상품의 전체 판매, 광고 아닌 판매 포함)을 비교한 대략의 효율입니다. 쿠팡 숫자가 늦게 잡히는 만큼 실제와 차이가 있고, 장부에는 넣지 않습니다(어제 값은 매일 자동 수집으로). 한 번에 1~2분, 작은 창이 떴다 닫힙니다.</p>`;
+  if (snaps.length) {
+    const last = snaps[snaps.length - 1]; const t = last.total;
+    h += `<div class="cp-kpis">${[['광고비(누적)', won(t.spend)], ['매출(누적)', won(t.revenue)], ['실시간 ROAS', pct(t.roas)], ['광고센터 ROAS', pct(t.ad_roas)], ['예상 순이익', won(t.profit)], ['기준 시각', new Date(last.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })]].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join('')}</div>`;
+    if (t.noMarginQty) h += `<div class="sub">마진이 없는 판매 ${fmtInt(t.noMarginQty)}개는 순이익에서 0원으로 계산했습니다.</div>`;
+    h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap" style="max-height:280px"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
+    snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td></tr>`; });
+    h += '</tbody></table></div></details>';
+    const tgt = (c) => { const ds = Object.keys(DATA.ads || {}).sort().reverse(); for (const dd of ds) { const a = DATA.ads[dd]?.[c]; if (a?.target_roas) return a.target_roas; } return 0; };
+    const rows = Object.entries(last.camps).filter(([, c]) => c.spend > 0 || c.revenue > 0).sort((a, b) => b[1].spend - a[1].spend);
+    h += `<details open style="margin-top:8px"><summary>캠페인별 (${new Date(last.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준)</summary><div class="tablewrap" style="max-height:360px"><table><thead><tr><th class="l">캠페인</th><th>광고비</th><th>등록상품 매출</th><th>판매수</th><th>실시간 ROAS</th><th>목표효율</th><th>광고센터 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
+    for (const [n, c] of rows) { const g = tgt(n); const low = g && c.spend > 0 && c.roas < g; h += `<tr><td class="l">${esc(n)}${c.products ? '' : ' <span class="pill warn" title="이 캠페인에 연결된 옵션이 없어 매출을 모름">옵션 없음</span>'}</td><td class="num">${won(c.spend)}</td><td class="num">${won(c.revenue)} <span class="sub">(상품 ${c.products}개)</span></td><td class="num">${fmtInt(c.qty)}</td><td class="num ${low ? 'neg' : ''}"><b>${c.spend ? pct(c.roas) : '-'}</b></td><td class="num sub">${g ? pct(g) : ''}</td><td class="num sub">${c.spend ? pct(c.ad_roas) : '-'}</td><td class="num ${c.profit < 0 ? 'neg' : 'pos'}">${won(c.profit)}</td></tr>`; }
+    h += '</tbody></table></div></details>';
+  }
+  box.innerHTML = h;
+  $('#rt-now').onclick = async () => { const b = $('#rt-now'); b.disabled = true; b.textContent = '받는 중… (1~2분)'; const r = await chrome.runtime.sendMessage({ type: 'realtimeNow' }).catch((e) => ({ ok: false, error: e.message })); if (!r?.ok) toast('실시간 ROAS 를 받지 못했습니다: ' + (r?.error || '').slice(0, 150), 'err'); await renderRealtime(); };
+}
+try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccrealtime) renderRealtime(); }); } catch { /* 무시 */ }
 async function renderDash() {
+  renderRealtime();
   await loadCampVis();
   const has = S.dates(DATA).length > 0;
   $('#dash-empty').style.display = has ? 'none' : ''; $('#dash-body').style.display = has ? '' : 'none';
@@ -1513,7 +1539,7 @@ $('#restore').onchange = async (ev) => {
 };
 $('#sales-csv').onclick = () => { const d = DATA; const keys = ['date', 'option_id', 'option_name', 'product_name', 'product_id', 'category', 'sales_type', 'revenue', 'orders', 'quantity', 'visitors', 'views', 'carts', 'conversion']; const lines = [['날짜', '옵션ID', '옵션명', '상품명', '등록상품ID', '카테고리', '판매방식', '매출', '주문', '판매량', '방문자', '조회', '장바구니', '구매전환율'].join(',')]; for (const date of Object.keys(d.sales).sort()) for (const r of Object.values(d.sales[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('판매데이터.csv', lines.join('\n')); };
 $('#ads-csv').onclick = () => { const d = DATA; const keys = ['date', 'campaign', 'target_roas', 'budget', 'spend', 'ad_revenue', 'conversion', 'ctr', 'impressions', 'clicks', 'ad_orders', 'action']; const lines = [['날짜', '캠페인', '목표효율', '광고예산', '집행광고비', '광고전환매출', '전환율', '클릭률', '노출수', '클릭수', '광고전환판매수', 'ACTION'].join(',')]; for (const date of Object.keys(d.ads).sort()) for (const r of Object.values(d.ads[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('광고데이터.csv', lines.join('\n')); };
-const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765' };
+const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23 };
 async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }

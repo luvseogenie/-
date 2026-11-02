@@ -3,6 +3,7 @@ import * as S from './store.js';
 import { fileToRecords, fileHeaders } from './xlsx.js';
 import { normalizeSales, normalizeAds, parseDate, yesterdayIso, lastHeaders } from './parse.js';
 import { isAdReport, normalizeAdReport } from './adreport.js';
+import { todayIso, KEY_RT_SALES } from './realtime.js';
 export { lastHeaders };
 export async function logHeaders(kind, filename) { try { const { logs = [] } = await chrome.storage.local.get('logs'); logs.push(`${new Date().toLocaleString('ko-KR')} [파일 헤더] ${kind} ${filename || ''}: ${(lastHeaders[kind] || []).join(' | ')}`); await chrome.storage.local.set({ logs: logs.slice(-100) }); } catch { /* 무시 */ } }
 
@@ -21,6 +22,8 @@ export async function importSalesFile(buf, filename, date) {
   const rows = normalizeSales(records, date);
   await logHeaders('sales', filename);
   if (!rows.length) throw new Error(`표는 찾았지만 인식된 행이 없습니다 (헤더: ${Object.keys(records[0]).join(', ')})`);
+  // 오늘(하루가 안 끝난) 판매는 장부에 넣지 않고 실시간 ROAS 용으로만 둔다
+  if (date >= todayIso()) { await chrome.storage.local.set({ [KEY_RT_SALES]: { date, at: Date.now(), rows } }); return { date, saved: rows.length, records, realtime: true, unmapped: 0 }; }
   const d = await S.load();
   const n = S.upsertSales(d, rows);
   await S.save(d);

@@ -400,20 +400,22 @@
   }
 
   // ---------- '어제' 버튼 클릭 (자동 수집용) ----------
-  function findYesterday() {
-    return deepAll('button, a, label, li, span, div, td').filter((e) => clean(e.innerText) === '어제' && e.offsetParent !== null);
+  function findPeriod(label) {
+    return deepAll('button, a, label, li, span, div, td').filter((e) => clean(e.innerText) === label && e.offsetParent !== null);
   }
-  function clickYesterday() {
-    let els = findYesterday();
+  // '어제'·'오늘' 같은 기간 버튼 누르기
+  function clickPeriod(label) {
+    let els = findPeriod(label);
     if (!els.length) {
       // 기간 선택기가 닫혀 있으면 먼저 열어 본다 (오늘/기간/날짜 버튼)
       const opener = deepAll('button, a, div[class*="date" i], div[class*="period" i], div[class*="picker" i]')
-        .filter((e) => e.offsetParent !== null && /^(오늘|기간|날짜|최근|이번 달|\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/.test(clean(e.innerText)))[0];
-      if (opener) { fire(opener, HOVER); fire(opener, CLICK); els = findYesterday(); }
+        .filter((e) => e.offsetParent !== null && /^(오늘|어제|기간|날짜|최근|이번 달|\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/.test(clean(e.innerText)))[0];
+      if (opener) { fire(opener, HOVER); fire(opener, CLICK); els = findPeriod(label); }
     }
     if (els.length) { fire(els[0], HOVER); fire(els[0], CLICK); return true; }
     return false;
   }
+  const clickYesterday = () => clickPeriod('어제');
 
   // 로그인 화면이면 아이디·비밀번호를 채우고 로그인 버튼을 누른다 (자동 로그인, 선택 기능)
   async function doLogin(id, pw) {
@@ -782,6 +784,8 @@
       } catch (e) { sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }); }
     } else if (msg?.type === 'clickYesterday') {
       sendResponse({ clicked: clickYesterday() });
+    } else if (msg?.type === 'clickToday') {
+      sendResponse({ clicked: clickPeriod('오늘') });
     } else if (msg?.type === 'clickDownloadReport') {
       clickDownloadReport(!!msg.dryRun).then(sendResponse);
     } else if (msg?.type === 'readAll') {
