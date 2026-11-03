@@ -773,8 +773,11 @@ async function realtimeRun(manual = false) {
     const got = (await chrome.storage.local.get(RT.KEY_RT_SALES))[RT.KEY_RT_SALES];
     if (got && got.date === t && got.at >= t0 - 1000) sales = got.rows; else if (!errs.some((x) => x.startsWith('판매'))) errs.push('판매: 오늘 판매 리포트를 받지 못함');
     if (!ads || !sales) { await log(`[실시간] ${h}시 실패 — ${errs.join(' / ').slice(0, 500)}`); if (manual) notify(`실시간 ROAS 를 받지 못했습니다: ${errs[0] || ''}`.slice(0, 200)); return { ok: false, error: errs.join(' / ') }; }
-    const d = await S.load(); const snap = RT.computeSnapshot(d, sales, ads);
-    const store = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {}; const prev = (store[t] || []).filter((x) => x.hour !== snap.hour).slice(-1)[0] || null;
+    const d = await S.load(); const store = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {};
+    const earlier = (store[t] || []).filter((x) => x.hour !== new Date().getHours());
+    const snap = RT.carryForward(RT.computeSnapshot(d, sales, ads), earlier);   // 광고센터 표를 덜 읽어 누적 광고비가 줄어드는 일 방지
+    if (snap.carried) await log(`[실시간] ${snap.hour}시: 광고센터에서 덜 읽힌 캠페인 ${snap.carried}개는 이전 시각 광고비로 채웠습니다 (누적은 줄 수 없음)`);
+    const prev = earlier.slice(-1)[0] || null;
     await chrome.storage.local.set({ [RT.KEY_RT]: RT.addSnapshot(store, snap) });
     const text = RT.summaryText(snap, prev); await log(`[실시간] ${text}`); notify(text.slice(0, 250));
     return { ok: true, snap };

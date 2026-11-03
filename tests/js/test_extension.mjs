@@ -1075,5 +1075,18 @@ console.log('extension logic: all checks passed');
   const ta = RT.todayAdsRows(recs, normalizeAds, '2026-11-03', false); assert.equal(ta.how, '오늘 누적광고비'); assert.deepEqual(ta.rows.map((x) => [x.campaign, x.spend, x.revenueKnown]), [[C, 12000, false]]);
   assert.equal(RT.todayAdsRows([{ '캠페인 이름': C, '집행 광고비': '5,000' }], normalizeAds, '2026-11-03', false).rows, null);
   assert.equal(normalizeAds(recs, '2026-11-02')[0].spend, 210000);   // 매일 수집(장부)은 '오늘 누적광고비' 가 아니라 집행 광고비
+  // 누적 광고비는 줄 수 없다: 16시에 캠페인 하나가 덜 읽혀도(빠짐·작게 읽힘) 이전 값으로 채운다
+  {
+    const s15 = RT.computeSnapshot(d, sales, [{ campaign: C, spend: 20000 }, { campaign: C2, spend: 5000 }], new Date(2026, 10, 2, 15, 2));
+    const s16raw = RT.computeSnapshot(d, sales, [{ campaign: C, spend: 8000 }], new Date(2026, 10, 2, 16, 2));   // C 작게, C2 빠짐
+    assert.equal(s16raw.total.spend, 8000);
+    const s16 = RT.carryForward(s16raw, [s15]);
+    assert.equal(s16.camps[C].spend, 20000); assert.equal(s16.camps[C2].spend, 5000); assert.equal(s16.total.spend, 25000); assert.equal(s16.carried, 2);
+    assert.equal(s16.total.profit, s16.total.margin - 25000 * RT.VAT);
+    const s17 = RT.computeSnapshot(d, sales, [{ campaign: C, spend: 26000 }, { campaign: C2, spend: 6000 }], new Date(2026, 10, 2, 17, 2));
+    assert.equal(RT.carryForward(s17, [s15, s16]).carried, undefined);   // 정상 시각은 그대로
+    const fixed = RT.fixDay([s17, s16raw, s15]); assert.deepEqual(fixed.map((x) => x.total.spend), [25000, 25000, 32000]);
+    assert.ok(fixed.every((x, i) => !i || x.total.spend >= fixed[i - 1].total.spend));
+  }
   console.log('realtime roas snapshot: all checks passed');
 }

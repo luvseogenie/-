@@ -8,6 +8,7 @@ import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
 import { importAdReportFile } from './lib/importer.js';
+import { fixDay as fixRtDay } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
 import { loadTemplate, saveTemplate } from './lib/excelstore.js';
@@ -159,7 +160,7 @@ function renderFoot() {
 async function renderRealtime() {
   const box = $('#rt-card'); if (!box) return;
   const store = (await chrome.storage.local.get('ccrealtime')).ccrealtime || {}; const { realtimeEnabled = false, realtimeFrom = 9, realtimeTo = 23 } = await chrome.storage.sync.get(['realtimeEnabled', 'realtimeFrom', 'realtimeTo']);
-  const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? store[day] : [];
+  const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? fixRtDay(store[day]) : [];   // 덜 읽힌 시각은 이전 값으로 채워 누적이 줄지 않게
   const won = (v) => fmtWon(v) + '원'; const pct = (v) => Math.round((v || 0) * 100) + '%';
   let h = `<div class="row"><h2 style="margin:0">⏱ 실시간 ROAS <span class="sub">${day ? `${day}${day === localIso(today) ? ' (오늘)' : ''}` : '아직 기록 없음'}</span></h2><span class="grow"></span><span class="sub">매 정시 자동: ${realtimeEnabled ? `<b>켜짐</b> (${realtimeFrom}시~${realtimeTo}시)` : '꺼짐 — 데이터 · 설정 → 매일 자동 수집에서 켜기'}</span><button class="btn sm primary" id="rt-now">지금 받기</button></div>`;
   h += `<p class="sub" style="margin:4px 0 8px">광고센터 '오늘' 광고비와 판매분석 '오늘' 매출(캠페인에 들어 있는 등록상품의 전체 판매, 광고 아닌 판매 포함)을 비교한 대략의 효율입니다. 쿠팡 숫자가 늦게 잡히는 만큼 실제와 차이가 있고, 장부에는 넣지 않습니다(어제 값은 매일 자동 수집으로). 한 번에 1~2분, 작은 창이 떴다 닫힙니다.</p>`;
@@ -168,8 +169,9 @@ async function renderRealtime() {
     h += `<div class="cp-kpis">${[['광고비(누적)', won(t.spend)], ['매출(누적)', won(t.revenue)], ['실시간 ROAS', pct(t.roas)], ['광고센터 ROAS', last.adRevenueKnown === false ? '-' : pct(t.ad_roas)], ['예상 순이익', won(t.profit)], ['기준 시각', new Date(last.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })]].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join('')}</div>`;
     if (t.noMarginQty) h += `<div class="sub">마진이 없는 판매 ${fmtInt(t.noMarginQty)}개는 순이익에서 0원으로 계산했습니다.</div>`;
     h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap" style="max-height:280px"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
-    snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td></tr>`; });
+    snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}${x.carried ? ` <span class="sub" title="이 시각에 광고센터에서 덜 읽힌 캠페인 ${x.carried}개를 이전 값으로 채움">*</span>` : ''}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td></tr>`; });
     h += '</tbody></table></div></details>';
+    if (snaps.some((x) => x.carried)) h += `<div class="sub">* 표시 시각은 광고센터 표가 덜 읽혀(일부 캠페인 누락) 그 캠페인을 이전 시각 광고비로 채웠습니다. 누적 광고비는 줄어들 수 없기 때문입니다.</div>`;
     const tgt = (c) => { const ds = Object.keys(DATA.ads || {}).sort().reverse(); for (const dd of ds) { const a = DATA.ads[dd]?.[c]; if (a?.target_roas) return a.target_roas; } return 0; };
     const rows = Object.entries(last.camps).filter(([, c]) => c.spend > 0 || c.revenue > 0).sort((a, b) => b[1].spend - a[1].spend);
     h += `<details open style="margin-top:8px"><summary>캠페인별 (${new Date(last.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준)</summary><div class="tablewrap" style="max-height:360px"><table><thead><tr><th class="l">캠페인</th><th>광고비</th><th>등록상품 매출</th><th>판매수</th><th>실시간 ROAS</th><th>목표효율</th><th>광고센터 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;

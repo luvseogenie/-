@@ -61,6 +61,37 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
   return { at: at.getTime(), hour: at.getHours(), date, total, camps, adRevenueKnown: (adsRows || []).some((a) => a.revenueKnown !== false) };
 }
 
+// 오늘 누적 광고비는 줄어들 수 없다. 광고센터 표를 덜 읽은 시각(캠페인이 빠지거나 일부 줄만 읽힘)이 있으면
+// 캠페인마다 그날 이전 기록 중 가장 큰 값으로 채운다(carried). 빠진 캠페인은 이전 값을 그대로 가져온다.
+export function carryForward(snap, prevs) {
+  const before = (prevs || []).filter((x) => x && x.date === snap.date && x.at < snap.at);
+  if (!before.length) return snap;
+  const best = {};
+  for (const p of before) for (const [n, c] of Object.entries(p.camps || {})) if (!best[n] || (c.spend || 0) > (best[n].spend || 0)) best[n] = c;
+  const camps = { ...snap.camps }; let fixed = 0;
+  for (const [n, pc] of Object.entries(best)) {
+    const c = camps[n];
+    if (!c) { camps[n] = { ...pc, carried: true }; fixed++; continue; }
+    if ((c.spend || 0) < (pc.spend || 0)) {
+      const spend = pc.spend; camps[n] = { ...c, spend, carried: true, roas: spend ? c.revenue / spend : 0, ad_roas: spend ? (c.ad_revenue || 0) / spend : 0, profit: (c.margin || 0) - spend * VAT }; fixed++;
+    }
+  }
+  if (!fixed) return snap;
+  const total = { ...snap.total };
+  total.spend = Object.values(camps).reduce((a, c) => a + (c.spend || 0), 0);
+  total.ad_revenue = Object.values(camps).reduce((a, c) => a + (c.ad_revenue || 0), 0);
+  total.roas = total.spend ? total.revenue / total.spend : 0; total.ad_roas = total.spend ? total.ad_revenue / total.spend : 0;
+  total.profit = (total.margin || 0) - total.spend * VAT;
+  return { ...snap, camps, total, carried: fixed };
+}
+
+// 저장된 하루치 기록을 시간 순서로 고쳐서 돌려준다 (예전에 잘못 저장된 기록도 화면에서 바로잡힘)
+export function fixDay(snaps) {
+  const out = [];
+  for (const s of (snaps || []).slice().sort((a, b) => a.at - b.at)) out.push(carryForward(s, out));
+  return out;
+}
+
 // 직전 기록과의 차이 = 그 사이(대개 1시간) 동안 쓴 광고비·늘어난 매출
 export function deltaOf(snap, prev) {
   if (!prev || prev.date !== snap.date) return null;
