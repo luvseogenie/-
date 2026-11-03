@@ -70,7 +70,8 @@ export function autoAddOptions(d) {
   const st = campaignStatus(d); if (!Object.keys(st).length) return [];
   const listed = new Set(d.options.map((o) => o.option_id)); const cand = {};
   // 광고 보고서에 찍힌 옵션은 넣지 않는다: 쿠팡이 같은 상품의 다른 옵션ID(반품 등급 등)로도 광고를 내보내 넣지 않은 옵션이 붙었음. 광고센터에서 읽어 확인한 캠페인 목록만
-  for (const [c, v] of Object.entries(d.campaignOptions || {})) if (st[c] === 'running') for (const o of v.options || []) if (!listed.has(String(o.option_id))) { const x = (cand[o.option_id] ||= { option_id: String(o.option_id), campaign: c, name: '' }); if (o.name && !x.name) x.name = o.name; }
+  const gone = new Set(d.deletedOptions || []);   // 사용자가 직접 지운 옵션은 다시 넣지 않는다
+  for (const [c, v] of Object.entries(d.campaignOptions || {})) if (st[c] === 'running') for (const o of v.options || []) if (!listed.has(String(o.option_id)) && !gone.has(cleanId(o.option_id))) { const x = (cand[o.option_id] ||= { option_id: String(o.option_id), campaign: c, name: '' }); if (o.name && !x.name) x.name = o.name; }
   const names = productNames(d); const added = []; const resale = resaleChecker(d);
   // 같은 옵션 이름의 새 제품 옵션(이미 목록에 있는 것)과 가격을 비교하려고
   const facts = optionFacts(d); const byBase = {}; for (const o of d.options) { const k = baseName(facts[o.option_id]?.option_name || o.product_name); if (k && !byBase[k]) byBase[k] = o.option_id; }
@@ -221,6 +222,7 @@ export const cleanIdPublic = (v) => cleanId(v);
 
 export function upsertOption(d, { option_id, product_name = '', campaign = '', product = null, source = null, sort_order = null }) {
   option_id = cleanId(option_id);
+  if (source === 'manual' && d.deletedOptions?.length) d.deletedOptions = d.deletedOptions.filter((x) => x !== option_id);   // 직접 다시 넣으면 '지운 옵션'에서 뺀다
   const cur = d.options.find((o) => o.option_id === option_id);
   if (cur) { cur.product_name = product_name.trim(); cur.campaign = campaign.trim(); if (product) cur.product = product.trim(); if (source) cur.source = source; if (sort_order != null) cur.sort_order = sort_order; }
   else d.options.push({ option_id, product_name: product_name.trim(), campaign: campaign.trim(), product: (product || '').trim(), source: source || 'manual', sort_order: sort_order ?? (Math.max(0, ...d.options.map((o) => o.sort_order)) + 1) });
@@ -318,7 +320,7 @@ export function applyPendingCampaignOptions(d, camp) {
       if (o.name && o.name.length >= 3) cur.product_name = o.name;   // 광고센터에 적힌 이름(상품명, 옵션)이 정확하므로 그것으로
       if (cur.campaign !== camp && !cur.manual) { moved.push({ option_id: cur.option_id, from: cur.campaign, to: camp }); cur.campaign = camp; if (cur.source === 'wing-link') cur.source = 'adcenter'; }
     }
-    else { upsertOption(d, { option_id: o.option_id, product_name: o.name || facts[o.option_id]?.option_name || '', product: facts[o.option_id]?.product || '', campaign: camp, source: 'adcenter' }); added.push(o.option_id); }
+    else if (!isDeletedOption(d, o.option_id)) { upsertOption(d, { option_id: o.option_id, product_name: o.name || facts[o.option_id]?.option_name || '', product: facts[o.option_id]?.product || '', campaign: camp, source: 'adcenter' }); added.push(o.option_id); }
   }
   if (moved.length) { const when = new Date().toISOString().slice(0, 10); d.relinks = [...(d.relinks || []), ...moved.map((x) => ({ ...x, at: '', when, why: 'adcenter' }))].slice(-300); }
   const pr = pruneToCampaignOptions(d, camp);
@@ -328,7 +330,7 @@ export function applyPendingCampaignOptions(d, camp) {
 export function pendingImpact(d, camp) {
   const p = d.pendingCampaignOptions?.[camp]; if (!p) return null;
   const ids = new Set(p.options.map((o) => String(o.option_id))); const ca = catchAllCampaigns(d); const byId = Object.fromEntries(d.options.map((o) => [o.option_id, o]));
-  const adds = p.options.filter((o) => !byId[o.option_id]).length;
+  const adds = p.options.filter((o) => !byId[o.option_id] && !isDeletedOption(d, o.option_id)).length;
   const moves = p.options.filter((o) => byId[o.option_id] && byId[o.option_id].campaign !== camp && !byId[o.option_id].manual);
   const removals = d.options.filter((o) => o.campaign === camp && !o.manual && !ids.has(o.option_id)).length;
   const safe = removals === 0 && moves.every((o) => !byId[o.option_id].campaign || ca.has(byId[o.option_id].campaign));
@@ -507,7 +509,10 @@ export function deleteOption(d, option_id) {
   option_id = cleanId(option_id);
   d.options = d.options.filter((o) => o.option_id !== option_id);
   d.margins = d.margins.filter((m) => m.option_id !== option_id);
+  // 직접 지운 옵션은 기억해 두고 자동으로 다시 넣지 않는다 (광고센터 캠페인에 남아 있어도). '장부에 옵션 추가'로 직접 넣으면 풀린다
+  d.deletedOptions = [...new Set([...(d.deletedOptions || []), option_id])].slice(-2000);
 }
+export function isDeletedOption(d, option_id) { return (d.deletedOptions || []).includes(cleanId(option_id)); }
 export function setMargin(d, option_id, margin, effective_from = '', note = '') {
   option_id = cleanId(option_id); effective_from = effective_from || '';
   const cur = d.margins.find((m) => m.option_id === option_id && m.effective_from === effective_from);

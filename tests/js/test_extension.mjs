@@ -529,6 +529,13 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(added.map((x) => [x.option_id, x.campaign, x.name]).sort(), [['B', '52. 담요', '담요 B2'], ['C', '52. 담요', '담요 C']]);   // 광고센터 목록에서만 넣음 (광고 보고서에만 찍힌 옵션은 안 넣음), Z 는 중단된 3번 → 안 넣음
   assert.equal(d.options.length, 3); assert.equal(d.options.find((o) => o.option_id === 'C').source, 'adreport');
   assert.deepEqual(S.autoAddOptions(d), []);
+  // 직접 지운 옵션은 광고센터 캠페인 목록에 남아 있어도 다시 넣지 않는다. 직접 다시 추가하면 풀린다
+  S.deleteOption(d, 'C'); assert.ok(!d.options.some((o) => o.option_id === 'C'));
+  assert.deepEqual(S.autoAddOptions(d), []); assert.ok(!d.options.some((o) => o.option_id === 'C')); assert.ok(S.isDeletedOption(d, 'C'));
+  d.pendingCampaignOptions = { '52. 담요': { at: '2026-09-20', options: [{ option_id: 'C', name: '담요 C' }, { option_id: 'A', name: 'a' }, { option_id: 'B', name: '담요 B2' }] } };
+  assert.equal(S.pendingImpact(d, '52. 담요').adds, 0);
+  assert.deepEqual(S.applyPendingCampaignOptions(d, '52. 담요').added, []); assert.ok(!d.options.some((o) => o.option_id === 'C'));
+  S.upsertOption(d, { option_id: 'C', product_name: '담요 C', campaign: '52. 담요', source: 'manual' }); assert.ok(!S.isDeletedOption(d, 'C')); assert.ok(d.options.some((o) => o.option_id === 'C'));
   console.log('auto add options: all checks passed');
 }
 
