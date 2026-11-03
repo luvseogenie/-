@@ -283,19 +283,20 @@ async function collectKind(kind, dateOverride, opts = {}) {
     if (!acc.ok) throw new Error(acc.reason);
     if (!(kind === 'sales' ? s.sellerName : s.adsAccount)) await log(`[계정] ${KIND_NAME[kind]} 화면의 이름 후보: ${acc.seen.filter(Boolean).slice(0, 8).join(' / ')} — 설정의 '${kind === 'sales' ? '판매자센터 상호' : '광고 계정 이름'}' 에 내 것을 적어 두면 다른 계정이 열렸을 때 저장하지 않습니다`);
     const needYesterday = !url.includes('{date}') && !url.includes(target);
-    const periodMsg = opts.realtime ? 'clickToday' : 'clickYesterday';
-    if (needYesterday) { try { await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }
+    const periodMsg = opts.realtime ? 'selectToday' : 'clickYesterday'; let todaySteps = [];
+    const pickToday = async () => { const r = await chrome.tabs.sendMessage(tab.id, { type: 'selectToday' }).catch((e) => ({ ok: false, steps: [e.message] })); todaySteps = [...todaySteps, ...(r?.steps || [])]; if (r && !r.ok && r.buttons) todaySteps.push(`화면 버튼: ${r.buttons.join(' | ').slice(0, 300)}${r.inputs?.length ? ` · 입력칸: ${r.inputs.join(' | ').slice(0, 120)}` : ''}`); return r?.ok; };
+    if (needYesterday) { try { if (opts.realtime) await pickToday(); else await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
     if (r && kind === 'ads') {
       // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
       const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
       if (wrong(r)) {
-        const c = await chrome.tabs.sendMessage(tab.id, { type: periodMsg }).catch(() => ({ clicked: false }));
+        const c = opts.realtime ? { clicked: await pickToday() } : await chrome.tabs.sendMessage(tab.id, { type: periodMsg }).catch(() => ({ clicked: false }));
         await sleep(4000); await inject(tab.id);
         r = (await readFromTab(tab.id, kind)) || r;
         if (wrong(r)) {
           const shown = r.period && r.period.start !== r.period.end ? `${r.period.start} ~ ${r.period.end} (여러 날 합계)` : r.date;
-          if (opts.realtime) throw new Error(`광고센터 화면 기간이 ${shown} 이라 오늘(${target}) 값이 아닙니다. '오늘' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'}`);
+          if (opts.realtime) throw new Error(`광고센터 화면 기간이 ${shown} 이라 오늘(${target}) 값이 아닙니다. 오늘로 바꾸기: ${todaySteps.join(' → ').slice(0, 700) || '시도 없음'}`);
           throw new Error(`광고센터 화면 기간이 ${shown} 이라 어제(${target}) 값이 아닙니다. '어제' 버튼을 ${c?.clicked ? '눌렀지만 바뀌지 않았습니다' : '찾지 못했습니다'} — 저장하지 않았습니다. 광고센터에서 기간을 '어제' 로 바꿔 두면 다음부터 그대로 열립니다`);
         }
       }

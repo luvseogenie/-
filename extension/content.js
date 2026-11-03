@@ -699,6 +699,29 @@
     }
     return { ok: !!how, how: how || '값이 유지되지 않음', values: pairs.map(([i]) => i.value) };
   }
+  // 광고센터 기간을 '오늘' 로 (실시간 ROAS): ① '오늘'·'당일'·'실시간' 버튼 → ② 기간 선택기(날짜 글자)를 열고 다시 찾기 →
+  // ③ 달력에서 오늘 날짜를 두 번(시작·끝) → ④ 시작·종료 날짜 칸에 오늘 입력. 그 뒤 '적용'·'확인'·'조회' 가 보이면 누른다. 못 하면 화면의 버튼 글자를 돌려준다
+  async function selectToday() {
+    const steps = []; const now = new Date(); const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; const day = String(now.getDate());
+    const LABELS = ['오늘', '당일', '실시간', 'Today'];
+    const inner = (a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length;
+    const isOff = (e) => e.disabled || e.getAttribute('aria-disabled') === 'true' || /disabled/i.test(String(e.className || ''));
+    const btns = () => deepAll('button, a, label, li, span, div, td, [role="option"], [role="button"]').filter((e) => { if (!visible(e) || e.children.length > 3) return false; const t = clean(e.innerText); return LABELS.some((l) => t === l || (t.startsWith(l) && t.length <= l.length + 10)); }).sort(inner);
+    const apply = async () => { await wait(500); const a = deepAll('button, a, [role="button"]').filter((e) => visible(e) && !isOff(e) && /^(적용|확인|조회|검색|완료)$/.test(clean(e.innerText)))[0]; if (a) { fire(a, [...HOVER, ...CLICK]); steps.push(`'${clean(a.innerText)}' 누름`); } };
+    let b = btns()[0];
+    if (!b) {
+      const opener = deepAll('button, input, a, div, span').filter((e) => visible(e) && e.children.length <= 4 && (/\d{4}\s?[.\-/]\s?\d{1,2}\s?[.\-/]\s?\d{1,2}/.test(clean(e.innerText || e.value || '')) || /^(어제|최근|기간|이번|지난)/.test(clean(e.innerText || '')))).sort(inner)[0];
+      if (opener) { fire(opener, [...HOVER, ...CLICK]); try { opener.click(); } catch { /* 무시 */ } steps.push(`기간 선택기 열기(${clean(opener.innerText || opener.value || '').slice(0, 30)})`); await wait(1000); b = btns()[0]; }
+      else steps.push('기간 선택기 못 찾음');
+    }
+    if (b) { fire(b, [...HOVER, ...CLICK]); steps.push(`'${clean(b.innerText).slice(0, 14)}' 누름`); await apply(); return { ok: true, steps }; }
+    const cal = deepAll('td, button, div, span, [role="gridcell"]').filter((e) => visible(e) && e.children.length <= 2 && clean(e.innerText) === day && !isOff(e)
+      && e.closest('[class*="calendar" i], [class*="picker" i], [role="grid"]') && !/(prev|next|other|outside)/i.test(`${e.className || ''} ${e.parentElement?.className || ''}`));
+    const cell = cal.find((e) => /today|current|now/i.test(`${e.className || ''} ${e.parentElement?.className || ''} ${e.getAttribute('aria-current') || ''}`)) || cal[cal.length - 1];
+    if (cell) { fire(cell, [...HOVER, ...CLICK]); await wait(400); fire(cell, [...HOVER, ...CLICK]); steps.push(`달력에서 ${day}일 두 번 누름`); await apply(); return { ok: true, steps }; }
+    const f = fillDates(['시작', '종료'], iso, null); if (f.ok) { steps.push(`날짜 칸에 오늘 입력(${f.how})`); await apply(); return { ok: true, steps }; }
+    return { ok: false, steps, buttons: buttonsDiag().buttons.slice(0, 40), inputs: buttonsDiag().inputs };
+  }
   // 글자 옆 체크박스를 원하는 상태로
   function setCheckbox(texts, checked) {
     const norm = (t) => clean(t).replace(/\s+/g, '');
@@ -786,6 +809,8 @@
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickToday') {
       sendResponse({ clicked: clickPeriod('오늘') });
+    } else if (msg?.type === 'selectToday') {
+      selectToday().then(sendResponse).catch((e) => sendResponse({ ok: false, steps: [String(e)] }));
     } else if (msg?.type === 'clickDownloadReport') {
       clickDownloadReport(!!msg.dryRun).then(sendResponse);
     } else if (msg?.type === 'readAll') {
