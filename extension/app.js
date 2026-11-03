@@ -24,7 +24,10 @@ const fmt = { won: fmtWon, int: fmtInt, ratio: (v) => Math.round((v || 0) * 100)
 const msg = (id, text, cls = '') => { const e = $(id); if (e) { e.textContent = text; e.className = 'msg ' + cls; } };
 // 화면 아래에 잠깐 뜨는 알림 (표 안쪽을 보고 있어도 저장된 것을 알 수 있게)
 function toast(text, cls = 'ok') { let t = $('#toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = text; t.className = 'show ' + cls; clearTimeout(toast._t); toast._t = setTimeout(() => { t.className = ''; }, 2500); }
-const today = new Date(); const yday = new Date(today); yday.setDate(today.getDate() - 1);
+let today = new Date(); let yday = new Date(today); yday.setDate(today.getDate() - 1);
+// 앱 화면을 켜 둔 채 날짜가 바뀌어도 '오늘·어제' 가 맞게 (1분마다·화면으로 돌아올 때 다시 계산)
+const refreshToday = () => { today = new Date(); yday = new Date(today); yday.setDate(today.getDate() - 1); };
+setInterval(refreshToday, 60000); document.addEventListener('visibilitychange', refreshToday);
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
 const download = (name, text, type = 'text/csv') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type })); a.download = name; a.click(); };
 const csvEsc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -1450,9 +1453,11 @@ $('#wipe').onclick = async () => {
 { const a = new Date(yday); a.setDate(a.getDate() - 6); $('#range-start').value = localIso(a); $('#range-end').value = localIso(yday); }
 const rangeDates = () => { const out = []; for (let d = $('#range-start').value; d <= $('#range-end').value; d = addDays(d, 1)) out.push(d); return out; };
 $$('#range-card [data-fill]').forEach((b) => b.onclick = async () => {
-  const n = Number(b.dataset.fill); const end = await S.safeEndIso();
-  if (end !== localIso(yday)) msg('#range-report-msg', `예약 시각 전이라 어제(${localIso(yday)})는 아직 받지 않습니다 → ${end} 까지`, '');
+  refreshToday(); const n = Number(b.dataset.fill); const end = localIso(yday); const safe = await S.safeEndIso();
   $('#range-start').value = addDays(end, -(n - 1)); $('#range-end').value = end; $('#range-check').click();
+  // 예약 시각(기본 13:00) 전이면 어제 숫자는 아직 덜 잡혀 있어 받지 않는다 → 눈에 띄게 알려 준다
+  const { autoTime = '13:00' } = await chrome.storage.sync.get('autoTime').catch(() => ({}));
+  $('#range-early').innerHTML = safe !== end ? `<div class="notice">⏰ 지금은 예약 시각(${esc(autoTime)}) 전이라 <b>어제(${end.slice(5).replace('-', '/')})</b> 숫자는 쿠팡에 아직 덜 잡혀 있어 받지 않습니다. ${esc(autoTime)} 이후 자동 수집에서 받고, 지금 가져오기를 누르면 ${safe.slice(5).replace('-', '/')} 까지만 받습니다.</div>` : '';
 });
 $('#range-since').onclick = () => {
   const end = localIso(yday); const last = lastDataDate();
