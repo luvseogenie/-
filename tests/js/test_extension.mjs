@@ -1070,5 +1070,10 @@ console.log('extension logic: all checks passed');
   const dl = RT.deltaOf(snap, prev); assert.equal(dl.spend, 10000); assert.equal(dl.revenue, 40000); assert.equal(dl.roas, 4); assert.equal(dl.minutes, 60);
   assert.ok(/14시 실시간/.test(RT.summaryText(snap, prev)));
   const st = RT.addSnapshot(RT.addSnapshot({}, prev), snap); assert.equal(st[snap.date].length, 2);
+  // 광고센터 표의 '오늘 누적광고비' 칸 (화면 기간이 최근 7일이어도 오늘 쓴 돈)
+  const recs = [{ '캠페인 이름': C, '오늘 누적광고비': '12,000', '집행 광고비': '210,000', '광고 전환 매출': '500,000', '노출수': '1,000', '클릭수': '20' }];
+  const ta = RT.todayAdsRows(recs, normalizeAds, '2026-11-03', false); assert.equal(ta.how, '오늘 누적광고비'); assert.deepEqual(ta.rows.map((x) => [x.campaign, x.spend, x.revenueKnown]), [[C, 12000, false]]);
+  assert.equal(RT.todayAdsRows([{ '캠페인 이름': C, '집행 광고비': '5,000' }], normalizeAds, '2026-11-03', false).rows, null);
+  assert.equal(normalizeAds(recs, '2026-11-02')[0].spend, 210000);   // 매일 수집(장부)은 '오늘 누적광고비' 가 아니라 집행 광고비
   console.log('realtime roas snapshot: all checks passed');
 }

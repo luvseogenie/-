@@ -706,7 +706,7 @@
     const LABELS = ['오늘', '당일', '실시간', 'Today'];
     const inner = (a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length;
     const isOff = (e) => e.disabled || e.getAttribute('aria-disabled') === 'true' || /disabled/i.test(String(e.className || ''));
-    const btns = () => deepAll('button, a, label, li, span, div, td, [role="option"], [role="button"]').filter((e) => { if (!visible(e) || e.children.length > 3) return false; const t = clean(e.innerText); return LABELS.some((l) => t === l || (t.startsWith(l) && t.length <= l.length + 10)); }).sort(inner);
+    const btns = () => deepAll('button, a, label, li, span, div, td, [role="option"], [role="button"]').filter((e) => { if (!visible(e) || e.children.length > 3) return false; const t = clean(e.innerText); return LABELS.some((l) => t === l || t === `${l}(실시간)` || t === `${l} (실시간)`); }).sort(inner);   // '오늘 누적광고비' 같은 글자는 버튼이 아니다
     const apply = async () => { await wait(500); const a = deepAll('button, a, [role="button"]').filter((e) => visible(e) && !isOff(e) && /^(적용|확인|조회|검색|완료)$/.test(clean(e.innerText)))[0]; if (a) { fire(a, [...HOVER, ...CLICK]); steps.push(`'${clean(a.innerText)}' 누름`); } };
     let b = btns()[0];
     if (!b) {

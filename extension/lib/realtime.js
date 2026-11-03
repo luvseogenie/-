@@ -11,7 +11,22 @@ export function todayIso(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-// salesRows: normalizeSales(오늘) 결과, adsRows: normalizeAds(오늘) 결과
+// 광고센터 캠페인 표 → 캠페인별 오늘 광고비. 표에 '오늘 누적광고비' 칸이 있으면(기간과 상관없이 오늘 쓴 돈) 그 칸을,
+// 없고 화면 기간이 오늘이면 일반 광고비·전환매출을 쓴다. 오늘 칸만 쓸 때는 광고센터 전환매출을 모른다(revenueKnown=false)
+const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[^\d.\-]/g, '')); return Number.isFinite(n) ? n : 0; };
+export function todayAdsRows(records, normalizeAds, date, periodIsToday) {
+  const keys = records.length ? Object.keys(records[0]) : [];
+  const todayKey = keys.find((k) => /오늘/.test(k) && /광고비|소진|비용/.test(k));
+  const campKey = keys.find((k) => /캠페인/.test(k) && !/ID|아이디|유형|타입|상태/.test(k));
+  if (todayKey) {
+    const rows = records.map((rec) => { const n = normalizeAds([rec], date)[0]; const campaign = n?.campaign || String(rec[campKey] ?? '').trim(); if (!campaign || /합계|총계/.test(campaign)) return null; return { campaign, spend: num(rec[todayKey]), ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenueKnown: false }; }).filter(Boolean);
+    return { rows, how: todayKey };
+  }
+  if (periodIsToday) return { rows: normalizeAds(records, date).map((x) => ({ ...x, revenueKnown: true })), how: 'period' };
+  return { rows: null, headers: keys };
+}
+
+// salesRows: normalizeSales(오늘) 결과, adsRows: 위 todayAdsRows 결과
 export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
   const date = todayIso(at); const facts = optionFacts(d); const margin = marginLookup(d); const mine = brandChecker(d);
   const sales = (salesRows || []).filter((r) => (r.quantity || 0) > 0 || (r.revenue || 0) > 0).filter((r) => mine(r.option_name, r.product_name));
@@ -43,7 +58,7 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
   for (const c of Object.values(camps)) { total.spend += c.spend; total.ad_revenue += c.ad_revenue; }
   for (const r of sales) { const m = margin(r.option_id, date) || 0; total.revenue += r.revenue || 0; total.qty += r.quantity || 0; total.margin += (r.quantity || 0) * m; if (!m) total.noMarginQty += r.quantity || 0; }
   total.roas = total.spend ? total.revenue / total.spend : 0; total.ad_roas = total.spend ? total.ad_revenue / total.spend : 0; total.profit = total.margin - total.spend * VAT;
-  return { at: at.getTime(), hour: at.getHours(), date, total, camps };
+  return { at: at.getTime(), hour: at.getHours(), date, total, camps, adRevenueKnown: (adsRows || []).some((a) => a.revenueKnown !== false) };
 }
 
 // 직전 기록과의 차이 = 그 사이(대개 1시간) 동안 쓴 광고비·늘어난 매출

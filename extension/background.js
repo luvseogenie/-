@@ -285,12 +285,12 @@ async function collectKind(kind, dateOverride, opts = {}) {
     const needYesterday = !url.includes('{date}') && !url.includes(target);
     const periodMsg = opts.realtime ? 'selectToday' : 'clickYesterday'; let todaySteps = [];
     const pickToday = async () => { const r = await chrome.tabs.sendMessage(tab.id, { type: 'selectToday' }).catch((e) => ({ ok: false, steps: [e.message] })); todaySteps = [...todaySteps, ...(r?.steps || [])]; if (r && !r.ok && r.buttons) todaySteps.push(`화면 버튼: ${r.buttons.join(' | ').slice(0, 300)}${r.inputs?.length ? ` · 입력칸: ${r.inputs.join(' | ').slice(0, 120)}` : ''}`); return r?.ok; };
-    if (needYesterday) { try { if (opts.realtime) await pickToday(); else await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }
+    if (needYesterday && !opts.realtime) { try { await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }   // 실시간은 기간을 바꾸지 않고 표의 '오늘 누적광고비' 칸을 읽는다
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
     if (r && kind === 'ads') {
       // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
       const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
-      if (wrong(r)) {
+      if (!opts.realtime && wrong(r)) {
         const c = opts.realtime ? { clicked: await pickToday() } : await chrome.tabs.sendMessage(tab.id, { type: periodMsg }).catch(() => ({ clicked: false }));
         await sleep(4000); await inject(tab.id);
         r = (await readFromTab(tab.id, kind)) || r;
@@ -305,7 +305,7 @@ async function collectKind(kind, dateOverride, opts = {}) {
       if (full && full.total > 1 && (full.pages || 0) < full.total) { await sleep(3000); const again = await readFromTab(tab.id, kind, 'readAll'); if (again?.records?.length > (full.records?.length || 0)) full = again; }
       if (full?.records?.length > r.records.length) r = { ...full, notes: [...(r.notes || []), ...(full.notes || [])] };
       else if (full) r.notes = [...(r.notes || []), ...(full.notes || []), `전체 읽기 ${full.pages || '?'}쪽/${full.total || '?'}쪽 ${full.records?.length || 0}건`];
-      if (opts.realtime) return { ok: true, records: r.records, notes: r.notes || [], date: target };   // 실시간: 저장하지 않고 돌려준다
+      if (opts.realtime) return { ok: true, records: r.records, notes: r.notes || [], date: r.date || null, period: r.period || null };   // 실시간: 저장하지 않고 돌려준다
       // 끝 쪽까지 못 갔거나 화면의 전체 개수보다 적게 읽었으면 '일부만 읽음' → 창을 새로 열어 다시 (마지막 시도면 일부라도 저장)
       const partial = full && ((full.total > 1 && (full.pages || 0) < full.total) || (full.shownTotal && full.shownTotal > (r.records?.length || 0)));
       if (partial && !opts.lastTry) throw new Error(`광고 목록 일부만 읽혔습니다 (${r.records.length}건, ${(r.notes || []).join(', ')})`);
@@ -761,7 +761,13 @@ async function realtimeRun(manual = false) {
   if (rtRunning || autoRunning || job.running) { if (!manual) await log('[실시간] 다른 수집 중이라 이번 시각은 건너뜁니다'); return { ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }; }
   rtRunning = true; const t = RT.todayIso(); const errs = []; let ads = null, sales = null;
   try {
-    try { const r = await collectKind('ads', null, { realtime: true, lastTry: true }); ads = normalizeAds(r.records, t); if (!ads.length) errs.push('광고: 캠페인 줄을 못 읽음'); } catch (e) { errs.push('광고: ' + e.message); }
+    try {
+      const r = await collectKind('ads', null, { realtime: true, lastTry: true });
+      const periodToday = (r.period ? r.period.start === t && r.period.end === t : r.date === t);
+      const got = RT.todayAdsRows(r.records || [], normalizeAds, t, periodToday);
+      if (got.rows?.length) ads = got.rows;
+      else errs.push(`광고: 캠페인 표에 '오늘 누적광고비' 칸이 없고 화면 기간도 오늘이 아닙니다 (표 제목: ${(got.headers || []).join(' | ').slice(0, 300)})`);
+    } catch (e) { errs.push('광고: ' + e.message); }
     const t0 = Date.now();
     try { await collectKind('sales', t, { realtime: true }); } catch (e) { errs.push('판매: ' + e.message); }
     const got = (await chrome.storage.local.get(RT.KEY_RT_SALES))[RT.KEY_RT_SALES];
