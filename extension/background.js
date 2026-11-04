@@ -755,10 +755,23 @@ const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' }
 let autoRunning = false;
 // ---- 실시간(오늘) ROAS: 매 정시(설정한 시간대) 광고센터 '오늘' + 판매분석 '오늘' 판매 리포트 → 캠페인별 등록상품 매출 합 ÷ 광고비 ----
 let rtRunning = false;
-async function realtimeRun(manual = false) {
+// 매 정시 실시간이 다른 수집(13시 매일 수집·재시도 등)과 겹치거나 실패하면 그 시각 안에서 다시 시도한다 (5~10분 뒤, 50분까지)
+async function rtNote(h, ok, why) { await chrome.storage.local.set({ ccrealtimeLast: { at: Date.now(), hour: h, ok, why: String(why || '').slice(0, 300) } }); }
+async function rtRetryLater(h, minutes, why) {
+  const now = new Date(); if (now.getMinutes() + minutes > 55) { await log(`[실시간] ${h}시: ${why} — 이번 시각 안에 다시 할 시간이 없어 다음 정시에 받습니다`); return; }
+  const { rtRetry = {} } = await chrome.storage.local.get('rtRetry'); const key = `${RT.todayIso()}-${h}`; const n = (rtRetry.key === key ? rtRetry.n : 0) + 1;
+  if (n > 4) { await log(`[실시간] ${h}시: ${why} — 이번 시각 다시 시도를 다 써서 다음 정시에 받습니다`); return; }
+  await chrome.storage.local.set({ rtRetry: { key, n } }); await chrome.alarms.create('realtime-retry', { delayInMinutes: minutes });
+  await log(`[실시간] ${h}시: ${why} — ${minutes}분 뒤 다시 시도합니다 (${n}/4)`);
+}
+async function realtimeRun(manual = false, retry = false) {
   const s = await getSettings(); const h = new Date().getHours();
   if (!manual && (!s.realtimeEnabled || h < Number(s.realtimeFrom) || h > Number(s.realtimeTo))) return { ok: false, skipped: true };
-  if (rtRunning || autoRunning || job.running) { if (!manual) await log('[실시간] 다른 수집 중이라 이번 시각은 건너뜁니다'); return { ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }; }
+  if (retry) { const st = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {}; if ((st[RT.todayIso()] || []).some((x) => x.hour === h)) return { ok: true, skipped: true }; }   // 이번 시각은 이미 받음
+  if (rtRunning || autoRunning || job.running) {
+    if (!manual) { await rtNote(h, false, '다른 수집(매일 자동 수집 등)과 겹침'); await rtRetryLater(h, 5, '다른 수집 중이라 잠시 미룸'); }
+    return { ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' };
+  }
   rtRunning = true; const t = RT.todayIso(); const errs = []; let ads = null, sales = null;
   try {
     try {
@@ -772,13 +785,17 @@ async function realtimeRun(manual = false) {
     try { await collectKind('sales', t, { realtime: true }); } catch (e) { errs.push('판매: ' + e.message); }
     const got = (await chrome.storage.local.get(RT.KEY_RT_SALES))[RT.KEY_RT_SALES];
     if (got && got.date === t && got.at >= t0 - 1000) sales = got.rows; else if (!errs.some((x) => x.startsWith('판매'))) errs.push('판매: 오늘 판매 리포트를 받지 못함');
-    if (!ads || !sales) { await log(`[실시간] ${h}시 실패 — ${errs.join(' / ').slice(0, 500)}`); if (manual) notify(`실시간 ROAS 를 받지 못했습니다: ${errs[0] || ''}`.slice(0, 200)); return { ok: false, error: errs.join(' / ') }; }
+    if (!ads || !sales) {
+      await log(`[실시간] ${h}시 실패 — ${errs.join(' / ').slice(0, 500)}`); await rtNote(h, false, errs[0] || '실패');
+      if (manual) notify(`실시간 ROAS 를 받지 못했습니다: ${errs[0] || ''}`.slice(0, 200)); else await rtRetryLater(h, 10, '받지 못함');
+      return { ok: false, error: errs.join(' / ') };
+    }
     const d = await S.load(); const store = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {};
     const earlier = (store[t] || []).filter((x) => x.hour !== new Date().getHours());
     const snap = RT.carryForward(RT.computeSnapshot(d, sales, ads), earlier);   // 광고센터 표를 덜 읽어 누적 광고비가 줄어드는 일 방지
     if (snap.carried) await log(`[실시간] ${snap.hour}시: 광고센터에서 덜 읽힌 캠페인 ${snap.carried}개는 이전 시각 광고비로 채웠습니다 (누적은 줄 수 없음)`);
     const prev = earlier.slice(-1)[0] || null;
-    await chrome.storage.local.set({ [RT.KEY_RT]: RT.addSnapshot(store, snap) });
+    await chrome.storage.local.set({ [RT.KEY_RT]: RT.addSnapshot(store, snap) }); await rtNote(h, true, '');
     const text = RT.summaryText(snap, prev); await log(`[실시간] ${text}`); notify(text.slice(0, 250));
     return { ok: true, snap };
   } finally { rtRunning = false; }
@@ -798,7 +815,11 @@ async function runAuto(dateOverride, kinds = null) {
   if (autoRunning) { await log('[자동] 이미 수집 중이라 건너뜀'); return [{ ok: false, error: '이미 수집 중' }]; }
   autoRunning = true;
   for (let i = 0; rtRunning && i < 60; i++) await sleep(5000);   // 실시간 ROAS 를 받는 중이면 끝날 때까지 (최대 5분)
-  try { return await runAutoInner(dateOverride, kinds); } finally { autoRunning = false; }
+  try { return await runAutoInner(dateOverride, kinds); } finally {
+    autoRunning = false;
+    try { const s1 = await getSettings(); const hh = new Date().getHours(); const st = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {};
+      if (s1.realtimeEnabled && hh >= Number(s1.realtimeFrom) && hh <= Number(s1.realtimeTo) && !(st[RT.todayIso()] || []).some((x) => x.hour === hh)) chrome.alarms.create('realtime-retry', { delayInMinutes: 1 }); } catch { /* 무시 */ }
+  }
 }
 // 서비스 워커에서 큰 파일 내려받기: 내용을 IndexedDB 에 두고 숨은 문서(offscreen)가 blob: 주소를 만들어 주면 chrome.downloads 로 받는다 (data: 주소는 2MB 제한이라 못 쓴다)
 async function ensureOffscreen() {
@@ -972,6 +993,7 @@ async function purgeEarlyYesterday() {
   } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }
 }
 async function hourlyCheck() {
+  try { const s0 = await getSettings(); if (s0.realtimeEnabled && !await chrome.alarms.get('realtime').catch(() => null)) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
   await purgeEarlyYesterday();
   await excelAutoCheck();
   const s = await getSettings(); if (!s.autoEnabled) return;
@@ -1063,7 +1085,7 @@ async function tick(kind) {
   } catch { /* 무시 */ }
 }
 chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');

@@ -163,6 +163,8 @@ async function renderRealtime() {
   const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? fixRtDay(store[day]) : [];   // 덜 읽힌 시각은 이전 값으로 채워 누적이 줄지 않게
   const won = (v) => fmtWon(v) + '원'; const pct = (v) => Math.round((v || 0) * 100) + '%';
   let h = `<div class="row"><h2 style="margin:0">⏱ 실시간 ROAS <span class="sub">${day ? `${day}${day === localIso(today) ? ' (오늘)' : ''}` : '아직 기록 없음'}</span></h2><span class="grow"></span><span class="sub">매 정시 자동: ${realtimeEnabled ? `<b>켜짐</b> (${realtimeFrom}시~${realtimeTo}시)` : '꺼짐 — 데이터 · 설정 → 매일 자동 수집에서 켜기'}</span><button class="btn sm primary" id="rt-now">지금 받기</button></div>`;
+  { const { ccrealtimeLast: L } = await chrome.storage.local.get('ccrealtimeLast');
+    if (L && !L.ok && Date.now() - L.at < 3 * 3600000) h += `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00;margin:6px 0">⚠️ ${L.hour}시 실시간을 받지 못했습니다 (${esc(L.why)}). 같은 시각 안에서 몇 분 뒤 자동으로 다시 시도합니다. 급하면 [지금 받기]를 누르세요.</div>`; }
   h += `<p class="sub" style="margin:4px 0 8px">광고센터 '오늘' 광고비와 판매분석 '오늘' 매출(캠페인에 들어 있는 등록상품의 전체 판매, 광고 아닌 판매 포함)을 비교한 대략의 효율입니다. 쿠팡 숫자가 늦게 잡히는 만큼 실제와 차이가 있고, 장부에는 넣지 않습니다(어제 값은 매일 자동 수집으로). 한 번에 1~2분, 작은 창이 떴다 닫힙니다.</p>`;
   if (snaps.length) {
     const last = snaps[snaps.length - 1]; const t = last.total;
