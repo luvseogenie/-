@@ -722,6 +722,18 @@
     const f = fillDates(['시작', '종료'], iso, null); if (f.ok) { steps.push(`날짜 칸에 오늘 입력(${f.how})`); await apply(); return { ok: true, steps }; }
     return { ok: false, steps, buttons: buttonsDiag().buttons.slice(0, 40), inputs: buttonsDiag().inputs };
   }
+  // 화면을 가리는 공지·이벤트 팝업 닫기 (창 안의 '오늘 하루 보지 않기'·'닫기'·'확인'·X 버튼)
+  function closePopups() {
+    const boxes = deepAll('[role="dialog"], [aria-modal="true"], [class*="modal" i], [class*="popup" i], [class*="dialog" i], [class*="layer" i]').filter(visible);
+    const TEXTS = /^(오늘 하루 보지 않기|오늘 하루 열지 않기|하루 동안 보지 않기|다시 보지 않기|7일간 보지 않기|닫기|확인|close|×|✕|x)$/i;
+    const done = [];
+    for (const b of boxes) {
+      const btn = [...b.querySelectorAll('button, a, [role="button"], span, i')].filter(visible).find((e) => TEXTS.test(clean(e.innerText || e.getAttribute('aria-label') || '')) || /close/i.test(`${e.getAttribute('aria-label') || ''} ${e.className || ''}`));
+      if (btn) { const t = btn.closest('button, a, [role="button"]') || btn; fire(t, [...HOVER, ...CLICK]); try { t.click(); } catch { /* 무시 */ } done.push(clean(btn.innerText || btn.getAttribute('aria-label') || 'X').slice(0, 20)); }
+      if (done.length >= 5) break;
+    }
+    return { ok: done.length > 0, closed: done };
+  }
   // 글자 옆 체크박스를 원하는 상태로
   function setCheckbox(texts, checked) {
     const norm = (t) => clean(t).replace(/\s+/g, '');
@@ -809,6 +821,8 @@
       sendResponse({ clicked: clickYesterday() });
     } else if (msg?.type === 'clickToday') {
       sendResponse({ clicked: clickPeriod('오늘') });
+    } else if (msg?.type === 'closePopups') {
+      sendResponse(closePopups());
     } else if (msg?.type === 'selectToday') {
       selectToday().then(sendResponse).catch((e) => sendResponse({ ok: false, steps: [String(e)] }));
     } else if (msg?.type === 'clickDownloadReport') {

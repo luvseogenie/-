@@ -286,7 +286,17 @@ async function collectKind(kind, dateOverride, opts = {}) {
     const periodMsg = opts.realtime ? 'selectToday' : 'clickYesterday'; let todaySteps = [];
     const pickToday = async () => { const r = await chrome.tabs.sendMessage(tab.id, { type: 'selectToday' }).catch((e) => ({ ok: false, steps: [e.message] })); todaySteps = [...todaySteps, ...(r?.steps || [])]; if (r && !r.ok && r.buttons) todaySteps.push(`화면 버튼: ${r.buttons.join(' | ').slice(0, 300)}${r.inputs?.length ? ` · 입력칸: ${r.inputs.join(' | ').slice(0, 120)}` : ''}`); return r?.ok; };
     if (needYesterday && !opts.realtime) { try { await chrome.tabs.sendMessage(tab.id, { type: periodMsg }); await sleep(4000); } catch { /* 무시 */ } }   // 실시간은 기간을 바꾸지 않고 표의 '오늘 누적광고비' 칸을 읽는다
+    let popupNote = '';
+    if (kind === 'ads') { const cp0 = await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null); if (cp0?.ok) { popupNote = `팝업 닫음(${cp0.closed.join(', ')})`; await sleep(2000); } }   // 공지 팝업이 표를 가리면 먼저 닫는다
     let r = kind === 'ads' ? await readAdsSettled(tab.id, deadline) : await readWithRetry(tab.id, kind, Date.now() + s.waitSeconds * 1000);
+    if (r && popupNote) r.notes = [...(r.notes || []), popupNote];
+    if (!r && kind === 'ads') {
+      // 표가 안 보이면: 공지 팝업이 가렸을 수 있다 → 닫아 보고, 그래도 없으면 화면을 새로 고쳐 한 번 더 기다린다
+      const cp = await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null);
+      if (cp?.ok) { popupNote = [popupNote, `팝업 닫음(${cp.closed.join(', ')})`].filter(Boolean).join(', '); await sleep(2500); r = await readAdsSettled(tab.id, Date.now() + 30000); }
+      if (!r) { await chrome.tabs.reload(tab.id).catch(() => {}); await sleep(Math.min(s.waitSeconds, 10) * 1000); await inject(tab.id); r = await readAdsSettled(tab.id, Date.now() + 45000); popupNote = [popupNote, '새로 고쳐 다시 읽음'].filter(Boolean).join(', '); }
+      if (r) r.notes = [...(r.notes || []), popupNote];
+    }
     if (r && kind === 'ads') {
       // 화면이 어제 하루가 아니면(다른 날, 또는 여러 날 합계) 한 번 더 '어제' 를 눌러 보고, 그래도 아니면 저장하지 않는다
       const wrong = (x) => (x?.period && x.period.start !== x.period.end) || (x?.date && x.date !== target);
@@ -349,7 +359,11 @@ async function collectKind(kind, dateOverride, opts = {}) {
       if (!res?.ok) throw new Error(`${res?.error || '리포트 저장 실패'} — 다운로드 메뉴는 눌렀지만 파일이 내려오지 않았습니다 (${await describePage(tab.id)}${lastHookedUrl ? `, 가로챈 주소 ${lastHookedUrl.how}` : ', 새 창 열기 감지 안 됨'}). 크롬 설정의 '다운로드 전에 저장 위치 묻기' 가 켜져 있으면 꺼 주세요`);
       return { ok: true, saved: res.saved, date: res.date };
     }
-    if (!r) throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다 (${url}) — ${await describePage(tab.id)}. 로그인이 풀렸거나 화면이 아직 안 그려진 것일 수 있습니다`);
+    if (!r) {
+      let extra = '';
+      if (kind === 'ads') { const bd = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); if (bd?.buttons?.length) extra = ` · 화면 버튼: ${bd.buttons.slice(0, 20).join(' | ').slice(0, 300)}`; if (popupNote) extra += ` · ${popupNote}`; }
+      throw new Error(urlHint(kind, baseUrl) || `${kind === 'sales' ? '판매' : '광고'} 표를 찾지 못했습니다 (${url}) — ${await describePage(tab.id)}${extra}. 로그인이 풀렸거나 화면이 아직 안 그려진 것일 수 있습니다`);
+    }
     // 화면에 뜬 날짜가 요청한 날짜와 다르면 저장하지 않는다 (다른 날 숫자가 그 날짜로 들어가는 사고 방지)
     if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
