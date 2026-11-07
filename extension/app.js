@@ -1783,12 +1783,11 @@ async function runInAppUpdate() {
     const cands = [...new Set([folder, folder ? `${folder}/${folder.split('/').pop()}` : null, ''].filter((x) => x != null))];
     let pr = null, hit = null;
     const tryAll = async () => { for (const c of cands) { say(`폴더 확인 중… (${c || '다운로드 폴더 바로 아래'}/extension)`); pr = await probeFolder(c); if (pr.ok) { hit = c; break; } } };
+    // 다운로드 권한을 가진 다른 확장(CocoCut·이미지 다운로더 등)은 파일 이름을 바꿔 저장시켜 프로그램 파일을 망가뜨릴 수 있다
+    // → 확인부터 파일 받기가 끝날 때까지만 잠깐 끄고, 끝나면(실패해도) 바로 다시 켠다
+    const paused = await pauseDownloadExts();
+    if (paused.length) { say(`업데이트하는 동안만 다운로드 확장 ${paused.length}개(${paused.join(', ')})를 잠깐 끕니다…`); await new Promise((r) => setTimeout(r, 1500)); }
     await tryAll();
-    // 다른 확장(이미지·영상 다운로더 등)이 파일 이름을 바꿔 저장했으면: 그 확장들을 업데이트하는 동안만 잠깐 끄고 다시 시도
-    if (hit == null && pr && !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path)) {
-      const paused = await pauseDownloadExts();
-      if (paused.length) { say(`다운로드 이름을 바꾸는 확장 ${paused.length}개(${paused.join(', ')})를 업데이트하는 동안만 잠깐 끕니다…`); await new Promise((r) => setTimeout(r, 1500)); await tryAll(); }
-    }
     if (hit == null) {
       // 크롬이 파일 이름을 바꿔 저장했으면(다른 확장이 다운로드 이름을 정하는 경우 등) 그 파일이 놓인 폴더를 다운로드 위치로 본다
       const renamed = !/[\\/]extension[\\/]update-probe\.txt$/i.test(pr.path);

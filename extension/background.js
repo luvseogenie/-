@@ -1122,17 +1122,8 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   }
 });
 // 알림 실패(아이콘을 못 읽음 — 업데이트로 파일을 바꾸는 중이거나 폴더를 옮긴 때 등)는 무시한다. 프로미스 거절이 '오류' 로 쌓이지 않게 catch
-// 다른 확장(이미지·영상 다운로더 등)이 다운로드 이름을 정하면 크롬이 우리가 준 이름을 무시하고 무작위 이름으로 저장한다.
-// 우리 확장이 시작한 다운로드는 정해 둔 이름을 다시 제안한다 (여러 확장이 제안하면 가장 최근에 설치한 확장이 이긴다). 다른 다운로드는 건드리지 않는다.
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  if (item.byExtensionId !== chrome.runtime.id) { suggest(); return; }
-  const key = 'dln:' + item.url;
-  chrome.storage.session.get(key).then((o) => {
-    const want = o?.[key]?.filename;
-    if (want) { suggest({ filename: want, conflictAction: o[key].conflictAction || 'overwrite' }); chrome.storage.session.remove(key).catch(() => {}); } else suggest();
-  }).catch(() => suggest());
-  return true;
-});
+// (예전에 다운로드 이름을 다시 제안하던 onDeterminingFilename 은 뺐다: 다른 확장(CocoCut 등)이 이기면 소용이 없고,
+//  크롬이 확장 카드에 '파일 이름을 지정하지 못했습니다' 경고를 띄워 고장으로 보였다. 앱 안 업데이트는 그 확장들을 잠깐 끄고 받는다)
 function notify(message) { try { const p = chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: '쿠팡 광고계산기', message }); if (p && p.catch) p.catch(() => {}); } catch { /* 무시 */ } }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

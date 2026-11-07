@@ -107,7 +107,13 @@ export async function applyUpdate(folder, onProgress = () => {}) {
         // GitHub 은 .js 도 text/plain 으로 주어 크롬이 파일 이름을 .txt 로 바꿔 버린다 → 내용을 먼저 받아 일반 바이너리(blob)로 내려받는다
         const r = await fetch(base0 + 'extension/' + p + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
         const blob = new Blob([await r.arrayBuffer()], { type: 'application/octet-stream' }); const url = URL.createObjectURL(blob);
-        try { const id = await dl({ url, filename: base + 'extension/' + p, conflictAction: 'overwrite', saveAs: false }); await waitDone(id); await erase(id); } finally { URL.revokeObjectURL(url); }
+        try {
+          const want = base + 'extension/' + p; const id = await dl({ url, filename: want, conflictAction: 'overwrite', saveAs: false }); const it = await waitDone(id);
+          // 다른 확장이 이름을 바꿔 저장했으면 실패로 본다 (그대로 두면 새 파일이 빠진 채 manifest 만 바뀌어 프로그램이 안 열린다)
+          const got = String(it?.filename || '').replace(/\\/g, '/').toLowerCase();
+          if (got && !got.endsWith(want.toLowerCase())) { await removeFile(id); await erase(id); throw new Error(`크롬이 다른 이름으로 저장함 (${got.split('/').slice(-2).join('/')})`); }
+          await erase(id);
+        } finally { URL.revokeObjectURL(url); }
         lastErr = null; break;
       }
       catch (e) { lastErr = e; await new Promise((r) => setTimeout(r, 800)); }
