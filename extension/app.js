@@ -1747,7 +1747,9 @@ async function renderUpdate(force = false) {
 let updating = false;
 // 다운로드 권한을 가진 다른 확장(켜진 것) — 이런 확장이 다운로드 이름을 정하면 크롬이 우리가 준 파일 이름을 무시한다
 async function downloadExtList() {
-  try { const all = await chrome.management.getAll(); return all.filter((x) => x.enabled && x.id !== chrome.runtime.id && x.type === 'extension' && (x.permissions || []).includes('downloads')); } catch { return []; }
+  // 다른 위치에서 불러온 광고계산기(같은 이름)는 절대 끄지 않는다 — 그쪽 데이터가 진짜일 수 있다
+  const me = chrome.runtime.getManifest().name;
+  try { const all = await chrome.management.getAll(); return all.filter((x) => x.enabled && x.id !== chrome.runtime.id && x.name !== me && x.type === 'extension' && (x.permissions || []).includes('downloads')); } catch { return []; }
 }
 async function downloadExtensions() { return (await downloadExtList()).map((x) => x.name); }
 // 업데이트하는 동안만 그 확장들을 잠깐 끈다 (끝나면 바로 다시 켬. 도중에 새로고침돼도 background 가 시작할 때 다시 켠다)
