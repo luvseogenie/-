@@ -2,7 +2,7 @@
 import * as S from './lib/store.js';
 import { fillWorkbook } from './lib/excelfill.js';
 import { putFile, loadTemplate, saveTemplate } from './lib/excelstore.js';
-import { gzip } from './lib/gz.js';
+import { gzip, gzipJsonStream } from './lib/gz.js';
 import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js';
@@ -880,8 +880,9 @@ async function downloadBytes(bytes, filename, { conflictAction = 'overwrite', mi
 async function autoBackup(reason = '') {
   try {
     const d = await S.load(); const settings = await chrome.storage.sync.get(null).catch(() => ({}));
-    const raw = new TextEncoder().encode(JSON.stringify({ ...d, __settings: settings, __backupAt: new Date().toISOString() }));
-    const bytes = await gzip(raw);   // 광고 보고서(키워드) 행이 많아 JSON 이 수십 MB → gzip 으로 1/10 쯤. 복원은 그대로 이 파일을 올리면 된다
+    // 광고 보고서(키워드) 행이 많아 JSON 이 수십 MB → 날짜 조각으로 나눠 쓰며 gzip (한꺼번에 만들면 메모리가 넘쳐 확장이 멈출 수 있음). 복원은 그대로 이 파일을 올리면 된다
+    const { bytes, rawLen } = await gzipJsonStream({ ...d, __settings: settings, __backupAt: new Date().toISOString() }, ['sales', 'ads', 'adrows', 'legacy']);
+    const raw = { length: rawLen };
     const day = ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()];
     const filename = `쿠팡광고계산기_백업/자동백업_${day}요일.json.gz`;
     const saved = await downloadBytes(bytes, filename, { mime: 'application/gzip' });

@@ -1097,3 +1097,14 @@ console.log('extension logic: all checks passed');
   }
   console.log('realtime roas snapshot: all checks passed');
 }
+
+// 자동 백업: 조각으로 나눠 쓴 gzip JSON 이 한꺼번에 만든 것과 같은 내용이어야 한다
+{
+  const G = await import('../../extension/lib/gz.js');
+  const adrows = { '2026-11-01': [{ campaign: 'A', spend: 1 }], '2026-11-02': [{ campaign: 'B', spend: 2, x: undefined }] }; Object.defineProperty(adrows, '__v', { value: 3, enumerable: false });
+  const obj = { sales: { '2026-11-01': { 1: { option_id: '1', quantity: 2 } } }, ads: {}, adrows, options: [{ option_id: '1' }], skip: undefined, __backupAt: 'now', name: '한글 "따옴표"' };
+  const { bytes, rawLen } = await G.gzipJsonStream(obj, ['sales', 'ads', 'adrows']);
+  assert.ok(G.isGzip(bytes)); const back = await G.readBackup(bytes.buffer);
+  assert.deepEqual(back, JSON.parse(JSON.stringify(obj))); assert.equal(rawLen, new TextEncoder().encode(JSON.stringify(obj)).length);
+  console.log('streamed gzip backup: all checks passed');
+}
