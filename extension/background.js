@@ -770,7 +770,25 @@ let autoRunning = false;
 // ---- 실시간(오늘) ROAS: 매 정시(설정한 시간대) 광고센터 '오늘' + 판매분석 '오늘' 판매 리포트 → 캠페인별 등록상품 매출 합 ÷ 광고비 ----
 let rtRunning = false;
 // 매 정시 실시간이 다른 수집(13시 매일 수집·재시도 등)과 겹치거나 실패하면 그 시각 안에서 다시 시도한다 (5~10분 뒤, 50분까지)
-async function rtNote(h, ok, why) { await chrome.storage.local.set({ ccrealtimeLast: { at: Date.now(), hour: h, ok, why: String(why || '').slice(0, 300) } }); }
+async function rtNote(h, ok, why) {
+  const at = Date.now(); const day = RT.todayIso(); const w = String(why || '').slice(0, 300);
+  const { ccrealtimeNotes = {} } = await chrome.storage.local.get('ccrealtimeNotes');   // 시각별로 성공·실패 이유를 남겨 화면에서 '빠진 시각' 을 보여 준다
+  const notes = { ...ccrealtimeNotes, [day]: { ...(ccrealtimeNotes[day] || {}), [h]: { ok, why: w, at } } }; for (const k of Object.keys(notes).sort().slice(0, -14)) delete notes[k];
+  await chrome.storage.local.set({ ccrealtimeLast: { at, hour: h, ok, why: w }, ccrealtimeNotes: notes });
+}
+// 수집하는 동안(1~2분)에는 크롬이 백그라운드를 30초 만에 재우지 않게 20초마다 가벼운 크롬 기능을 부른다 (쉬는 중에는 부르지 않아 평소처럼 잠든다)
+setInterval(() => { if (rtRunning || autoRunning || job.running) chrome.runtime.getPlatformInfo().catch(() => {}); }, 20000);
+// 15분마다: 실시간 ROAS 를 받을 시각인데 이번 시각 기록이 없으면(정시 알람을 놓쳤거나 실패) 지금 받는다
+async function rtWatch() {
+  try {
+    const s = await getSettings(); const now = new Date(); const h = now.getHours();
+    if (!s.realtimeEnabled || h < Number(s.realtimeFrom) || h > Number(s.realtimeTo) || now.getMinutes() < 5) return;
+    if (rtRunning || autoRunning || job.running || await chrome.alarms.get('realtime-retry').catch(() => null)) return;
+    const st = (await chrome.storage.local.get(RT.KEY_RT))[RT.KEY_RT] || {}; if ((st[RT.todayIso()] || []).some((x) => x.hour === h)) return;
+    await log(`[실시간] ${h}시 기록이 아직 없어 지금 받습니다 (정시 알람을 놓쳤거나 앞선 시도가 실패)`);
+    await realtimeRun(false, true);
+  } catch (e) { await log(`[실시간] 점검 실패: ${e.message}`); }
+}
 async function rtRetryLater(h, minutes, why) {
   const now = new Date(); if (now.getMinutes() + minutes > 55) { await log(`[실시간] ${h}시: ${why} — 이번 시각 안에 다시 할 시간이 없어 다음 정시에 받습니다`); return; }
   const { rtRetry = {} } = await chrome.storage.local.get('rtRetry'); const key = `${RT.todayIso()}-${h}`; const n = (rtRetry.key === key ? rtRetry.n : 0) + 1;
@@ -815,8 +833,9 @@ async function realtimeRun(manual = false, retry = false) {
   } finally { rtRunning = false; }
 }
 async function scheduleRealtime() {
-  const s = await getSettings(); await chrome.alarms.clear('realtime');
+  const s = await getSettings(); await chrome.alarms.clear('realtime'); await chrome.alarms.clear('rt-watch');
   if (!s.realtimeEnabled) return;
+  await chrome.alarms.create('rt-watch', { delayInMinutes: 15, periodInMinutes: 15 });
   const next = new Date(); next.setMinutes(2, 0, 0); if (next <= new Date()) next.setHours(next.getHours() + 1);   // 매 정시 2분
   await chrome.alarms.create('realtime', { when: next.getTime(), periodInMinutes: 60 });
 }
@@ -1008,7 +1027,7 @@ async function purgeEarlyYesterday() {
   } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }
 }
 async function hourlyCheck() {
-  try { const s0 = await getSettings(); if (s0.realtimeEnabled && !await chrome.alarms.get('realtime').catch(() => null)) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
+  try { const s0 = await getSettings(); if (s0.realtimeEnabled && (!await chrome.alarms.get('realtime').catch(() => null) || !await chrome.alarms.get('rt-watch').catch(() => null))) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
   await purgeEarlyYesterday();
   await excelAutoCheck();
   const s = await getSettings(); if (!s.autoEnabled) return;
@@ -1100,7 +1119,7 @@ async function tick(kind) {
   } catch { /* 무시 */ }
 }
 chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); else if (a.name === 'rt-watch') rtWatch(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');

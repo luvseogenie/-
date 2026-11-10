@@ -172,6 +172,13 @@ async function renderRealtime() {
     if (t.noMarginQty) h += `<div class="sub">마진이 없는 판매 ${fmtInt(t.noMarginQty)}개는 순이익에서 0원으로 계산했습니다.</div>`;
     h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap" style="max-height:280px"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
     snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}${x.carried ? ` <span class="sub" title="이 시각에 광고센터에서 덜 읽힌 캠페인 ${x.carried}개를 이전 값으로 채움">*</span>` : ''}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td></tr>`; });
+    // 받을 시각이었는데 기록이 없는 시각 (오늘만): 왜 빠졌는지
+    if (day === localIso(today)) {
+      const { ccrealtimeNotes = {} } = await chrome.storage.local.get('ccrealtimeNotes'); const notes = ccrealtimeNotes[day] || {};
+      const have = new Set(snaps.map((x) => x.hour)); const nowH = new Date().getHours(); const miss = [];
+      for (let hh = Number(realtimeFrom); hh <= Math.min(Number(realtimeTo), nowH); hh++) if (!have.has(hh) && !(hh === nowH && new Date().getMinutes() < 5)) miss.push(hh);
+      if (miss.length) h += `<tr><td colspan="8" class="l sub">빠진 시각: ${miss.map((hh) => `<b>${hh}시</b> ${notes[hh] && !notes[hh].ok ? `(${esc(notes[hh].why.slice(0, 80))})` : '(기록 없음 — 그 시각에 PC·크롬이 꺼져 있었거나 잠자기, 또는 확장이 멈춤)'}`).join(' · ')}. 그 시각이 지나면 다시 받을 수 없습니다(누적 값이라 다음 시각에 합쳐져 보입니다).</td></tr>`;
+    }
     h += '</tbody></table></div></details>';
     if (snaps.some((x) => x.carried)) h += `<div class="sub">* 표시 시각은 광고센터 표가 덜 읽혀(일부 캠페인 누락) 그 캠페인을 이전 시각 광고비로 채웠습니다. 누적 광고비는 줄어들 수 없기 때문입니다.</div>`;
     const tgt = (c) => { const ds = Object.keys(DATA.ads || {}).sort().reverse(); for (const dd of ds) { const a = DATA.ads[dd]?.[c]; if (a?.target_roas) return a.target_roas; } return 0; };
