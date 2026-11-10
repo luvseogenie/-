@@ -172,16 +172,21 @@ async function renderRealtime() {
     if (t.noMarginQty) h += `<div class="sub">마진이 없는 판매 ${fmtInt(t.noMarginQty)}개는 순이익에서 0원으로 계산했습니다 (캠페인 · 옵션 탭에서 마진을 넣으면 바로 다시 계산됩니다).</div>`;
     if (t.estQty) h += `<div class="sub">마진을 넣지 않은 옵션의 판매 ${fmtInt(t.estQty)}개는 같은 상품 옵션의 마진으로 추정했습니다.</div>`;
     if (!last.raw) h += `<div class="notice sub" style="margin:4px 0">이 시각 기록은 업데이트(v0.56.13) 전에 받아서 마진을 새로 넣어도 다시 계산되지 않습니다. 다음 정시 기록부터 반영됩니다. 급하면 [지금 받기]를 누르세요.</div>`;
-    h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap" style="max-height:280px"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
+    h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap rt-hourly"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th></tr></thead><tbody>`;
     snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}${x.carried ? ` <span class="sub" title="이 시각에 광고센터에서 덜 읽힌 캠페인 ${x.carried}개를 이전 값으로 채움">*</span>` : ''}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td></tr>`; });
-    // 받을 시각이었는데 기록이 없는 시각 (오늘만): 왜 빠졌는지
+    let missNote = '';
+    // 받을 시각이었는데 기록이 없는 시각 (오늘만): 왜 빠졌는지 — 표 밖에 줄바꿈되는 글로 (표가 옆으로 늘어나지 않게)
     if (day === localIso(today)) {
       const { ccrealtimeNotes = {} } = await chrome.storage.local.get('ccrealtimeNotes'); const notes = ccrealtimeNotes[day] || {};
       const have = new Set(snaps.map((x) => x.hour)); const nowH = new Date().getHours(); const miss = [];
       for (let hh = Number(realtimeFrom); hh <= Math.min(Number(realtimeTo), nowH); hh++) if (!have.has(hh) && !(hh === nowH && new Date().getMinutes() < 5)) miss.push(hh);
-      if (miss.length) h += `<tr><td colspan="8" class="l sub">빠진 시각: ${miss.map((hh) => `<b>${hh}시</b> ${notes[hh] && !notes[hh].ok ? `(${esc(notes[hh].why.slice(0, 80))})` : '(기록 없음 — 그 시각에 PC·크롬이 꺼져 있었거나 잠자기, 또는 확장이 멈춤)'}`).join(' · ')}. 그 시각이 지나면 다시 받을 수 없습니다(누적 값이라 다음 시각에 합쳐져 보입니다).</td></tr>`;
+      if (miss.length) {   // 같은 이유끼리 묶어 짧게: '기록 없음: 1·4·7시 (…)', '15시: 광고 표를 찾지 못했습니다'
+        const groups = new Map(); for (const hh of miss) { const why = notes[hh] && !notes[hh].ok ? notes[hh].why.slice(0, 80) : ''; if (!groups.has(why)) groups.set(why, []); groups.get(why).push(hh); }
+        const parts = [...groups].map(([why, hs]) => `<b>${hs.map((x) => x + '시').join('·')}</b> ${why ? `(${esc(why)})` : '(기록 없음 — PC·크롬이 꺼져 있었거나 잠자기, 또는 확장이 멈춤)'}`);
+        missNote = `<div class="sub rt-miss">빠진 시각: ${parts.join(' · ')}. 지난 시각은 다시 받을 수 없고, 누적 값이라 다음 시각에 합쳐져 보입니다.</div>`;
+      }
     }
-    h += '</tbody></table></div></details>';
+    h += `</tbody></table></div>${missNote}</details>`;
     if (snaps.some((x) => x.carried)) h += `<div class="sub">* 표시 시각은 광고센터 표가 덜 읽혀(일부 캠페인 누락) 그 캠페인을 이전 시각 광고비로 채웠습니다. 누적 광고비는 줄어들 수 없기 때문입니다.</div>`;
     const tgt = (c) => { const ds = Object.keys(DATA.ads || {}).sort().reverse(); for (const dd of ds) { const a = DATA.ads[dd]?.[c]; if (a?.target_roas) return a.target_roas; } return 0; };
     const rows = Object.entries(last.camps).filter(([, c]) => c.spend > 0 || c.revenue > 0).sort((a, b) => b[1].spend - a[1].spend);

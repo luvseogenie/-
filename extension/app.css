@@ -209,3 +209,10 @@ details.inline .menu .btn { text-align: left; }
 #options-table tr.saved td { background: #dcf5e8 !important; transition: background .3s; }
 #options-table tr td { transition: background 1.2s; }
 .saved-badge { display: inline-block; margin-top: 2px; font-size: 11px; font-weight: 700; color: #137a4b; }
+
+/* 실시간 ROAS 시간대별 표: 가로 스크롤 없이 한눈에 (높이 제한 없음, 칸 폭 고정·줄바꿈 허용) */
+.rt-hourly { overflow: visible; }
+.rt-hourly table { table-layout: fixed; width: 100%; white-space: normal; }
+.rt-hourly th, .rt-hourly td { padding: 6px 8px; overflow-wrap: anywhere; }
+.rt-hourly th:first-child, .rt-hourly td:first-child { width: 56px; }
+.rt-miss { margin-top: 6px; line-height: 1.6; white-space: normal; }
