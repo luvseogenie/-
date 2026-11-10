@@ -1144,3 +1144,13 @@ console.log('extension logic: all checks passed');
   assert.ok(!st['2026-11-01'][0].raw && st['2026-11-10'][0].raw);   // 원본은 최근 3일만
   console.log('realtime recompute with new margins: all checks passed');
 }
+
+// 실시간 ROAS: 마진을 넣지 않은 같은 상품 옵션(다른 색상)은 같은 등록상품 옵션의 마진으로 추정
+{
+  const RT = await import('../../extension/lib/realtime.js');
+  const C = '69. 리본'; const d = { brands: [], options: [{ option_id: 'RB1', campaign: C }], margins: [{ option_id: 'RB1', effective_from: '', margin: 3000 }], sales: { '2026-11-01': { RB1: { option_id: 'RB1', product_id: '9', quantity: 1 } } }, ads: {}, adrows: {} };
+  const sales = [{ option_id: 'RB2', product_id: '9', option_name: '리본, 골드', product_name: '리본', quantity: 5, revenue: 50000 }];
+  const snap = RT.computeSnapshot(d, sales, [{ campaign: C, spend: 10000 }], new Date(2026, 10, 10, 20, 2));
+  assert.equal(snap.camps[C].margin, 15000); assert.equal(snap.camps[C].estQty, 5); assert.equal(snap.camps[C].noMarginQty, 0); assert.equal(snap.total.estQty, 5);
+  console.log('realtime margin estimate from same product: all checks passed');
+}

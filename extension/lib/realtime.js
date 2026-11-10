@@ -39,24 +39,28 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
     (campOids[o.campaign] ||= new Set()).add(o.option_id);
     const p = pidOf(o.option_id); if (p) (campPids[o.campaign] ||= new Set()).add(p);
   }
+  // 마진을 넣지 않은 옵션(같은 상품의 다른 색상·윙 옵션 등)은 같은 등록상품 옵션의 마진으로 추정한다 (estQty 로 표시)
+  const pidMargin = {};
+  for (const o of d.options || []) { const p = pidOf(o.option_id); const m = margin(o.option_id, date) || 0; if (p && m && !pidMargin[p]) pidMargin[p] = m; }
+  const marginOf = (r) => { const m = margin(r.option_id, date) || 0; if (m) return [m, false]; const p = String(r.product_id || pidOf(r.option_id) || ''); return p && pidMargin[p] ? [pidMargin[p], true] : [0, false]; };
   const camps = {};
   for (const a of adsRows || []) {
     if (!a.campaign) continue;
-    const c = (camps[a.campaign] ||= { spend: 0, ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0, products: 0 });
+    const c = (camps[a.campaign] ||= { spend: 0, ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0, estQty: 0, products: 0 });
     c.spend += a.spend || 0; c.ad_revenue += a.ad_revenue || 0; c.ad_orders += a.ad_orders || 0; c.clicks += a.clicks || 0; c.impressions += a.impressions || 0;
   }
   for (const [name, c] of Object.entries(camps)) {
     const oids = campOids[name] || new Set(); const pids = campPids[name] || new Set(); c.products = pids.size;
     for (const r of sales) {
       if (!(oids.has(r.option_id) || (r.product_id && pids.has(String(r.product_id))))) continue;
-      const m = margin(r.option_id, date) || 0;
-      c.revenue += r.revenue || 0; c.qty += r.quantity || 0; c.margin += (r.quantity || 0) * m; if (!m) c.noMarginQty += r.quantity || 0;
+      const [m, est] = marginOf(r);
+      c.revenue += r.revenue || 0; c.qty += r.quantity || 0; c.margin += (r.quantity || 0) * m; if (!m) c.noMarginQty += r.quantity || 0; if (est) c.estQty += r.quantity || 0;
     }
     c.roas = c.spend ? c.revenue / c.spend : 0; c.ad_roas = c.spend ? c.ad_revenue / c.spend : 0; c.profit = c.margin - c.spend * VAT;
   }
   const total = { spend: 0, ad_revenue: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0 };
   for (const c of Object.values(camps)) { total.spend += c.spend; total.ad_revenue += c.ad_revenue; }
-  for (const r of sales) { const m = margin(r.option_id, date) || 0; total.revenue += r.revenue || 0; total.qty += r.quantity || 0; total.margin += (r.quantity || 0) * m; if (!m) total.noMarginQty += r.quantity || 0; }
+  for (const r of sales) { const [m, est] = marginOf(r); total.revenue += r.revenue || 0; total.qty += r.quantity || 0; total.margin += (r.quantity || 0) * m; if (!m) total.noMarginQty += r.quantity || 0; if (est) total.estQty = (total.estQty || 0) + (r.quantity || 0); }
   total.roas = total.spend ? total.revenue / total.spend : 0; total.ad_roas = total.spend ? total.ad_revenue / total.spend : 0; total.profit = total.margin - total.spend * VAT;
   // 받은 원본(옵션별 판매·캠페인별 광고비)도 같이 둔다 → 나중에 마진·옵션 연결을 바꾸면 화면에서 다시 계산 (recomputeDay)
   const raw = { sales: (salesRows || []).filter((r) => (r.quantity || 0) > 0 || (r.revenue || 0) > 0).map((r) => ({ option_id: r.option_id, product_id: r.product_id || '', option_name: r.option_name || '', product_name: r.product_name || '', quantity: r.quantity || 0, revenue: r.revenue || 0 })),
