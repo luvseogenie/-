@@ -58,7 +58,14 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
   for (const c of Object.values(camps)) { total.spend += c.spend; total.ad_revenue += c.ad_revenue; }
   for (const r of sales) { const m = margin(r.option_id, date) || 0; total.revenue += r.revenue || 0; total.qty += r.quantity || 0; total.margin += (r.quantity || 0) * m; if (!m) total.noMarginQty += r.quantity || 0; }
   total.roas = total.spend ? total.revenue / total.spend : 0; total.ad_roas = total.spend ? total.ad_revenue / total.spend : 0; total.profit = total.margin - total.spend * VAT;
-  return { at: at.getTime(), hour: at.getHours(), date, total, camps, adRevenueKnown: (adsRows || []).some((a) => a.revenueKnown !== false) };
+  // 받은 원본(옵션별 판매·캠페인별 광고비)도 같이 둔다 → 나중에 마진·옵션 연결을 바꾸면 화면에서 다시 계산 (recomputeDay)
+  const raw = { sales: (salesRows || []).filter((r) => (r.quantity || 0) > 0 || (r.revenue || 0) > 0).map((r) => ({ option_id: r.option_id, product_id: r.product_id || '', option_name: r.option_name || '', product_name: r.product_name || '', quantity: r.quantity || 0, revenue: r.revenue || 0 })),
+    ads: (adsRows || []).map((a) => ({ campaign: a.campaign, spend: a.spend || 0, ad_revenue: a.ad_revenue || 0, ad_orders: a.ad_orders || 0, clicks: a.clicks || 0, impressions: a.impressions || 0, revenueKnown: a.revenueKnown })) };
+  return { at: at.getTime(), hour: at.getHours(), date, total, camps, adRevenueKnown: (adsRows || []).some((a) => a.revenueKnown !== false), raw };
+}
+// 저장된 하루치 기록을 지금의 마진·옵션 연결·캠페인 합치기로 다시 계산 (원본이 있는 기록만. 예전 기록은 그대로)
+export function recomputeDay(d, snaps) {
+  return (snaps || []).map((x) => (x && x.raw ? computeSnapshot(d, x.raw.sales, (x.raw.ads || []).map((a) => ({ ...a, campaign: d.campaignAliases?.[a.campaign] || a.campaign })), new Date(x.at)) : x));
 }
 
 // 오늘 누적 광고비는 줄어들 수 없다. 광고센터 표를 덜 읽은 시각(캠페인이 빠지거나 일부 줄만 읽힘)이 있으면
@@ -102,6 +109,7 @@ export function deltaOf(snap, prev) {
 export function addSnapshot(store, snap, keepDays = 14) {
   const out = { ...(store || {}) }; out[snap.date] = [...(out[snap.date] || []).filter((x) => x.hour !== snap.hour), snap].sort((a, b) => a.at - b.at);
   for (const k of Object.keys(out).sort().slice(0, -keepDays)) delete out[k];
+  for (const k of Object.keys(out).sort().slice(0, -3)) out[k] = out[k].map(({ raw, ...x }) => x);   // 원본은 최근 3일만 (저장 공간)
   return out;
 }
 

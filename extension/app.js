@@ -8,7 +8,7 @@ import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
 import { importAdReportFile } from './lib/importer.js';
-import { fixDay as fixRtDay } from './lib/realtime.js';
+import { fixDay as fixRtDay, recomputeDay as recomputeRtDay } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
 import { loadTemplate, saveTemplate } from './lib/excelstore.js';
@@ -160,7 +160,7 @@ function renderFoot() {
 async function renderRealtime() {
   const box = $('#rt-card'); if (!box) return;
   const store = (await chrome.storage.local.get('ccrealtime')).ccrealtime || {}; const { realtimeEnabled = false, realtimeFrom = 9, realtimeTo = 23 } = await chrome.storage.sync.get(['realtimeEnabled', 'realtimeFrom', 'realtimeTo']);
-  const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? fixRtDay(store[day]) : [];   // 덜 읽힌 시각은 이전 값으로 채워 누적이 줄지 않게
+  const days = Object.keys(store).sort(); const day = days[days.length - 1]; const snaps = day ? fixRtDay(recomputeRtDay(DATA, store[day])) : [];   // 지금 마진·옵션 연결로 다시 계산한 뒤,   // 덜 읽힌 시각은 이전 값으로 채워 누적이 줄지 않게
   const won = (v) => fmtWon(v) + '원'; const pct = (v) => Math.round((v || 0) * 100) + '%';
   let h = `<div class="row"><h2 style="margin:0">⏱ 실시간 ROAS <span class="sub">${day ? `${day}${day === localIso(today) ? ' (오늘)' : ''}` : '아직 기록 없음'}</span></h2><span class="grow"></span><span class="sub">매 정시 자동: ${realtimeEnabled ? `<b>켜짐</b> (${realtimeFrom}시~${realtimeTo}시)` : '꺼짐 — 데이터 · 설정 → 매일 자동 수집에서 켜기'}</span><button class="btn sm primary" id="rt-now">지금 받기</button></div>`;
   { const { ccrealtimeLast: L } = await chrome.storage.local.get('ccrealtimeLast');

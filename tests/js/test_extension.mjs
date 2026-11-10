@@ -1130,3 +1130,17 @@ console.log('extension logic: all checks passed');
   assert.throws(() => S.mergeCampaign(d, B, B));
   console.log('merge campaigns: all checks passed');
 }
+
+// 실시간 ROAS: 받은 뒤에 마진을 넣어도(리본) 저장된 원본으로 다시 계산되어 순이익에 반영된다
+{
+  const RT = await import('../../extension/lib/realtime.js');
+  const C = '69. 크리스마스 벨벳 리본'; const d = { brands: ['DUGN'], options: [{ option_id: 'RB1', campaign: C }], margins: [], sales: {}, ads: {}, adrows: {} };
+  const sales = [{ option_id: 'RB1', product_id: '9', option_name: 'DUGN 벨벳 리본, 레드', product_name: 'DUGN 벨벳 리본', quantity: 4, revenue: 40000 }];
+  const snap = RT.computeSnapshot(d, sales, [{ campaign: C, spend: 10000, revenueKnown: false }], new Date(2026, 10, 10, 15, 2));
+  assert.equal(snap.total.margin, 0); assert.equal(snap.total.noMarginQty, 4);
+  d.margins.push({ option_id: 'RB1', effective_from: '', margin: 3000 });   // 나중에 마진 입력
+  const [re] = RT.recomputeDay(d, [snap]); assert.equal(re.total.margin, 12000); assert.equal(re.camps[C].profit, 12000 - 11000); assert.equal(re.total.noMarginQty, 0);
+  const st = RT.addSnapshot({ '2026-11-01': [{ ...snap, date: '2026-11-01' }], '2026-11-02': [{ ...snap, date: '2026-11-02' }], '2026-11-03': [{ ...snap, date: '2026-11-03' }] }, snap);
+  assert.ok(!st['2026-11-01'][0].raw && st['2026-11-10'][0].raw);   // 원본은 최근 3일만
+  console.log('realtime recompute with new margins: all checks passed');
+}
