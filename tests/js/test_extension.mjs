@@ -1108,3 +1108,25 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(back, JSON.parse(JSON.stringify(obj))); assert.equal(rawLen, new TextEncoder().encode(JSON.stringify(obj)).length);
   console.log('streamed gzip backup: all checks passed');
 }
+
+// 캠페인 합치기: 실수로 67번으로 만들어 며칠 돌린 캠페인을 69번으로. 같은 날 둘 다 있으면 더하고, 뒤에 67 이름으로 들어와도 69 로
+{
+  const A = '67. 크리스마스 벨벳 리본_312%_261107', B = '69. 크리스마스 벨벳 리본_312%_261107';
+  const ad = (c, spend, o = {}) => ({ campaign: c, spend, ad_revenue: spend * 3, impressions: 100, clicks: 10, ad_orders: 2, target_roas: 3.12, budget: 30000, ...o });
+  const d = { options: [{ option_id: 'R1', campaign: A }, { option_id: 'R2', campaign: B }], margins: [], sales: {}, legacy: {},
+    ads: { '2026-11-07': { [A]: ad(A, 1000) }, '2026-11-08': { [A]: ad(A, 2000) , [B]: ad(B, 500, { budget: 50000 }) }, '2026-11-09': { [B]: ad(B, 3000) } },
+    adrows: { '2026-11-07': [{ date: '2026-11-07', campaign: A, option_id: 'R1', spend: 1000 }] }, campaignOptions: { [A]: { at: '2026-11-07', options: [{ option_id: 'R1' }] }, [B]: { at: '2026-11-09', options: [{ option_id: 'R2' }] } },
+    excludes: { [A]: [{ keyword: '리본끈' }] }, traffic: [{ id: 't1', campaign: A, start: '2026-11-07', slots: 1 }], relinks: [] };
+  const u = S.campaignUsage(d, A); assert.equal(u.adsDays, 2); assert.equal(u.adrows, 1); assert.equal(u.options, 1); assert.equal(u.spend, 3000);
+  S.mergeCampaign(d, A, B);
+  assert.ok(!Object.values(d.ads).some((day) => day[A])); assert.equal(d.ads['2026-11-07'][B].spend, 1000); assert.equal(d.ads['2026-11-07'][B].campaign, B);
+  assert.equal(d.ads['2026-11-08'][B].spend, 2500); assert.equal(d.ads['2026-11-08'][B].budget, 50000); assert.equal(d.ads['2026-11-08'][B].clicks, 20);
+  assert.equal(d.adrows['2026-11-07'][0].campaign, B); assert.deepEqual(d.options.map((o) => o.campaign), [B, B]);
+  assert.ok(!d.campaignOptions[A]); assert.deepEqual(d.campaignOptions[B].options.map((x) => x.option_id).sort(), ['R1', 'R2']);
+  assert.equal(d.excludes[B][0].keyword, '리본끈'); assert.equal(d.traffic[0].campaign, B); assert.ok(!S.campaigns(d).includes(A));
+  S.upsertAds(d, [ad(A, 700, { date: '2026-11-06' })]); assert.equal(d.ads['2026-11-06'][B].spend, 700);   // 뒤에 옛 이름으로 들어와도
+  S.upsertAdRows(d, [{ date: '2026-11-06', campaign: A, option_id: 'R1', keyword: 'x', spend: 5 }]); assert.equal(d.adrows['2026-11-06'][0].campaign, B);
+  const led = computeLedger(d, '2026-11-06', '2026-11-09'); assert.ok(!led.campaigns.find((c) => c.campaign === A));
+  assert.throws(() => S.mergeCampaign(d, B, B));
+  console.log('merge campaigns: all checks passed');
+}

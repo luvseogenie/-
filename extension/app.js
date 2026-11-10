@@ -850,6 +850,36 @@ function showSalesDiag(camp, start, end) {
   });
 }
 
+/* ===== 캠페인 합치기 ===== */
+function renderMergeCard() {
+  const fromSel = $('#merge-from'), toSel = $('#merge-to'); if (!fromSel) return;
+  const names = S.sortCampaigns(S.campaigns(DATA)); const keep = [fromSel.value, toSel.value];
+  const opts = (sel) => '<option value="">(캠페인 고르기)</option>' + names.map((n) => `<option value="${esc(n)}" ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  fromSel.innerHTML = opts(keep[0]); toSel.innerHTML = opts(keep[1]);
+  const show = () => {
+    const f = fromSel.value, t = toSel.value; if (!f) { $('#merge-preview').textContent = ''; return; }
+    const u = S.campaignUsage(DATA, f);
+    $('#merge-preview').innerHTML = `<b>${esc(f)}</b>: 광고 ${u.adsDays}일${u.first ? ` (${u.first.slice(5)} ~ ${u.last.slice(5)}, 광고비 ${fmtWon(u.spend)}원)` : ''} · 광고 보고서 ${fmtInt(u.adrows)}줄 · 연결 옵션 ${u.options}개${u.excludes ? ` · 제외 키워드 ${u.excludes}개` : ''}${u.traffic ? ` · 트래픽 ${u.traffic}건` : ''}${u.legacyDays ? ` · 엑셀 4번 시트 ${u.legacyDays}일` : ''}${t && t !== f ? ` → <b>${esc(t)}</b> 로 옮깁니다` : ''}`;
+  };
+  fromSel.onchange = show; toSel.onchange = show; show();
+}
+$('#merge-go').onclick = async () => {
+  const f = $('#merge-from').value, t = $('#merge-to').value;
+  if (!f || !t || f === t) { msg('#merge-msg', '옮길 캠페인과 받을 캠페인을 다르게 고르세요', 'err'); return; }
+  if (!confirm(`'${f}' 의 데이터를 모두 '${t}' 로 옮기고 '${f}' 를 지웁니다. 되돌릴 수 없습니다. 계속할까요?`)) return;
+  try {
+    const dd = await reload(); const u = S.mergeCampaign(dd, f, t); await S.save(dd);
+    // 화면 쪽에 따로 둔 것: 숨김/항상 보기 설정, 실시간 ROAS 기록
+    await loadCampVis(); if (campVis[f]) { if (!campVis[t]) campVis[t] = campVis[f]; delete campVis[f]; await saveCampVis(); }
+    const { ccrealtime = {} } = await chrome.storage.local.get('ccrealtime'); let rtCh = false;
+    for (const snaps of Object.values(ccrealtime)) for (const sn of snaps) { const a = sn.camps?.[f]; if (!a) continue; const b = sn.camps[t]; if (!b) sn.camps[t] = a; else { for (const k of ['spend', 'ad_revenue', 'ad_orders', 'clicks', 'impressions', 'revenue', 'qty', 'margin', 'noMarginQty', 'profit']) b[k] = (b[k] || 0) + (a[k] || 0); b.roas = b.spend ? b.revenue / b.spend : 0; b.ad_roas = b.spend ? b.ad_revenue / b.spend : 0; } delete sn.camps[f]; rtCh = true; }
+    if (rtCh) await chrome.storage.local.set({ ccrealtime });
+    await refreshAll(); renderMergeCard();
+    msg('#merge-msg', `합쳤습니다: 광고 ${u.adsDays}일, 보고서 ${fmtInt(u.adrows)}줄, 옵션 ${u.options}개를 '${t}' 로 옮김`, 'ok'); toast(`'${f}' → '${t}' 합치기 완료`);
+  } catch (e) { msg('#merge-msg', e.message, 'err'); }
+};
+$('#merge-card').addEventListener('toggle', () => { if ($('#merge-card').open) renderMergeCard(); });
+
 /* ===== 트래픽 슬롯 설정 ===== */
 // 트래픽 슬롯 칸은 접힘이 기본. 펼친 상태는 기억한다
 try { $('#tr-details').open = localStorage.getItem('cc-tr-open') === '1'; } catch { /* 무시 */ }

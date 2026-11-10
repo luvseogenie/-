@@ -208,6 +208,48 @@ export function cleanCampaignNames(d) {
   cleanCampaignNames.last = map;   // { 원래 이름: 정리된 이름 } (화면 안내용)
   return Object.keys(map).length > 0;
 }
+// ---- 캠페인 합치기 (잘못 만든·이름을 바꾼 캠페인 → 다른 캠페인으로) ----
+// d.campaignAliases = { 옛 이름: 새 이름 }: 합친 뒤에 옛 이름으로 들어오는 광고 값·보고서도 새 이름으로 넣는다
+const aliasOf = (d, c) => { const m = d.campaignAliases || {}; let x = c; for (let i = 0; i < 5 && m[x]; i++) x = m[x]; return x; };
+const aliasRow = (d, r) => (r && r.campaign && d.campaignAliases?.[r.campaign] ? { ...r, campaign: aliasOf(d, r.campaign) } : r);
+const ADS_SUM = ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'];
+function sumAds(a, b) {   // 같은 날 두 캠페인 값이 다 있으면 더한다 (목표효율·예산·메모는 합칠 쪽 값 우선)
+  const o = { ...b, ...a }; for (const k of ADS_SUM) o[k] = (a[k] || 0) + (b[k] || 0);
+  o.ctr = o.impressions ? o.clicks / o.impressions : 0; o.conversion = o.clicks ? o.ad_orders / o.clicks : 0;
+  o.target_roas = a.target_roas || b.target_roas || 0; o.budget = a.budget || b.budget || 0; o.action = [a.action, b.action].filter(Boolean).join(' / ');
+  return o;
+}
+// 이 캠페인 이름이 어디에 얼마나 쓰였는지 (합치기 전 확인용)
+export function campaignUsage(d, c) {
+  const u = { adsDays: 0, adrows: 0, options: 0, legacyDays: 0, excludes: (d.excludes?.[c] || []).length, traffic: (d.traffic || []).filter((t) => t.campaign === c).length, spend: 0, first: '', last: '' };
+  for (const [date, day] of Object.entries(d.ads || {})) if (day[c]) { u.adsDays++; u.spend += day[c].spend || 0; if (!u.first || date < u.first) u.first = date; if (date > u.last) u.last = date; }
+  for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign === c) u.adrows++;
+  for (const o of d.options || []) if (o.campaign === c) u.options++;
+  for (const day of Object.values(d.legacy || {})) if (day[c]) u.legacyDays++;
+  return u;
+}
+export function mergeCampaign(d, from, to) {
+  from = String(from || '').trim(); to = String(to || '').trim();
+  if (!from || !to || from === to) throw new Error('합칠 두 캠페인을 다르게 고르세요');
+  const moved = campaignUsage(d, from);
+  for (const date of Object.keys(d.ads || {})) { const day = d.ads[date]; if (!day[from]) continue; const v = { ...day[from], campaign: to }; day[to] = day[to] ? sumAds(day[to], v) : v; delete day[from]; }
+  for (const date of Object.keys(d.legacy || {})) { const day = d.legacy[date]; if (!day[from]) continue; const v = day[from]; if (!day[to]) day[to] = v; else for (const [k, x] of Object.entries(v)) if (typeof x === 'number' && typeof day[to][k] === 'number' && !/roas|ctr|cpc|conversion|ratio|budget|target/i.test(k)) day[to][k] += x; delete day[from]; }
+  let ren = false; for (const rows of Object.values(d.adrows || {})) for (const r of rows) if (r.campaign === from) { r.campaign = to; ren = true; }
+  if (ren) bumpAdrows(d.adrows);
+  for (const o of d.options || []) if (o.campaign === from) o.campaign = to;
+  for (const key of ['campaignOptions', 'pendingCampaignOptions']) {
+    const m = d[key]; if (!m || !m[from]) continue;
+    if (!m[to]) m[to] = m[from]; else if (key === 'campaignOptions') { const ids = new Set((m[to].options || []).map((x) => String(x.option_id))); m[to] = { ...m[to], options: [...(m[to].options || []), ...(m[from].options || []).filter((x) => !ids.has(String(x.option_id)))] }; }
+    delete m[from];
+  }
+  if (d.excludes?.[from]) { const a = d.excludes[to] || []; d.excludes[to] = [...a, ...d.excludes[from].filter((x) => !a.some((y) => y.keyword === x.keyword))]; delete d.excludes[from]; }
+  for (const t of d.traffic || []) if (t.campaign === from) t.campaign = to;
+  for (const r of d.relinks || []) { if (r.from === from) r.from = to; if (r.to === from) r.to = to; }
+  for (const key of ['campaignKinds', 'campMode', 'zeroRoas']) { const m = d[key]; if (m && from in m) { if (!(to in m)) m[to] = m[from]; delete m[from]; } }
+  d.campaignAliases = { ...(d.campaignAliases || {}), [from]: to }; for (const [k, v] of Object.entries(d.campaignAliases)) if (v === from) d.campaignAliases[k] = to;
+  const when = new Date().toISOString().slice(0, 16); d.nameMerges = [...(d.nameMerges || []), { from, to, when, manual: true }].slice(-300);
+  return moved;
+}
 const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
 export async function save(d) {
   const { adrows, ...rest } = d;
@@ -540,7 +582,7 @@ export function upsertSales(d, rows) {
   return n;
 }
 export function upsertAds(d, rows) {
-  let n = 0; const yl = yesterdayLocal(); rows = rows.filter((r) => r.date <= yl);
+  let n = 0; const yl = yesterdayLocal(); rows = rows.filter((r) => r.date <= yl).map((r) => aliasRow(d, r));
   for (const r of rows) {
     const day = (d.ads[r.date] ||= {});
     const prev = day[r.campaign];
@@ -617,7 +659,7 @@ export function carryReportAdSettings(d) {
   return n;
 }
 export function upsertAdRows(d, rows) {
-  d.adrows ||= {};
+  d.adrows ||= {}; rows = rows.map((r) => aliasRow(d, r));
   const touched = new Set(rows.map((r) => r.date + '|' + r.campaign));
   const byDate = {};
   for (const r of rows) (byDate[r.date] ||= []).push(r);
