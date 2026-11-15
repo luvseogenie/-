@@ -294,7 +294,11 @@ async function collectKind(kind, dateOverride, opts = {}) {
       // 표가 안 보이면: 공지 팝업이 가렸을 수 있다 → 닫아 보고, 그래도 없으면 화면을 새로 고쳐 한 번 더 기다린다
       const cp = await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null);
       if (cp?.ok) { popupNote = [popupNote, `팝업 닫음(${cp.closed.join(', ')})`].filter(Boolean).join(', '); await sleep(2500); r = await readAdsSettled(tab.id, Date.now() + 30000); }
-      if (!r) { await chrome.tabs.reload(tab.id).catch(() => {}); await sleep(Math.min(s.waitSeconds, 10) * 1000); await inject(tab.id); r = await readAdsSettled(tab.id, Date.now() + 45000); popupNote = [popupNote, '새로 고쳐 다시 읽음'].filter(Boolean).join(', '); }
+      if (!r) {
+        await chrome.tabs.reload(tab.id).catch(() => {}); await sleep(Math.min(s.waitSeconds, 10) * 1000); await inject(tab.id);
+        // 새로 고치면 기간이 기본값(최근 7일 등)으로 돌아간다 → '어제' 를 다시 누른다 (안 그러면 여러 날 합계를 하루치로 저장)
+        if (needYesterday && !opts.realtime) { await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null); await chrome.tabs.sendMessage(tab.id, { type: periodMsg }).catch(() => null); await sleep(4000); await inject(tab.id); }
+        r = await readAdsSettled(tab.id, Date.now() + 45000); popupNote = [popupNote, '새로 고쳐 다시 읽음'].filter(Boolean).join(', '); }
       if (r) r.notes = [...(r.notes || []), popupNote];
     }
     if (r && kind === 'ads') {
@@ -368,6 +372,14 @@ async function collectKind(kind, dateOverride, opts = {}) {
     if (dateOverride && r.date && r.date !== dateOverride) throw new Error(`화면에 보이는 날짜(${r.date})가 요청한 날짜(${dateOverride})와 달라 저장하지 않았습니다`);
     const date = dateOverride || r.date || yesterdayIso();
     if (date > yesterdayIso()) throw new Error(`화면 날짜가 ${date}(오늘 또는 미래)라 저장하지 않았습니다. 화면이 '오늘' 기간으로 열려 어제(${yesterdayIso()}) 값이 아닙니다`);
+    if (kind === 'ads') {
+      // 화면 기간을 확인하지 못했는데 광고비 합계가 평소 하루치보다 훨씬 크면 여러 날 합계로 보고 저장하지 않는다 (다시 시도됨)
+      const tot = normalizeAds(r.records, date).reduce((a, x) => a + (x.spend || 0), 0);
+      const d0 = await S.load(); const hist = Object.keys(d0.ads || {}).filter((x) => x < date).sort().slice(-14).map((x) => Object.values(d0.ads[x] || {}).reduce((a, y) => a + (y.spend || 0), 0)).filter((v) => v > 0).sort((a, b) => a - b);
+      const med = hist.length ? hist[Math.floor(hist.length / 2)] : 0;
+      if (!r.period && !r.date && hist.length >= 5 && tot > med * 2.5) throw new Error(`광고센터 화면의 기간을 확인하지 못했고, 광고비 합계(${Math.round(tot).toLocaleString('ko-KR')}원)가 평소 하루(${Math.round(med).toLocaleString('ko-KR')}원)의 ${(tot / med).toFixed(1)}배라 여러 날 합계로 보여 저장하지 않았습니다`);
+      if (r.period && r.period.start === r.period.end && r.period.start !== date) throw new Error(`화면 기간(${r.period.start})이 ${date} 가 아니라 저장하지 않았습니다`);
+    }
     const n = await saveLocal(kind, date, r.records);
     await syncServer(kind, date, r.records);
     await log(`[자동] ${kind === 'sales' ? '판매' : '광고'} ${date} ${n}건 저장` + (kind === 'ads' ? ` (${r.pages ? `${r.pages}/${r.total || '?'}쪽` : '1쪽'}${r.notes?.length ? ', ' + r.notes.join(', ') : ''})` : ''));
@@ -738,7 +750,13 @@ async function collectRange(start, end, kinds, onlyMissing) {
       if (onlyMissing && ((kind === 'sales' && Object.keys(d.sales[date] || {}).length) || (kind === 'ads' && Object.keys(d.ads[date] || {}).length))) { job.done++; continue; }
       if (kind === 'ads' && !s.adsUrl.includes('{date}') && date !== yesterdayIso()) {
         // 광고 관리 화면은 어제만 열 수 있다 → 지난 날은 광고 보고서(키워드별 일별) 합으로 채운다
-        const dd = await S.load(); const k = S.fillAdsFromReport(dd, [date]);
+        const dd = await S.load();
+        // '이미 있는 날은 건너뛰기' 를 끄고 받으면, 그 날 저장돼 있던 광고 값도 보고서 합으로 다시 채운다 (목표효율·예산·메모는 남김) — 잘못 저장된 날 바로잡기
+        if (!onlyMissing && (dd.adrows || {})[date]?.length && dd.ads[date]) {
+          const inReport = new Set(dd.adrows[date].map((r) => r.campaign));
+          for (const [c, a] of Object.entries(dd.ads[date])) { if (inReport.has(c)) a.source = 'report'; else if (!a.source || a.source !== 'report') { a.spend = 0; a.ad_revenue = 0; a.impressions = 0; a.clicks = 0; a.ad_orders = 0; a.ctr = 0; a.conversion = 0; a.source = 'report'; } }   // 보고서에 없는 캠페인 = 그 날 광고비 없음
+        }
+        const k = S.fillAdsFromReport(dd, [date]);
         if (k) { await S.save(dd); job.log.push(`${date} 광고: 광고 보고서 합으로 ${k}개 캠페인 채움 (광고 관리 화면은 어제만 열 수 있어서)`); }
         else job.log.push(`${date} 광고: 광고 관리 화면은 어제만 열 수 있고, 이 날 광고 보고서도 없습니다 → 위의 '이 기간 광고 보고서 받기'로 먼저 받으면 채워집니다`);
         job.done++; continue;
