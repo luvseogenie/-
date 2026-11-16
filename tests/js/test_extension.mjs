@@ -1154,3 +1154,11 @@ console.log('extension logic: all checks passed');
   assert.equal(snap.camps[C].margin, 15000); assert.equal(snap.camps[C].estQty, 5); assert.equal(snap.camps[C].noMarginQty, 0); assert.equal(snap.total.estQty, 5);
   console.log('realtime margin estimate from same product: all checks passed');
 }
+
+// 가벼운 읽기(팝업용): 광고 보고서 줄은 읽지 않고, 그 값으로는 저장할 수 없다
+{
+  await S.replaceAll({ options: [], sales: { '2026-11-01': {} }, ads: { '2026-11-02': {} }, adrows: { '2026-11-01': [{ campaign: 'A' }] } });
+  const L = await S.loadLight(); assert.ok(!L.adrows || !Object.keys(L.adrows).length); assert.deepEqual(S.dates(L), ['2026-11-01', '2026-11-02']);
+  await assert.rejects(() => S.save(L));
+  console.log('light load for popup: all checks passed');
+}

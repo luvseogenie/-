@@ -1862,6 +1862,8 @@ $('#upd-reload').onclick = async () => { if (!(await reloadIfFilesChanged())) { 
 $('#upd-zip').href = ZIP_URL;
 
 /* ===== 초기화 ===== */
+// 광고계산기 탭은 하나만: 이 탭을 열면 예전에 열어 둔 다른 광고계산기 탭은 닫는다 (탭마다 수백 MB 를 써서 여러 개면 크롬이 확장을 멈춘다)
+(async () => { try { const me = await chrome.tabs.getCurrent(); const others = (await chrome.tabs.query({ url: chrome.runtime.getURL('app.html') + '*' })).filter((t) => t.id !== me?.id); if (others.length) await chrome.tabs.remove(others.map((t) => t.id)); } catch { /* 무시 */ } })();
 $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
 renderUpdate();
 reloadIfFilesChanged();

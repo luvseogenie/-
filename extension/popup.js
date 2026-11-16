@@ -118,7 +118,7 @@ $('#diag').onclick = async () => {
     try { const st = await chrome.tabs.sendMessage(tab.id, { type: 'structure' }); lines.push('structure ' + JSON.stringify(st)); } catch (e) { lines.push('structure: ' + e.message); }
     try { const r = await chrome.tabs.sendMessage(tab.id, { type: 'read', kind: 'ads' }); lines.push('tables ' + JSON.stringify((r?.tables || []).slice(0, 8))); lines.push('date ' + r?.date); } catch (e) { lines.push('read: ' + e.message); }
   } catch (e) { lines.push('tab: ' + e.message); }
-  try { const d = await S.load(); const ds = S.dates(d); lines.push(`data ${ds[0]} ~ ${ds[ds.length - 1]} days=${ds.length} options=${d.options.length} salesDays=${Object.keys(d.sales).length} adsDays=${Object.keys(d.ads).length} legacyDays=${Object.keys(d.legacy || {}).length} expenses=${(d.expenses || []).length}`); lines.push(`storage bytes ${await new Promise((r) => chrome.storage.local.getBytesInUse(null, r))}`); } catch (e) { lines.push('storage: ' + e.message); }
+  try { const d = await S.loadLight(); const ds = S.dates(d); lines.push(`data ${ds[0]} ~ ${ds[ds.length - 1]} days=${ds.length} options=${d.options.length} salesDays=${Object.keys(d.sales).length} adsDays=${Object.keys(d.ads).length} legacyDays=${Object.keys(d.legacy || {}).length} expenses=${(d.expenses || []).length}`); lines.push(`storage bytes ${await new Promise((r) => chrome.storage.local.getBytesInUse(null, r))}`); } catch (e) { lines.push('storage: ' + e.message); }
   try { const { logs = [] } = await chrome.storage.local.get('logs'); lines.push('logs:\n' + logs.slice(-8).join('\n')); } catch { /* 무시 */ }
   const text = lines.join('\n'); $('#detail').textContent = text;
   try { await navigator.clipboard.writeText(text); msg('진단 정보를 복사했습니다. 붙여넣기(Ctrl+V)로 보내 주세요.', 'ok'); } catch { msg('아래 진단 정보를 캡처해서 보내 주세요.', 'ok'); }
@@ -126,8 +126,18 @@ $('#diag').onclick = async () => {
 };
 $('#send-sales').onclick = () => saveKind('sales');
 $('#send-ads').onclick = () => saveKind('ads');
-$('#open-app').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
-$('#open-import').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#import') });
+// 광고계산기 화면은 데이터가 커서 탭 하나가 수백 MB 를 쓴다 → 이미 열린 탭이 있으면 그 탭으로 가고, 남는 탭은 닫는다 (여러 개 쌓이면 크롬이 확장을 멈춘다)
+async function openApp(hash = '') {
+  const base = chrome.runtime.getURL('app.html'); const url = base + hash;
+  const tabs = await chrome.tabs.query({ url: base + '*' }).catch(() => []);
+  if (tabs.length) {
+    const [keep, ...extra] = tabs; if (extra.length) await chrome.tabs.remove(extra.map((t) => t.id)).catch(() => {});
+    await chrome.tabs.update(keep.id, { active: true, ...(hash ? { url } : {}) }); await chrome.windows.update(keep.windowId, { focused: true }).catch(() => {});
+  } else await chrome.tabs.create({ url });
+  window.close();
+}
+$('#open-app').onclick = () => openApp();
+$('#open-import').onclick = () => openApp('#import');
 
 $('#date-yday').onclick = () => { $('#date').value = yesterdayIso(); };
 $('#goto-sales').onclick = async (e) => {
@@ -138,7 +148,7 @@ $('#goto-sales').onclick = async (e) => {
   if (tab?.url?.includes('coupang.com')) chrome.tabs.update(tab.id, { url }); else chrome.tabs.create({ url });
   msg(`${date} 판매분석 화면을 여는 중… 화면이 뜨면 ① 을 누르세요.`);
 };
-$('#open-range').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html#range') });
+$('#open-range').onclick = () => openApp('#range');
 
 async function showUpdate() {
   if (await reloadIfFilesChanged()) return;
@@ -146,13 +156,13 @@ async function showUpdate() {
   if (!u.hasUpdate) return;
   $('#upd').style.display = 'block';
   $('#upd').innerHTML = `🆕 새 버전 <b>v${u.latest}</b> 이 있습니다 (지금 v${u.current}).<br>저장소 폴더의 <b>업데이트.bat</b> 을 더블클릭하면 받아지고, 확장 프로그램은 스스로 새로고침됩니다. <a href="#" id="upd-how">자세히</a>`;
-  $('#upd-how').onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('app.html#update') }); };
+  $('#upd-how').onclick = (e) => { e.preventDefault(); openApp('#update'); };
 }
 (async () => {
   $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
   showUpdate();
   const tab = await activeTab(); $('#date').value = dateFromUrl(tab?.url || '') || yesterdayIso();
-  const d = await S.load(); const ds = S.dates(d);
+  const d = await S.loadLight(); const ds = S.dates(d);   // 광고 보고서 줄은 읽지 않는다 (팝업을 열 때마다 수백 MB 를 읽어 확장이 멈추던 원인)
   if (!ds.length) msg('아직 저장된 데이터가 없습니다. ①, ② 를 눌러 시작하세요.');
   else msg(`저장된 데이터: ${ds[0]} ~ ${ds[ds.length - 1]} (${ds.length}일)`);
 })();

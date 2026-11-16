@@ -29,6 +29,8 @@ export function adIndex(d) {
 let adrowsCache = null;
 try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY_ADROWS]) { adrowsCache = ch[KEY_ADROWS].newValue || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); } }); } catch { /* 테스트 환경 */ }
 
+// 가벼운 읽기: 광고 보고서 줄(ccadrows, 수십만 줄·수백 MB)은 빼고 읽는다. 팝업처럼 날짜·옵션만 보면 되는 곳용. 이걸로 읽은 값은 save 하면 안 된다
+export async function loadLight() { const r = await chrome.storage.local.get(KEY); const d = { ...EMPTY(), ...(r[KEY] || {}) }; Object.defineProperty(d, '__light', { value: true }); return d; }
 export async function load() {
   const r = await chrome.storage.local.get(adrowsCache ? [KEY] : [KEY, KEY_ADROWS]);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
@@ -252,6 +254,7 @@ export function mergeCampaign(d, from, to) {
 }
 const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'ad_orders'].every((k) => !r[k]);
 export async function save(d) {
+  if (d && d.__light) throw new Error('가벼운 읽기(loadLight)로 읽은 데이터는 저장할 수 없습니다');
   const { adrows, ...rest } = d;
   const out = { [KEY]: rest };
   if (adrows !== savedRef || adV(adrows) !== savedV) out[KEY_ADROWS] = adrows || {};
