@@ -33,7 +33,9 @@ const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d
 const download = (name, text, type = 'text/csv') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type })); a.download = name; a.click(); };
 const csvEsc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 let DATA = null;
-async function reload() { DATA = await S.load(); return DATA; }
+// 안전 모드(app.html?safe=1): 광고 보고서 줄을 읽지 않고 연다 — 데이터가 커서 화면을 열면 멈출 때 설정·업데이트·백업에 들어가기 위해 (저장은 안 됨)
+const SAFE_MODE = new URLSearchParams(location.search).has('safe');
+async function reload() { DATA = SAFE_MODE ? await S.loadLight() : await S.load(); return DATA; }
 
 /* ===== 기간 ===== */
 const range = { start: null, end: null, preset: '30' };
@@ -86,7 +88,7 @@ window.addEventListener('hashchange', () => showPage(location.hash.slice(1).spli
 function renderCurrent() {
   if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
-async function refreshAll() { await reload(); renderFoot(); renderCurrent(); }
+async function refreshAll() { await reload(); renderFoot(); renderCurrent(); try { renderAdrowsBanner(); } catch { /* 무시 */ } }
 // 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
 function renderMarginAlert() {
   const d = DATA; const st = S.campaignStatus(d); const lookup = S.marginLookup(d); const todayIso = localIso(today);
@@ -1861,14 +1863,26 @@ $('#upd-check').onclick = async () => { msg('#upd-msg', '확인 중…'); const 
 $('#upd-reload').onclick = async () => { if (!(await reloadIfFilesChanged())) { if (confirm('파일이 아직 바뀌지 않았습니다. 그래도 새로고침할까요?')) chrome.runtime.reload(); } };
 $('#upd-zip').href = ZIP_URL;
 
+// 예전 광고 보고서 한 덩어리가 너무 커서 읽지 않았을 때(읽으면 확장이 멈춤): 안내와 정리 버튼
+function renderAdrowsBanner() {
+  const box = $('#adrows-banner'); if (!box) return; const big = S.adrowsTooBig;
+  if (SAFE_MODE) { box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00;margin-bottom:10px">🛟 <b>안전 모드</b>: 광고 보고서(키워드·옵션) 데이터를 읽지 않고 열었습니다. 업데이트·백업·설정은 쓸 수 있지만 <b>장부를 고치거나 저장할 수는 없습니다</b>. 업데이트 후 주소 끝의 <code>?safe=1</code> 을 지우고 다시 여세요.</div>`; return; }
+  if (!big) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00;margin-bottom:10px">⚠️ 예전 광고 보고서 데이터(${Math.round(big / 1e6)}MB)가 너무 커서, 읽으면 크롬이 광고계산기를 멈추게 해 <b>읽지 않았습니다</b>. 장부·판매·광고비는 그대로이고, 캠페인 분석(키워드·옵션)만 비어 보입니다.<br>
+    ① 데이터 · 설정 → <b>복원</b>에 최근 자동 백업(.gz)을 올리면 광고 보고서도 달별로 나눠 다시 저장됩니다. 또는 ② <b>날짜를 정해 가져오기 → 📢 이 기간 광고 보고서 받기</b>로 필요한 기간(예: 최근 90일)을 다시 받으세요.
+    <button class="btn sm" id="adrows-drop">읽지 못한 예전 데이터 지우기 (저장 공간 비우기)</button></div>`;
+  $('#adrows-drop').onclick = async () => { if (!confirm('읽지 못한 예전 광고 보고서 데이터를 지울까요? (백업 파일에는 남아 있습니다)')) return; await S.dropOldAdrows(); renderAdrowsBanner(); toast('지웠습니다'); };
+}
 /* ===== 초기화 ===== */
 // 광고계산기 탭은 하나만: 이 탭을 열면 예전에 열어 둔 다른 광고계산기 탭은 닫는다 (탭마다 수백 MB 를 써서 여러 개면 크롬이 확장을 멈춘다)
 (async () => { try { const me = await chrome.tabs.getCurrent(); const others = (await chrome.tabs.query({ url: chrome.runtime.getURL('app.html') + '*' })).filter((t) => t.id !== me?.id); if (others.length) await chrome.tabs.remove(others.map((t) => t.id)); } catch { /* 무시 */ } })();
 $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
+renderAdrowsBanner();
 renderUpdate();
 reloadIfFilesChanged();
 $('#ads-date').value = localIso(yday);
 async function migrateEndDateBug() {
+  if (SAFE_MODE) return;
   const { migratedEndDate } = await chrome.storage.local.get('migratedEndDate'); if (migratedEndDate) return;
   const dd = await reload(); const legacyDates = Object.keys(dd.legacy || {}).filter((x) => Object.keys(dd.legacy[x]).length).sort(); const cutoff = legacyDates[legacyDates.length - 1];
   let n = 0;
@@ -1887,7 +1901,7 @@ async function migrateEndDateBug() {
   else showPage(hash || 'dash');
   snapshotPages();
   // 백그라운드(자동 수집 등)가 바꾼 것만 다시 그린다. 이 화면이 방금 저장해서 이미 다시 그렸으면 건너뜀 (두 번 그려 느려지던 것)
-  chrome.storage.onChanged.addListener((ch, area) => { if (area !== 'local' || !(ch.ccdata || ch.ccadrows)) return; const at = Date.now(); setTimeout(() => { if (lastLocalRefresh >= at - 50) return; reload().then(() => { renderFoot(); renderCurrent(); }); }, 700); });
+  chrome.storage.onChanged.addListener((ch, area) => { if (area !== 'local' || !(ch.ccdata || Object.keys(ch).some((k) => k.startsWith('ccadrows')))) return; const at = Date.now(); setTimeout(() => { if (lastLocalRefresh >= at - 50) return; reload().then(() => { renderFoot(); renderCurrent(); }); }, 700); });
   // 다른 탭에서 저장하고 이 탭으로 돌아왔을 때도 최신 데이터로 다시 그린다
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 })();

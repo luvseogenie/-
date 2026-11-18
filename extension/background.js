@@ -1039,7 +1039,7 @@ async function purgeEarlyYesterday() {
     if (lastAuto.at >= okFrom.getTime()) return;
     const date = lastAuto.date; const d = await S.load();
     const n = Object.keys(d.sales[date] || {}).length + Object.keys(d.ads[date] || {}).length + ((d.adrows || {})[date] || []).length;
-    delete d.sales[date]; delete d.ads[date]; if (d.adrows && d.adrows[date]) { delete d.adrows[date]; S.bumpAdrows(d.adrows); }
+    delete d.sales[date]; delete d.ads[date]; if (d.adrows && d.adrows[date]) { delete d.adrows[date]; S.bumpAdrows(d.adrows, [date]); }
     await S.save(d); await chrome.storage.local.remove('lastAuto');
     await log(`[자동] ${date} 판매·광고 값 ${n}건을 지웠습니다: 예약 시각(${s.autoTime}) 전인 ${new Date(lastAuto.at).toLocaleString('ko-KR')} 에 받은 덜 잡힌 숫자라서. 예약 시각 이후 자동 수집에서 다시 받습니다`);
   } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }

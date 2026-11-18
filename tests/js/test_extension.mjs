@@ -7,7 +7,7 @@ import { computeLedger } from '../../extension/lib/ledger.js';
 
 // chrome.storage 흉내
 const mem = {};
-globalThis.chrome = { storage: { local: { get: async (k) => { const ks = Array.isArray(k) ? k : [k]; const o = {}; for (const x of ks) if (x in mem) o[x] = mem[x]; return o; }, set: async (o) => Object.assign(mem, o) }, sync: { get: async () => ({}), set: async () => {} } } };
+globalThis.chrome = { storage: { local: { get: async (k) => { const ks = Array.isArray(k) ? k : [k]; const o = {}; for (const x of ks) if (x in mem) o[x] = mem[x]; return o; }, set: async (o) => Object.assign(mem, o), remove: async (k) => { for (const x of (Array.isArray(k) ? k : [k])) delete mem[x]; }, getBytesInUse: async (k) => (k in mem ? JSON.stringify(mem[k]).length : 0) }, sync: { get: async () => ({}), set: async () => {} } } };
 
 const D = '2025-06-08';
 const approx = (a, b, eps = 0.01) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -1161,4 +1161,28 @@ console.log('extension logic: all checks passed');
   const L = await S.loadLight(); assert.ok(!L.adrows || !Object.keys(L.adrows).length); assert.deepEqual(S.dates(L), ['2026-11-01', '2026-11-02']);
   await assert.rejects(() => S.save(L));
   console.log('light load for popup: all checks passed');
+}
+
+// 광고 보고서 행 월별 저장: 한 덩어리(ccadrows) → ccadrows@YYYY-MM 로 옮기고, 너무 큰 예전 덩어리는 읽지 않으며, 바뀐 달만 다시 쓴다
+{
+  const memKeys = () => Object.keys(globalThis.chrome.storage.local.__mem || {});
+  const st = globalThis.chrome.storage.local;
+  await S.replaceAll({ options: [], sales: {}, ads: {}, adrows: { '2026-10-30': [{ campaign: 'A', spend: 1 }], '2026-11-02': [{ campaign: 'B', spend: 2 }] } });
+  const g = async (k) => (await st.get(k))[k];
+  assert.deepEqual(await g('ccadrowsMonths'), ['2026-10', '2026-11']); assert.ok((await g('ccadrows@2026-10'))['2026-10-30']); assert.equal(await g('ccadrows'), undefined);
+  // 예전 형식 → 옮김 (새로 읽게 캐시를 비우려고 모듈을 새로 불러온다)
+  await st.remove(['ccadrowsMonths', 'ccadrows@2026-10', 'ccadrows@2026-11']); await st.set({ ccadrows: { '2026-09-01': [{ campaign: 'C', spend: 3 }] } });
+  const S2 = await import('../../extension/lib/store.js?fresh=1'); const d2 = await S2.load();
+  assert.equal(d2.adrows['2026-09-01'][0].campaign, 'C'); assert.deepEqual(await g('ccadrowsMonths'), ['2026-09']); assert.equal(await g('ccadrows'), undefined);
+  // 바뀐 달만 다시 쓴다
+  let writes = []; const set0 = st.set; st.set = async (o) => { writes.push(...Object.keys(o)); return set0(o); };
+  S2.upsertAdRows(d2, [{ date: '2026-11-05', campaign: 'D', keyword: 'k', option_id: '1', spend: 4 }]); await S2.save(d2);
+  assert.ok(writes.includes('ccadrows@2026-11') && !writes.includes('ccadrows@2026-09')); st.set = set0;
+  // 너무 큰 예전 덩어리는 읽지 않는다
+  await st.remove(['ccadrowsMonths', 'ccadrows@2026-09', 'ccadrows@2026-11']); await st.set({ ccadrows: { big: [] } });
+  const gb = st.getBytesInUse; st.getBytesInUse = async () => S2.OLD_ADROWS_LIMIT + 1;
+  const S3 = await import('../../extension/lib/store.js?fresh=2'); const d3 = await S3.load();
+  assert.deepEqual(Object.keys(d3.adrows), []); assert.ok(S3.adrowsTooBig > 0); st.getBytesInUse = gb;
+  await S3.dropOldAdrows(); assert.equal(await g('ccadrows'), undefined);
+  console.log('month-split ad report storage: all checks passed');
 }

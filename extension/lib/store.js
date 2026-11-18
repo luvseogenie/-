@@ -5,11 +5,39 @@ import { cleanCampaignName } from './parse.js';
 //         legacy:{ 'YYYY-MM-DD': { campaign: {확정 장부 값} } }  ← 예전 엑셀 4번 시트에서 가져온 값 (옵션별 데이터가 없을 때 그대로 씀)
 //         imports:[{id, at, source, from, to, cells, before:{…}}]  ← 가져오기 기록 (되돌리기용) }
 const KEY = 'ccdata';
-const KEY_ADROWS = 'ccadrows';   // 광고 보고서 행(adrows)은 덩치가 커서 따로 저장 — 다른 데이터를 저장할 때마다 같이 쓰지 않게
+const KEY_ADROWS = 'ccadrows';   // (예전 형식) 광고 보고서 행 전체를 한 덩어리로 — 읽으면 월별로 옮기고 지운다
+// 광고 보고서 행(adrows)은 수십만 줄·수백 MB 라 '월별' 로 나눠 저장한다: ccadrows@YYYY-MM. 한 덩어리로 두면 크롬이 한 번에 주고받다
+// (읽기·다른 화면에 바뀐 값 알리기) 확장이 멈출 수 있다. ccadrowsMonths = 저장된 달 목록
+const KEY_AR_MONTHS = 'ccadrowsMonths';
+const arKey = (m) => 'ccadrows@' + m;
+const monthOf = (date) => String(date).slice(0, 7);
+export const OLD_ADROWS_LIMIT = 600 * 1000 * 1000;   // 예전 한 덩어리가 이보다 크면 읽지 않는다 (읽다가 확장이 멈춤)
+async function readAdrows() {
+  const st = chrome.storage.local; const out = {};
+  const r0 = await st.get(KEY_AR_MONTHS); const months = r0[KEY_AR_MONTHS];
+  if (Array.isArray(months)) { for (const m of months) { const r = await st.get(arKey(m)); Object.assign(out, r[arKey(m)] || {}); } return { adrows: out }; }
+  let bytes = -1; try { bytes = await st.getBytesInUse(KEY_ADROWS); } catch { /* 지원 안 함 */ }
+  if (bytes > OLD_ADROWS_LIMIT) return { adrows: out, tooBig: bytes };
+  const r = await st.get(KEY_ADROWS);
+  return { adrows: r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object' ? r[KEY_ADROWS] : out, old: !!r[KEY_ADROWS] };
+}
+async function writeAdrows(adrows, onlyMonths = null) {   // 달마다 따로 저장 (onlyMonths: 바뀐 달만)
+  const st = chrome.storage.local; const byM = {};
+  for (const [date, rows] of Object.entries(adrows || {})) (byM[monthOf(date)] ||= {})[date] = rows;
+  const months = Object.keys(byM).sort(); const prev = (await st.get(KEY_AR_MONTHS))[KEY_AR_MONTHS] || [];
+  for (const m of months) if (!onlyMonths || onlyMonths.has(m) || !prev.includes(m)) await st.set({ [arKey(m)]: byM[m] });
+  const gone = prev.filter((m) => !byM[m]); if (gone.length) await st.remove(gone.map(arKey));
+  await st.set({ [KEY_AR_MONTHS]: months });
+}
 const EMPTY = () => ({ options: [], margins: [], sales: {}, ads: {}, legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {} });
 // adrows 가 바뀌었는지: 큰 데이터를 매번 훑지 않도록 바꾸는 곳(upsertAdRows·이름 정리·날짜 삭제)에서 버전 번호를 올린다
 const adV = (a) => (a && a.__v) || 0;
-export function bumpAdrows(a) { if (a && typeof a === 'object') Object.defineProperty(a, '__v', { value: adV(a) + 1, writable: true, configurable: true, enumerable: false }); }
+export function bumpAdrows(a, dates = null) {   // dates 를 주면 그 날짜의 달만 다시 저장 (없으면 전부)
+  if (!a || typeof a !== 'object') return;
+  Object.defineProperty(a, '__v', { value: adV(a) + 1, writable: true, configurable: true, enumerable: false });
+  let dirty = a.__dirty; if (!dates || dirty === 'all') dirty = 'all'; else { dirty = dirty instanceof Set ? dirty : new Set(); for (const x of dates) dirty.add(monthOf(x)); }
+  Object.defineProperty(a, '__dirty', { value: dirty, writable: true, configurable: true, enumerable: false });
+}
 let savedRef = null, savedV = 0;
 // 광고 보고서 색인 (캠페인별 옵션, 옵션별 캠페인·최근 날짜, 날짜×옵션의 대표 행, 캠페인이 처음 보인 날) — adrows 버전이 같으면 다시 만들지 않는다
 const adIdxCache = new WeakMap();
@@ -27,16 +55,29 @@ export function adIndex(d) {
 }
 // adrows 는 한 번 읽으면 메모리에 두고, 다른 곳(백그라운드 수집)에서 바뀌면 onChanged 로 받은 새 값으로 갈아 끼운다 — 매번 큰 데이터를 다시 읽지 않게
 let adrowsCache = null;
-try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY_ADROWS]) { adrowsCache = ch[KEY_ADROWS].newValue || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); } }); } catch { /* 테스트 환경 */ }
+try {
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local' || !adrowsCache) return;
+    const keys = Object.keys(ch).filter((k) => k.startsWith('ccadrows@')); if (!keys.length) return;
+    for (const k of keys) { const m = k.slice('ccadrows@'.length); for (const date of Object.keys(adrowsCache)) if (monthOf(date) === m) delete adrowsCache[date]; Object.assign(adrowsCache, ch[k].newValue || {}); }
+    bumpAdrows(adrowsCache); Object.defineProperty(adrowsCache, '__dirty', { value: null, writable: true, configurable: true, enumerable: false }); savedRef = adrowsCache; savedV = adV(adrowsCache);   // 다른 곳에서 저장한 달만 갈아 끼움
+  });
+} catch { /* 테스트 환경 */ }
 
 // 가벼운 읽기: 광고 보고서 줄(ccadrows, 수십만 줄·수백 MB)은 빼고 읽는다. 팝업처럼 날짜·옵션만 보면 되는 곳용. 이걸로 읽은 값은 save 하면 안 된다
 export async function loadLight() { const r = await chrome.storage.local.get(KEY); const d = { ...EMPTY(), ...(r[KEY] || {}) }; Object.defineProperty(d, '__light', { value: true }); return d; }
+export let adrowsTooBig = 0;   // 예전 한 덩어리가 너무 커서 읽지 않았으면 그 크기(바이트) — 화면에서 안내
 export async function load() {
-  const r = await chrome.storage.local.get(adrowsCache ? [KEY] : [KEY, KEY_ADROWS]);
+  const r = await chrome.storage.local.get(KEY);
   const d = { ...EMPTY(), ...(r[KEY] || {}) };
   if (adrowsCache) { d.adrows = adrowsCache; }
-  else if (r[KEY_ADROWS] && typeof r[KEY_ADROWS] === 'object') { d.adrows = r[KEY_ADROWS]; adrowsCache = d.adrows; savedRef = d.adrows; savedV = adV(d.adrows); }
-  else { savedRef = null; }   // 예전 형식(ccdata 안에 adrows) → 다음 저장 때 따로 옮겨 쓴다
+  else {
+    const got = await readAdrows();
+    if (got.tooBig) adrowsTooBig = got.tooBig;
+    if (got.old) { await writeAdrows(got.adrows); await chrome.storage.local.remove(KEY_ADROWS); }   // 예전 한 덩어리 → 월별로 옮김
+    if (Object.keys(got.adrows).length || !d.adrows || !Object.keys(d.adrows).length) d.adrows = got.adrows;   // (더 예전: ccdata 안에 adrows → 다음 저장 때 월별로)
+    adrowsCache = d.adrows; savedRef = got.adrows === d.adrows ? d.adrows : null; savedV = adV(d.adrows);
+  }
   for (const [c, v] of Object.entries(d.zeroRoas || {})) if (typeof v === 'number') d.zeroRoas[c] = [{ from: '', value: v }];
   // 오늘·미래 날짜로 잘못 들어간 판매·광고 값은 지운다 (하루가 안 끝난 값)
   let futureChanged = false; { const y = yesterdayLocal(); for (const k of ['sales', 'ads']) for (const date of Object.keys(d[k] || {})) if (date > y) { delete d[k][date]; futureChanged = true; } }
@@ -256,11 +297,21 @@ const zeroAds = (r) => !r || ['spend', 'ad_revenue', 'impressions', 'clicks', 'a
 export async function save(d) {
   if (d && d.__light) throw new Error('가벼운 읽기(loadLight)로 읽은 데이터는 저장할 수 없습니다');
   const { adrows, ...rest } = d;
-  const out = { [KEY]: rest };
-  if (adrows !== savedRef || adV(adrows) !== savedV) out[KEY_ADROWS] = adrows || {};
-  await chrome.storage.local.set(out); savedRef = adrows || null; savedV = adV(adrows); adrowsCache = adrows || {};
+  if (adrows !== savedRef || adV(adrows) !== savedV) {
+    const dirty = adrows === savedRef && adrows?.__dirty instanceof Set ? adrows.__dirty : null;
+    await writeAdrows(adrows || {}, dirty);
+    if (adrows) Object.defineProperty(adrows, '__dirty', { value: null, writable: true, configurable: true, enumerable: false });
+  }
+  await chrome.storage.local.set({ [KEY]: rest }); savedRef = adrows || null; savedV = adV(adrows); adrowsCache = adrows || {};
 }
-export async function replaceAll(d) { const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full; await chrome.storage.local.set({ [KEY]: rest, [KEY_ADROWS]: adrows || {} }); adrowsCache = adrows || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); }
+export async function replaceAll(d) {
+  const { __settings, __backupAt, ...data } = d || {}; const full = { ...EMPTY(), ...data }; const { adrows, ...rest } = full;
+  await chrome.storage.local.remove(KEY_ADROWS).catch(() => {});   // 예전 한 덩어리는 지운다
+  await writeAdrows(adrows || {}); await chrome.storage.local.set({ [KEY]: rest });
+  adrowsCache = adrows || {}; savedRef = adrowsCache; savedV = adV(adrowsCache); adrowsTooBig = 0;
+}
+// 너무 커서 읽지 못한 예전 광고 보고서 한 덩어리를 지운다 (백업 파일에는 남아 있음)
+export async function dropOldAdrows() { await chrome.storage.local.remove(KEY_ADROWS); adrowsTooBig = 0; }
 
 const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s.endsWith('.0')) s = s.slice(0, -2); return s; };
 export const cleanIdPublic = (v) => cleanId(v);
@@ -669,7 +720,7 @@ export function upsertAdRows(d, rows) {
   let n = 0;
   for (const [date, list] of Object.entries(byDate)) {
     const keep = (d.adrows[date] || []).filter((r) => !touched.has(date + '|' + r.campaign));
-    d.adrows[date] = keep.concat(list); n += list.length; bumpAdrows(d.adrows);
+    d.adrows[date] = keep.concat(list); n += list.length; bumpAdrows(d.adrows, [date]);
   }
   return n;
 }
