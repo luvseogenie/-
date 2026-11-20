@@ -49,13 +49,23 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
     const c = (camps[a.campaign] ||= { spend: 0, ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0, estQty: 0, products: 0 });
     c.spend += a.spend || 0; c.ad_revenue += a.ad_revenue || 0; c.ad_orders += a.ad_orders || 0; c.clicks += a.clicks || 0; c.impressions += a.impressions || 0;
   }
+  // 판매 한 줄은 캠페인 한 곳에만 넣는다: 옵션이 연결된 캠페인 → 없으면(윙·다른 색상 등) 같은 등록상품 옵션이 연결된 캠페인 중
+  // 오늘 광고비를 쓴 곳, 그중 그 상품 옵션이 많이 들어 있는 곳. (한 상품의 옵션을 두 캠페인에 나눠 넣었을 때 매출이 양쪽에 두 번 잡히지 않게)
+  const linkedCamp = {}; const pidCampN = {};
+  for (const o of d.options || []) { if (!o.campaign) continue; linkedCamp[o.option_id] = o.campaign; const p = pidOf(o.option_id); if (p) { const m = (pidCampN[p] ||= {}); m[o.campaign] = (m[o.campaign] || 0) + 1; } }
+  const campFor = (r) => {
+    if (linkedCamp[r.option_id]) return linkedCamp[r.option_id];
+    const m = pidCampN[String(r.product_id || pidOf(r.option_id) || '')]; if (!m) return null;
+    const live = Object.keys(m).filter((c) => camps[c] && camps[c].spend > 0); const pool = live.length ? live : Object.keys(m);
+    return pool.sort((a, b) => (m[b] - m[a]) || b.localeCompare(a, 'ko', { numeric: true }))[0];
+  };
+  for (const r of sales) {
+    const c = camps[campFor(r)]; if (!c) continue;
+    const [m, est] = marginOf(r);
+    c.revenue += r.revenue || 0; c.qty += r.quantity || 0; c.margin += (r.quantity || 0) * m; if (!m) c.noMarginQty += r.quantity || 0; if (est) c.estQty += r.quantity || 0;
+  }
   for (const [name, c] of Object.entries(camps)) {
-    const oids = campOids[name] || new Set(); const pids = campPids[name] || new Set(); c.products = pids.size;
-    for (const r of sales) {
-      if (!(oids.has(r.option_id) || (r.product_id && pids.has(String(r.product_id))))) continue;
-      const [m, est] = marginOf(r);
-      c.revenue += r.revenue || 0; c.qty += r.quantity || 0; c.margin += (r.quantity || 0) * m; if (!m) c.noMarginQty += r.quantity || 0; if (est) c.estQty += r.quantity || 0;
-    }
+    c.products = (campPids[name] || new Set()).size;
     c.roas = c.spend ? c.revenue / c.spend : 0; c.ad_roas = c.spend ? c.ad_revenue / c.spend : 0; c.profit = c.margin - c.spend * VAT;
   }
   const total = { spend: 0, ad_revenue: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0 };

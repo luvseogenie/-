@@ -1186,3 +1186,23 @@ console.log('extension logic: all checks passed');
   await S3.dropOldAdrows(); assert.equal(await g('ccadrows'), undefined);
   console.log('month-split ad report storage: all checks passed');
 }
+
+// 똑딱이 담요: 52번 캠페인의 옵션 5개를 11/19 부터 새 70번 캠페인으로 옮김 → 장부는 18일까지 52번, 19일부터 70번. 실시간 ROAS 는 매출을 두 캠페인에 두 번 넣지 않는다
+{
+  const C52 = '52. 똑딱이 담요_300%_260915', C70 = '70. 똑딱이 담요_300%_261119';
+  const ad = (c) => ({ campaign: c, spend: 10000, ad_revenue: 30000, impressions: 100, clicks: 10, ad_orders: 2 });
+  const sale = (oid, q) => ({ option_id: oid, option_name: 'DUGN 담요, 블루', product_name: 'DUGN 담요', product_id: '777', quantity: q, revenue: q * 20000 });
+  const row = (date, c, oid) => ({ date, campaign: c, option_id: oid, keyword: 'k', spend: 5000, impressions: 50, clicks: 5, orders14: 1, qty14: 1, revenue14: 20000 });
+  const d = { options: [{ option_id: 'X', campaign: C70 }, { option_id: 'Y', campaign: C52 }], margins: [{ option_id: 'X', effective_from: '', margin: 6868 }, { option_id: 'Y', effective_from: '', margin: 6868 }], legacy: {},
+    ads: { '2026-11-16': { [C52]: ad(C52) }, '2026-11-17': { [C52]: ad(C52) }, '2026-11-18': { [C52]: ad(C52) }, '2026-11-19': { [C52]: ad(C52), [C70]: ad(C70) }, '2026-11-20': { [C52]: ad(C52), [C70]: ad(C70) } },
+    adrows: { '2026-11-17': [row('2026-11-17', C52, 'X'), row('2026-11-17', C52, 'Y')], '2026-11-18': [row('2026-11-18', C52, 'X')], '2026-11-19': [row('2026-11-19', C70, 'X'), row('2026-11-19', C52, 'Y')], '2026-11-20': [row('2026-11-20', C70, 'X')] },
+    sales: Object.fromEntries(['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20'].map((dt) => [dt, { X: sale('X', 3), Y: sale('Y', 1) }])) };
+  const led = computeLedger(d, '2026-11-16', '2026-11-20'); const q = (c, dt) => led.campaigns.find((x) => x.campaign === c)?.days[dt]?.actual_qty || 0;
+  for (const dt of ['2026-11-16', '2026-11-17', '2026-11-18']) { assert.equal(q(C52, dt), 4, dt); assert.equal(q(C70, dt), 0, dt); }   // 옮기기 전: X(3)+Y(1) 모두 52번
+  for (const dt of ['2026-11-19', '2026-11-20']) { assert.equal(q(C52, dt), 1, dt); assert.equal(q(C70, dt), 3, dt); }               // 옮긴 뒤: X 는 70번, Y 는 52번
+  const RT = await import('../../extension/lib/realtime.js');
+  const snap = RT.computeSnapshot({ ...d, brands: [] }, [sale('X', 3), sale('Y', 1), sale('Z', 2)], [ad(C52), ad(C70)], new Date(2026, 10, 20, 15, 2));
+  assert.equal(snap.camps[C52].qty, 1); assert.equal(snap.camps[C70].qty, 5);   // X(3)→70, Y(1)→52, 연결 안 된 같은 상품 Z(2)는 한 곳(70)에만 — 두 캠페인에 두 번 잡히지 않음
+  assert.equal(snap.total.qty, 6);
+  console.log('options moved to a new campaign mid-way: all checks passed');
+}
