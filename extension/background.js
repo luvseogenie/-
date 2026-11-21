@@ -1079,6 +1079,18 @@ async function purgeEarlyYesterday() {
     await log(`[자동] ${date} 판매·광고 값 ${n}건을 지웠습니다: 예약 시각(${s.autoTime}) 전인 ${new Date(lastAuto.at).toLocaleString('ko-KR')} 에 받은 덜 잡힌 숫자라서. 예약 시각 이후 자동 수집에서 다시 받습니다`);
   } catch (e) { await log(`[자동] 이른 수집 값 정리 실패: ${e.message}`); }
 }
+// 재고는 하루 한 번: 주소가 있는데 오늘 재고가 아직 없으면(13시 자동 수집이 꺼져 있거나, 주소를 그 뒤에 넣었거나, 실패) 매시간 점검에서 읽는다 (하루 3번까지)
+async function inventoryCatchUp() {
+  try {
+    const s = await getSettings(); if (!s.invUrl) return; const h = new Date().getHours(); if (h < 9 || h > 22) return;
+    if (rtRunning || autoRunning || job.running) return;
+    const t = RT.todayIso(); const d = await S.loadLight(); if ((d.inventory || {})[t]) return;
+    const { invTry = {} } = await chrome.storage.local.get('invTry'); const n = invTry.date === t ? invTry.n : 0; if (n >= 3) return;
+    await chrome.storage.local.set({ invTry: { date: t, n: n + 1 } });
+    await log(`[재고] 오늘 재고를 아직 안 읽어서 지금 읽습니다 (${n + 1}/3)`);
+    autoRunning = true; try { await inventoryRun(); } finally { autoRunning = false; }
+  } catch (e) { await log(`[재고] 점검 실패: ${e.message}`); }
+}
 async function hourlyCheck() {
   try { const s0 = await getSettings(); if (s0.realtimeEnabled && (!await chrome.alarms.get('realtime').catch(() => null) || !await chrome.alarms.get('rt-watch').catch(() => null))) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
   await purgeEarlyYesterday();
@@ -1172,7 +1184,7 @@ async function tick(kind) {
   } catch { /* 무시 */ }
 }
 chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck(); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); else if (a.name === 'rt-watch') rtWatch(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck().finally(() => inventoryCatchUp()); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); else if (a.name === 'rt-watch') rtWatch(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
