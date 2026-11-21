@@ -1232,6 +1232,12 @@ console.log('extension logic: all checks passed');
   // 판매 기록 옵션명이 옵션값만('1개 블루')이면 상품명+옵션명으로, 칸 앞에 배지 글자가 붙어도 찾는다. 못 찾은 줄은 unmatched 로 알려 준다
   const n3 = INV.normalizeInventory([{ '상품정보': '로켓그로스 DUGN 조끼 남성 겨울, L 그레이', '재고상태': '판매가능 9' }, { '상품정보': '없는 상품 이름입니다', '재고상태': '판매가능 1' }], { names: [{ option_id: '93000000001', name: ['L 그레이', 'DUGN 조끼 남성 겨울 L 그레이'] }] });
   assert.equal(n3.length, 1); assert.equal(n3[0].stock, 9); assert.equal(n3.unmatched.length, 1);
+  // 상품정보 칸 속 이름표 없는 숫자: 등록상품ID · 옵션ID · SKU ID → 이름 맞추기보다 먼저 (이름이 같은 다른 옵션으로 잘못 붙지 않게)
+  const n4 = INV.normalizeInventory([
+    { '상품정보': 'DUGN 바람막이 문풍지 12M, 1개 그레이 16394947286 96101960077 81036452 아이템위너 배지', '재고상태': '판매가능 710 입고중 0' },
+    { '상품정보': 'DUGN 바람막이 문풍지 12M, 1개 화이트 16394947286 96101960075 81036451', '재고상태': '판매가능 804' },
+  ], { names: [{ option_id: '96101960072', name: 'DUGN 바람막이 문풍지 12M, 1개 그레이' }] });
+  assert.deepEqual(n4.map((x) => x.option_id), ['96101960077', '96101960075']); assert.equal(n4[0].product_id, '16394947286'); assert.equal(n4[0].product_name, 'DUGN 바람막이 문풍지 12M, 1개 그레이'); assert.equal(n4[1].stock, 804);
   const sales = {}; const T = '2026-11-21';
   for (let i = 1; i <= 30; i++) { const dt = new Date(2026, 10, 21 - i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     sales[iso] = { '96000000001': { option_id: '96000000001', quantity: i <= 7 ? 4 : 1, sales_type: '로켓그로스' }, '96000000002': { option_id: '96000000002', quantity: 1, sales_type: '로켓그로스' }, W: { option_id: '96000000003', quantity: 9, sales_type: '판매자배송' } }; }

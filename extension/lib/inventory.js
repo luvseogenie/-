@@ -34,11 +34,15 @@ export function normalizeInventory(records, { names = [] } = {}) {
   const OID_IN_TEXT = /(?:옵션\s*ID|옵션\s*아이디|옵션\s*번호|vendor\s*Item\s*Id|Option\s*ID)\s*[:：]?\s*(\d{8,})/i;
   const byName = names.flatMap((x) => [].concat(x.name).map((n) => ({ id: String(x.option_id), k: nk(n) }))).filter((x) => x.k.length >= 6).sort((a, b) => b.k.length - a.k.length);
   const pidx = idx.product_name ?? normed.findIndex((h) => h.includes('상품'));
+  // 새 재고현황 화면의 상품정보 칸: '상품명, 옵션 16394947286 96101960077 81036452 아이템위너 배지' — 이름표 없이 등록상품ID · 옵션ID · SKU ID 순서
+  const ID_TRIPLE = /(?:^|\s)(\d{9,12})\s+(\d{9,12})\s+(\d{5,10})(?=\s|$)/;
   const out = {}; const unmatched = [];
   for (const rec of records) {
     const get = (f) => (idx[f] == null ? null : rec[headers[idx[f]]]);
     let oid = idx.option_id != null ? cleanId(get('option_id')) : '';
     if (!/^\d{5,}$/.test(oid)) { for (const v of Object.values(rec)) { const m = String(v ?? '').match(OID_IN_TEXT); if (m) { oid = m[1]; break; } } }
+    let pid = '', pname = '';
+    if (!/^\d{5,}$/.test(oid) && pidx >= 0) { const txt = String(rec[headers[pidx]] ?? ''); const m = txt.match(ID_TRIPLE); if (m) { pid = m[1]; oid = m[2]; pname = txt.slice(0, m.index).trim(); } }
     if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.startsWith(x.k)); if (hit) oid = hit.id; }
     if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.includes(x.k)); if (hit) oid = hit.id; }   // 앞에 배지 글자가 붙은 경우
     if (!/^\d{5,}$/.test(oid)) { unmatched.push(String(pidx >= 0 ? rec[headers[pidx]] : Object.values(rec).join(' ')).slice(0, 120)); continue; }
@@ -48,7 +52,7 @@ export function normalizeInventory(records, { names = [] } = {}) {
     if (stock == null) continue;
     if (inbound == null) { const ri = String(get('inbound') ?? ''); inbound = /^[\s\d,.\-]+$/.test(ri) && ri.trim() ? parseNumber(ri) : 0; }
     const row = (out[oid] ||= { option_id: oid, product_name: '', option_name: '', product_id: '', stock: 0, inbound: 0 });
-    row.product_name ||= String(get('product_name') ?? '').trim().slice(0, 120); row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
+    row.product_name ||= (pname || String(get('product_name') ?? '').trim()).slice(0, 120); row.product_id ||= pid; row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
     row.stock += stock ?? 0; row.inbound += inbound ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다
   }
   const res = Object.values(out); res.unmatched = unmatched; return res;
