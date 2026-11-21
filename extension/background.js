@@ -803,6 +803,25 @@ async function collectInventory() {
     let r = await readWithRetry(tab.id, 'inventory', Date.now() + s.waitSeconds * 1000 + 30000);
     let rows = [];
     let full = null; if (r) { full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full; rows = INV.normalizeInventory(r.records, { names: invNames(await S.load()) }); if (!rows.length && r.records.length) await log(`[재고] 표 ${r.records.length}줄을 읽었지만 옵션을 알아보지 못했습니다. 첫 줄: ${Object.entries(r.records[0]).map(([k, v]) => `${k}=${String(v).slice(0, 200)}`).join(' | ').slice(0, 1200)}`); }
+    // 화면이 서버에서 받은 재고 데이터: 화면에 100줄씩만 보여도, 화면이 쓰는 요청을 쪽 번호만 바꿔 끝까지 다시 불러 전부 읽는다
+    let apiInfo = null;
+    try {
+      const [x] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: async () => {
+        if (!window.__ccInvReplay) return { none: true };
+        let rep = null; try { rep = await window.__ccInvReplay(); } catch (e) { rep = { ok: false, reason: String(e && e.message || e) }; }
+        return { rep, items: window.__ccInvItems(), calls: window.__ccInvCalls() };
+      } });
+      apiInfo = x?.result || null;
+    } catch (e) { apiInfo = { error: e.message }; }
+    if (apiInfo?.items?.length) {
+      const m = INV.apiInventoryRows(apiInfo.items, rows);
+      if (m?.rows?.length) {
+        const unmatched = rows.unmatched; const by = Object.fromEntries(m.rows.map((x) => [x.option_id, x]));
+        for (const x of rows) by[x.option_id] = { ...(by[x.option_id] || {}), ...x, product_id: x.product_id || by[x.option_id]?.product_id || '', product_name: x.product_name || by[x.option_id]?.product_name || '' };
+        const before = rows.length; rows = Object.values(by); rows.unmatched = unmatched;
+        await log(`[재고] 화면이 받은 재고 데이터로 ${m.rows.length}개 옵션 읽음 (재고 칸 '${m.stockKey}' — ${m.stockHow}${m.inboundKey ? `, 입고 칸 '${m.inboundKey}'` : ''}) → 화면 ${before}개와 합쳐 ${rows.length}개${apiInfo.rep?.ok ? ` · 다시 부르기 ${apiInfo.rep.requests}번(한 번에 ${apiInfo.rep.per}개${apiInfo.rep.apiTotal ? `, 전체 ${apiInfo.rep.apiTotal}개` : ''})` : apiInfo.rep?.reason ? ` · 다시 부르기 안 됨: ${apiInfo.rep.reason}` : ''}${apiInfo.rep?.error ? ` (${apiInfo.rep.error})` : ''}`);
+      } else await log(`[재고] 화면이 받은 데이터 ${apiInfo.items.length}줄에서 재고 칸을 못 정함 · 칸: ${Object.keys(apiInfo.items[0] || {}).slice(0, 30).join(', ').slice(0, 500)}`);
+    } else await log(`[재고] 화면이 받은 재고 데이터 없음 (${apiInfo?.none ? '수집 스크립트 없음 — 재고 화면 주소가 /tenants/rfm… 이 아님?' : apiInfo?.error || `요청 ${apiInfo?.calls?.length ?? 0}개${apiInfo?.rep?.reason ? ', ' + apiInfo.rep.reason : ''}`})`);
     if (!rows.length) {
       // 화면 표로 못 읽으면: '엑셀 다운로드' 로 재고 파일을 받아 읽는다 (받은 파일은 재고 표로 알아보고 저장된다)
       const heads = await chrome.tabs.sendMessage(tab.id, { type: 'tableHeads' }).catch(() => null);

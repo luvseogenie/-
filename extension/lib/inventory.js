@@ -185,3 +185,39 @@ export function inventoryForecast(d, today, settings = {}) {
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
   return { asOf, rows, settings: st };
 }
+
+// 윙 화면이 서버에서 받은 재고 데이터(줄마다 평평하게 편 객체) → 재고 줄.
+// 어느 칸이 '판매가능 재고' 인지는 화면에서 읽은 줄의 재고 숫자와 가장 많이 맞는 칸으로 정한다 (맞춰 볼 줄이 없으면 칸 이름으로)
+const lastSeg = (k) => k.replace(/^.*\./, '');
+const ID_K = /^(vendorItemId|vendorItemID|optionId|vendor_item_id|option_id|vendorItemNo)$/i;
+export function apiInventoryRows(items, screenRows = []) {
+  if (!items?.length) return null;
+  const idKey = (it) => Object.keys(it).find((k) => !k.startsWith('parent.') && ID_K.test(lastSeg(k)));
+  const num = (v) => (typeof v === 'number' ? v : typeof v === 'string' && /^-?[\d,]+(\.\d+)?$/.test(v.trim()) ? Number(v.replace(/,/g, '')) : null);
+  const cands = new Set(); for (const it of items.slice(0, 300)) for (const [k, v] of Object.entries(it)) if (num(v) != null && !/(id|no|code|date|time|price|amount|rate|ratio|percent|day)s?$/i.test(lastSeg(k))) cands.add(k);
+  const scr = Object.fromEntries((screenRows || []).map((r) => [String(r.option_id), r]));
+  const pick = (field, regexes) => {
+    let best = null, bestHits = 0, overlap = 0;
+    for (const k of cands) {
+      let hits = 0, ov = 0;
+      for (const it of items) { const s = scr[String(it[idKey(it)])]; if (!s || s[field] == null) continue; ov++; if (num(it[k]) === Number(s[field])) hits++; }
+      overlap = Math.max(overlap, ov); if (hits > bestHits) { bestHits = hits; best = k; }
+    }
+    if (best && bestHits >= Math.max(2, overlap * 0.5) && !(field === 'inbound' && screenRows.every((r) => !r.inbound))) return { key: best, how: `화면 숫자와 ${bestHits}/${overlap}줄 일치` };
+    for (const re of regexes) { const k = [...cands].find((x) => re.test(lastSeg(x))); if (k) return { key: k, how: '칸 이름' }; }
+    return null;
+  };
+  const stock = pick('stock', [/^(sal(e)?able|sellable|available|orderable|avail)\w*(stock|qty|quantity|inventory|count)$/i, /^(stock|stockQuantity|stockQty|inventory|inventoryQuantity|availableQuantity|quantity|qty)$/i, /stock/i]);
+  if (!stock) return null;
+  const inbound = pick('inbound', [/(inbound|incoming|transit|receiving|arrival|expected)\w*(qty|quantity|stock|count)?$/i]);
+  const strKey = (it, re) => { const k = Object.keys(it).find((x) => re.test(lastSeg(x)) && typeof it[x] !== 'object'); return k ? String(it[k]).trim() : ''; };
+  const rows = [];
+  for (const it of items) {
+    const ik = idKey(it); if (!ik) continue; const oid = String(it[ik]); if (!/^\d{5,}$/.test(oid)) continue;
+    const st = num(it[stock.key]); if (st == null) continue;
+    rows.push({ option_id: oid, product_id: strKey(it, /^(sellerProductId|registeredProductId|productId)$/i).replace(/\.0$/, ''),
+      product_name: strKey(it, /^(sellerProductName|registeredProductName|productName|displayProductName)$/i),
+      option_name: strKey(it, /^(vendorItemName|itemName|optionName|optionValue)$/i), stock: st, inbound: inbound ? num(it[inbound.key]) || 0 : 0, src: 'api' });
+  }
+  return { rows, stockKey: stock.key, stockHow: stock.how, inboundKey: inbound?.key || '' };
+}

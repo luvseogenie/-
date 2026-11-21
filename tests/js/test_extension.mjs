@@ -1389,3 +1389,17 @@ console.log('extension logic: all checks passed');
   assert.equal(INV.baseProductName({ product_name: '로켓그로스 DUGN 리본, 레드' }), 'DUGN 리본');
   console.log('inventory grouping by product name across product IDs: all checks passed');
 }
+
+// 재고: 화면이 받은 데이터(JSON 줄) → 재고 줄. 재고 칸은 화면 숫자와 맞는 칸으로 고른다
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const items = Array.from({ length: 6 }, (_, i) => ({ vendorItemId: 96000000001 + i, sellerProductId: '1600000000' + (i % 2), 'parent.productName': 'DUGN 조끼', vendorItemName: `옵션${i + 1}`, totalStock: 100 + i, orderableQuantity: 10 + i, inboundQuantity: 5, stockDays: 30 }));
+  const screen = [{ option_id: '96000000001', stock: 10, inbound: 0 }, { option_id: '96000000002', stock: 11, inbound: 0 }, { option_id: '96000000003', stock: 12, inbound: 0 }];
+  let m = INV.apiInventoryRows(items, screen);
+  assert.equal(m.stockKey, 'orderableQuantity'); assert.match(m.stockHow, /3\/3/);   // totalStock 이 아니라 화면 숫자와 맞는 칸
+  assert.equal(m.rows.length, 6); assert.equal(m.rows[5].stock, 15); assert.equal(m.rows[5].option_id, '96000000006'); assert.equal(m.rows[0].product_id, '16000000000'); assert.equal(m.rows[0].option_name, '옵션1');
+  m = INV.apiInventoryRows(items, []);   // 맞춰 볼 화면 줄이 없으면 칸 이름 (판매 가능/주문 가능 재고 우선)
+  assert.equal(m.stockKey, 'orderableQuantity'); assert.equal(m.inboundKey, 'inboundQuantity');
+  assert.equal(INV.apiInventoryRows([], []), null); assert.equal(INV.apiInventoryRows([{ vendorItemId: 96000000001, name: 'x' }], []), null);
+  console.log('inventory rows from page data: all checks passed');
+}
