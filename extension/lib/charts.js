@@ -102,3 +102,30 @@ export function comboChart(container, dates, { bars = [], lines = [], leftFmt = 
   hover(f, dates, (i) => `<b>${dates[i]}</b>` + bars.map((b) => `<div class="r"><span><i style="background:${b.color}"></i>${b.label}</span><span>${leftFmt(b.values[i] || 0)}</span></div>`).join('')
     + lines.map((l) => `<div class="r"><span><i style="background:${l.color}"></i>${l.label}</span><span>${(l.fmt || (l.axis === 'right' ? rightFmt : leftFmt))(l.values[i] || 0)}</span></div>`).join(''));
 }
+
+// 시간대별 비교 선 (오늘 vs 어제). hours:[9,10,…] series:[{label,color,values(시각별, 없으면 null),dash,dots}]
+// fmt: 툴팁·끝 라벨 값 표시, tick: 축 눈금 표시. 빈 시각은 건너뛰고 앞뒤 점을 잇습니다(누적 값이라).
+export function hourCompareChart(container, hours, series, { fmt = (v) => fmtWon(v) + '원', tick = short, diffFmt = null } = {}) {
+  const f = frame(container); if (!hours.length) return;
+  f.m.r = 60; f.iw = f.W - f.m.l - f.m.r;   // 오른쪽에 끝 라벨 자리
+  const all = series.flatMap((s) => s.values).filter(Number.isFinite);
+  if (!all.length) return;
+  const ymax0 = Math.max(...all) * 1.08 || 1; const ticks = niceTicks(0, ymax0); const ymax = Math.max(ymax0, ticks[ticks.length - 1] || ymax0);
+  const n = hours.length; const bw = f.iw / n; const X = (i) => f.m.l + (i + 0.5) * bw; const Y = (v) => f.m.t + f.ih - (v / ymax) * f.ih;
+  const g = el('g', { class: 'grid' }, f.svg); const ax = el('g', { class: 'axis' }, f.svg);
+  for (const t of ticks) { el('line', { x1: f.m.l, x2: f.m.l + f.iw, y1: Y(t), y2: Y(t) }, g); const tx = el('text', { x: f.m.l - 6, y: Y(t) + 4, 'text-anchor': 'end' }, ax); tx.textContent = tick(t); }
+  const every = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(f.iw / 38))));
+  hours.forEach((hh, i) => { if (i % every === 0 || i === n - 1) { const tx = el('text', { x: X(i), y: f.m.t + f.ih + 16, 'text-anchor': 'middle' }, ax); tx.textContent = hh + '시'; } });
+  const ends = [];
+  for (const s of series) {
+    const pts = s.values.map((v, i) => (Number.isFinite(v) ? [X(i), Y(v), i] : null)).filter(Boolean); if (!pts.length) continue;
+    el('path', { class: 'ln', d: pts.map(([x, y], k) => `${k ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' '), stroke: s.color, 'stroke-dasharray': s.dash ? '6 4' : '' }, f.svg);
+    if (s.dots) for (const [x, y] of pts) el('circle', { cx: x, cy: y, r: 3.5, fill: s.color, stroke: '#fff', 'stroke-width': 2 }, f.svg);
+    const [lx, ly, li] = pts[pts.length - 1]; ends.push({ s, lx, ly, v: s.values[li] });
+  }
+  // 끝 라벨 (이름 + 값): 겹치면 위아래로 벌림. 글자는 본문 색, 옆 짧은 선이 시리즈 색
+  ends.sort((a, b) => a.ly - b.ly); for (let k = 1; k < ends.length; k++) if (ends[k].ly - ends[k - 1].ly < 14) ends[k].ly = ends[k - 1].ly + 14;
+  for (const e of ends) { const lab = el('text', { x: e.lx + 8, y: e.ly + 4, class: 'endlab' }, f.svg); lab.textContent = `${e.s.label} ${fmt(e.v)}`; }
+  hover(f, hours.map((hh) => hh + '시'), (i) => `<b>${hours[i]}시까지 누적</b>` + series.map((s) => `<div class="r"><span><i style="background:${s.color}"></i>${s.label}</span><span>${Number.isFinite(s.values[i]) ? fmt(s.values[i]) : '기록 없음'}</span></div>`).join('')
+    + ((a, b) => (series.length === 2 && Number.isFinite(a) && Number.isFinite(b) ? `<div class="r"><span>${series[1].label} − ${series[0].label}</span><span>${b - a >= 0 ? '+' : ''}${(diffFmt || fmt)(b - a)}</span></div>` : ''))(series[0]?.values[i], series[1]?.values[i]));
+}

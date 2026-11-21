@@ -3,7 +3,7 @@ import { computeLedger, METRICS, UNMAPPED, ORGANIC } from './lib/ledger.js';
 import { normalizeAds, normalizeSales, parseNumber, localIso } from './lib/parse.js';
 import { importSalesFile, importAdsFile, dateFromReportName, pasteToRecords } from './lib/importer.js';
 import { parseLegacyWorkbook, previewAgainst, applyLegacy, undoImport, removeImportData, listImports } from './lib/legacy.js';
-import { barChart, stackedChart, lineChart, sparkline, comboChart } from './lib/charts.js';
+import { barChart, stackedChart, lineChart, sparkline, comboChart, hourCompareChart } from './lib/charts.js';
 import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
@@ -169,6 +169,7 @@ async function renderRealtime() {
   { const { ccrealtimeLast: L } = await chrome.storage.local.get('ccrealtimeLast');
     if (L && !L.ok && Date.now() - L.at < 3 * 3600000) h += `<div class="notice" style="background:#fff3c4;border-color:#f0d98a;color:#6b4a00;margin:6px 0">⚠️ ${L.hour}시 실시간을 받지 못했습니다 (${esc(L.why)}). 같은 시각 안에서 몇 분 뒤 자동으로 다시 시도합니다. 급하면 [지금 받기]를 누르세요.</div>`; }
   h += `<p class="sub" style="margin:4px 0 8px">광고센터 '오늘' 광고비와 판매분석 '오늘' 매출(캠페인에 들어 있는 등록상품의 전체 판매, 광고 아닌 판매 포함)을 비교한 대략의 효율입니다. 쿠팡 숫자가 늦게 잡히는 만큼 실제와 차이가 있고, 장부에는 넣지 않습니다(어제 값은 매일 자동 수집으로). 한 번에 1~2분, 작은 창이 떴다 닫힙니다.</p>`;
+  let rtChart = null;   // 오늘 vs 어제 그래프 데이터 (innerHTML 뒤에 그림)
   if (snaps.length) {
     const last = snaps[snaps.length - 1]; const t = last.total;
     // 어제 같은 시각 비교: 어제 기록 중 그 시각(없으면 그 전 가장 가까운 시각)
@@ -181,6 +182,15 @@ async function renderRealtime() {
     if (t.noMarginQty) h += `<div class="sub">마진이 없는 판매 ${fmtInt(t.noMarginQty)}개는 순이익에서 0원으로 계산했습니다 (캠페인 · 옵션 탭에서 마진을 넣으면 바로 다시 계산됩니다).</div>`;
     if (t.estQty) h += `<div class="sub">마진을 넣지 않은 옵션의 판매 ${fmtInt(t.estQty)}개는 같은 상품 옵션의 마진으로 추정했습니다.</div>`;
     if (!last.raw) h += `<div class="notice sub" style="margin:4px 0">이 시각 기록은 업데이트(v0.56.13) 전에 받아서 마진을 새로 넣어도 다시 계산되지 않습니다. 다음 정시 기록부터 반영됩니다. 급하면 [지금 받기]를 누르세요.</div>`;
+    { // 오늘 vs 어제 시간대별 그래프: 같은 시각끼리 위아래로 바로 비교
+      const hrs = [...snaps, ...ySnaps].map((x) => x.hour); const h0 = Math.min(Number(realtimeFrom), ...hrs), h1 = Math.max(Number(realtimeTo), ...hrs);
+      const hours = []; for (let hh = h0; hh <= h1; hh++) hours.push(hh);
+      const at = (arr, key) => hours.map((hh) => { let r = null; for (const x of arr) if (x.hour === hh) r = x; return r ? r.total[key] : null; });
+      rtChart = { hours, today: { roas: at(snaps, 'roas'), revenue: at(snaps, 'revenue'), spend: at(snaps, 'spend') }, yday: ySnaps.length ? { roas: at(ySnaps, 'roas'), revenue: at(ySnaps, 'revenue'), spend: at(ySnaps, 'spend') } : null };
+      const sw = (c, dash) => `<svg width="22" height="10" style="vertical-align:0;margin-right:5px"><line x1="1" y1="5" x2="21" y2="5" stroke="${c}" stroke-width="2.5" stroke-linecap="round"${dash ? ' stroke-dasharray="5 3"' : ''}/></svg>`;
+      h += `<div class="legend" style="margin:10px 0 0">${'<span>' + sw('#2a78d6') + '오늘 (' + day.slice(5).replace('-', '/') + ')</span>'}${ySnaps.length ? '<span>' + sw('#c8742a', true) + '어제 (' + prevDay.slice(5).replace('-', '/') + ')</span>' : '<span class="sub">어제 기록이 없어 오늘만 보입니다</span>'}<span class="sub">각 시각까지 누적 · 마우스를 올리면 같은 시각 값</span></div>`;
+      h += `<div class="rt-charts"><div><h3>ROAS (누적)</h3><div class="chart" id="rt-ch-roas"></div></div><div><h3>매출 (누적)</h3><div class="chart" id="rt-ch-rev"></div></div><div><h3>광고비 (누적)</h3><div class="chart" id="rt-ch-spend"></div></div></div>`;
+    }
     h += `<details open style="margin-top:8px"><summary>시간대별</summary><div class="tablewrap rt-hourly"><table><thead><tr><th class="l">시각</th><th>광고비(누적)</th><th>매출(누적)</th><th>ROAS(누적)</th><th>그 사이 광고비</th><th>그 사이 매출</th><th>그 사이 ROAS</th><th>예상 순이익</th><th>어제 이 시각 매출</th><th>어제 이 시각 ROAS</th></tr></thead><tbody>`;
     snaps.forEach((x, i) => { const p = i ? snaps[i - 1] : null; const ds = p ? x.total.spend - p.total.spend : x.total.spend, dr = p ? x.total.revenue - p.total.revenue : x.total.revenue; h += `<tr><td class="l">${x.hour}시</td><td class="num">${won(x.total.spend)}${x.carried ? ` <span class="sub" title="이 시각에 광고센터에서 덜 읽힌 캠페인 ${x.carried}개를 이전 값으로 채움">*</span>` : ''}</td><td class="num">${won(x.total.revenue)}</td><td class="num"><b>${pct(x.total.roas)}</b></td><td class="num">${won(ds)}</td><td class="num">${won(dr)}</td><td class="num">${ds > 0 ? pct(dr / ds) : '-'}</td><td class="num ${x.total.profit < 0 ? 'neg' : 'pos'}">${won(x.total.profit)}</td>${(() => { const y = yAt(x.hour); if (!y) return '<td class="num sub">-</td><td class="num sub">-</td>'; const dR = x.total.roas - y.total.roas; return `<td class="num sub">${won(y.total.revenue)}</td><td class="num">${pct(y.total.roas)} <span class="${dR >= 0 ? 'pos' : 'neg'}" style="font-size:11px">${dR >= 0 ? '▲' : '▼'}${Math.abs(Math.round(dR * 100))}%p</span></td>`; })()}</tr>`; });
     let missNote = '';
@@ -204,6 +214,13 @@ async function renderRealtime() {
     h += '</tbody></table></div></details>';
   }
   box.innerHTML = h;
+  if (rtChart) {
+    const ser = (k) => [...(rtChart.yday ? [{ label: '어제', color: '#c8742a', dash: true, values: rtChart.yday[k] }] : []), { label: '오늘', color: '#2a78d6', dots: true, values: rtChart.today[k] }];
+    const pctF = (v) => Math.round(v * 100) + '%'; const wonS = (v) => (Math.abs(v) >= 1e4 ? Math.round(v / 1e4).toLocaleString('ko-KR') + '만' : fmtWon(v)) + '원';
+    hourCompareChart($('#rt-ch-roas'), rtChart.hours, ser('roas'), { fmt: pctF, tick: pctF, diffFmt: (v) => Math.round(v * 100) + '%p' });
+    hourCompareChart($('#rt-ch-rev'), rtChart.hours, ser('revenue'), { fmt: wonS });
+    hourCompareChart($('#rt-ch-spend'), rtChart.hours, ser('spend'), { fmt: wonS });
+  }
   $('#rt-now').onclick = async () => { const b = $('#rt-now'); b.disabled = true; b.textContent = '받는 중… (1~2분)'; const r = await chrome.runtime.sendMessage({ type: 'realtimeNow' }).catch((e) => ({ ok: false, error: e.message })); if (!r?.ok) toast('실시간 ROAS 를 받지 못했습니다: ' + (r?.error || '').slice(0, 150), 'err'); await renderRealtime(); };
 }
 try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.ccrealtime) renderRealtime(); }); } catch { /* 무시 */ }

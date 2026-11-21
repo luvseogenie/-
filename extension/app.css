@@ -87,6 +87,8 @@ label.chk { display: inline-flex; align-items: center; gap: 5px; color: var(--te
 .chart .ln.cost { stroke: var(--cost); } .chart .ln.rev { stroke: var(--ad); } .chart .ln.profit { stroke: var(--margin); }
 .chart .hit { fill: transparent; }
 .chart .cross { stroke: #9aa3b2; stroke-dasharray: 3 3; }
+.chart .endlab { fill: var(--text-2); font-size: 11px; font-weight: 600; }
+.rt-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 10px; } .rt-charts .chart { height: 180px; } .rt-charts h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; } @media (max-width: 1100px) { .rt-charts { grid-template-columns: 1fr; } }
 .tip { position: absolute; pointer-events: none; background: #101828; color: #fff; font-size: 12px; padding: 7px 10px; border-radius: 8px; white-space: nowrap; transform: translate(-50%, -110%); z-index: 3; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); }
 .tip b { display: block; margin-bottom: 3px; color: #c9d2e3; font-weight: 500; }
 .tip .r { display: flex; justify-content: space-between; gap: 14px; } .tip .r i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
