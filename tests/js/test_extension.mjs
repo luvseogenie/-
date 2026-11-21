@@ -1229,6 +1229,9 @@ console.log('extension logic: all checks passed');
   const nr = INV.normalizeInventory(nrec, { names }); const n1 = nr.find((x) => x.option_id === '91000000001'), n2 = nr.find((x) => x.option_id === '91000000002');
   assert.equal(nr.length, 2); assert.equal(n1.stock, 1061); assert.equal(n1.inbound, 0); assert.equal(n2.stock, 12); assert.equal(n2.inbound, 30);
   assert.equal(INV.normalizeInventory([{ '상품정보': 'X 옵션ID 92000000009', '재고상태': '판매가능 7일 40 입고예정 3' }])[0].stock, 40);
+  // 판매 기록 옵션명이 옵션값만('1개 블루')이면 상품명+옵션명으로, 칸 앞에 배지 글자가 붙어도 찾는다. 못 찾은 줄은 unmatched 로 알려 준다
+  const n3 = INV.normalizeInventory([{ '상품정보': '로켓그로스 DUGN 조끼 남성 겨울, L 그레이', '재고상태': '판매가능 9' }, { '상품정보': '없는 상품 이름입니다', '재고상태': '판매가능 1' }], { names: [{ option_id: '93000000001', name: ['L 그레이', 'DUGN 조끼 남성 겨울 L 그레이'] }] });
+  assert.equal(n3.length, 1); assert.equal(n3[0].stock, 9); assert.equal(n3.unmatched.length, 1);
   const sales = {}; const T = '2026-11-21';
   for (let i = 1; i <= 30; i++) { const dt = new Date(2026, 10, 21 - i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     sales[iso] = { '96000000001': { option_id: '96000000001', quantity: i <= 7 ? 4 : 1, sales_type: '로켓그로스' }, '96000000002': { option_id: '96000000002', quantity: 1, sales_type: '로켓그로스' }, W: { option_id: '96000000003', quantity: 9, sales_type: '판매자배송' } }; }

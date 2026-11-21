@@ -32,15 +32,16 @@ export function normalizeInventory(records, { names = [] } = {}) {
   if (idx.stock == null && !compound) return [];
   // 옵션ID 칸이 따로 없으면 다른 칸 글자 속 '옵션ID: 123…' 에서 찾는다 (상품 정보 칸에 함께 적힌 화면)
   const OID_IN_TEXT = /(?:옵션\s*ID|옵션\s*아이디|옵션\s*번호|vendor\s*Item\s*Id|Option\s*ID)\s*[:：]?\s*(\d{8,})/i;
-  const byName = names.map((x) => ({ id: String(x.option_id), k: nk(x.name) })).filter((x) => x.k.length >= 6).sort((a, b) => b.k.length - a.k.length);
+  const byName = names.flatMap((x) => [].concat(x.name).map((n) => ({ id: String(x.option_id), k: nk(n) }))).filter((x) => x.k.length >= 6).sort((a, b) => b.k.length - a.k.length);
   const pidx = idx.product_name ?? normed.findIndex((h) => h.includes('상품'));
-  const out = {};
+  const out = {}; const unmatched = [];
   for (const rec of records) {
     const get = (f) => (idx[f] == null ? null : rec[headers[idx[f]]]);
     let oid = idx.option_id != null ? cleanId(get('option_id')) : '';
     if (!/^\d{5,}$/.test(oid)) { for (const v of Object.values(rec)) { const m = String(v ?? '').match(OID_IN_TEXT); if (m) { oid = m[1]; break; } } }
     if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.startsWith(x.k)); if (hit) oid = hit.id; }
-    if (!/^\d{5,}$/.test(oid)) continue;
+    if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.includes(x.k)); if (hit) oid = hit.id; }   // 앞에 배지 글자가 붙은 경우
+    if (!/^\d{5,}$/.test(oid)) { unmatched.push(String(pidx >= 0 ? rec[headers[pidx]] : Object.values(rec).join(' ')).slice(0, 120)); continue; }
     let stock = null, inbound = null; const raw = String(get('stock') ?? '');
     if (/^[\s\d,.\-]+$/.test(raw) && raw.trim()) stock = parseNumber(raw);
     else { const all = Object.values(rec).map((v) => String(v ?? '')).join(' '); const m = all.match(STOCK_IN_TEXT); if (m) stock = parseNumber(m[1]); const mi = all.match(INBOUND_IN_TEXT); if (mi) inbound = parseNumber(mi[1]); }
@@ -50,7 +51,7 @@ export function normalizeInventory(records, { names = [] } = {}) {
     row.product_name ||= String(get('product_name') ?? '').trim().slice(0, 120); row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
     row.stock += stock ?? 0; row.inbound += inbound ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다
   }
-  return Object.values(out);
+  const res = Object.values(out); res.unmatched = unmatched; return res;
 }
 
 // 상품 묶음 열쇠: 등록상품ID (없으면 상품명)

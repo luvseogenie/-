@@ -788,7 +788,10 @@ const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' }
 let autoRunning = false;
 // ---- 로켓그로스 재고: 윙 재고 화면(설정의 주소)을 열어 표를 읽고 오늘 날짜 재고로 저장 → 품절이 가까운 옵션 알림 ----
 // 화면에 옵션ID 가 없을 때 옵션명으로 찾기: 판매 기록의 옵션명(상품명, 옵션값)
-function invNames(d) { const f = S.optionFacts(d); return Object.entries(f).map(([id, x]) => ({ option_id: id, name: x.option_name })).filter((x) => x.name); }
+function invNames(d) {   // 판매 기록의 옵션명이 '1개 블루'처럼 옵션값만이면 상품명을 앞에 붙인 이름도 함께
+  const f = S.optionFacts(d);
+  return Object.entries(f).map(([id, x]) => ({ option_id: id, name: [x.option_name, x.product && !String(x.option_name).startsWith(x.product) ? `${x.product} ${x.option_name}` : ''].filter(Boolean) })).filter((x) => x.name.length);
+}
 async function collectInventory() {
   const s = await getSettings(); if (!s.invUrl) throw new Error("재고 화면 주소가 비어 있습니다 (재고 화면 → '윙 재고 화면 주소' 에 넣기)");
   const { tab, close } = await openWorkTab(s.invUrl, s);
@@ -813,8 +816,9 @@ async function collectInventory() {
       if (res?.ok && res.kind === 'inventory') { await log(`[재고] 엑셀로 로켓그로스 재고 ${res.saved}개 옵션 저장 (${c.clicked})`); return { ok: true, saved: res.saved }; }
       throw new Error(`재고 표를 찾지 못했고, 엑셀 다운로드(${c.clicked})로도 재고 파일을 받지 못했습니다 (${res?.kind ? `받은 파일 종류: ${res.kind}` : res?.error || '파일 없음'}) — 화면의 표: ${headTxt || '없음'}`);
     }
+    if (rows.unmatched?.length) await log(`[재고] 화면 ${(r?.records || []).length}줄 중 ${rows.unmatched.length}줄은 옵션을 찾지 못해 뺐습니다 (화면에 옵션ID가 없고, 판매 기록의 옵션명과도 안 맞음). 예: ${rows.unmatched.slice(0, 6).join(' / ')}`);
     const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows); await S.save(d);
-    await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}${full?.pages > 1 ? `, ${full.pages}쪽` : ''})`);
+    await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, 화면 ${(r?.records || []).length}줄 · ${full?.pages || 1}쪽 읽음${full?.notes?.length ? ' · ' + full.notes.join(', ') : ''})`);
     return { ok: true, saved: rows.length };
   } finally { await close(); }
 }
