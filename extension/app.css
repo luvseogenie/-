@@ -222,3 +222,7 @@ details.inline .menu .btn { text-align: left; }
 /* 재고: 상품 묶음 줄과 그 아래 옵션 줄 */
 #inv-table tr.inv-prod td { background: #f6f8fb; border-top: 2px solid var(--line); vertical-align: top; }
 #inv-table tr.inv-opt td:nth-child(3) { padding-left: 22px; }
+
+/* 실시간 캠페인별: 칸 아래 어제 같은 시각 값 (연한 회색) */
+.ycmp { font-size: 11px; color: #a3a9b4 !important; font-weight: 400; white-space: nowrap; margin-top: 1px; }
+.ycmp .pos { color: #4f9a68 !important; } .ycmp .neg { color: #d26b63 !important; }
