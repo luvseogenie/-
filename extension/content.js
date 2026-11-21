@@ -262,6 +262,23 @@
       }
       if (more) notes.push(`'더보기' ${more}번`);
     }
+    // 쪽 버튼도 '더보기' 도 없으면: 내려가면 더 불러오는 목록(무한 스크롤)일 수 있다 → 끝까지 내려 가며 모은다
+    if (kind === 'inventory' && pages === 1 && pageTotal() <= 1) {
+      const key3 = (r) => Object.values(r).slice(0, 3).join('~'); const seen3 = new Set(all.map(key3));
+      const scrollers = () => { const out = [document.scrollingElement || document.documentElement]; for (const e of deepAll('div, section, main, tbody')) { const cs = getComputedStyle(e); if (e.scrollHeight > e.clientHeight + 40 && /(auto|scroll)/.test(cs.overflowY)) out.push(e); } return out; };
+      let added = 0, idle = 0;
+      for (let k = 0; k < 80 && idle < 2; k++) {
+        const fp = rowsFingerprint(kind); const n0 = all.length;
+        for (const sc of scrollers()) { try { sc.scrollTop = sc.scrollHeight; } catch { /* 무시 */ } }
+        window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll'));
+        await waitUntil(() => rowsFingerprint(kind) !== fp || (window.__ccPick(kind)?.records?.length || 0) > n0, 3500);
+        await wait(400);
+        for (const r of window.__ccPick(kind)?.records || []) { const k3 = key3(r); if (!seen3.has(k3)) { seen3.add(k3); all.push(r); } }
+        if (all.length > n0) { added += all.length - n0; idle = 0; } else idle++;
+      }
+      window.scrollTo(0, 0);
+      if (added) notes.push(`아래로 내려 ${added}줄 더 읽음`);
+    }
     const total = shownTotal(); if (total && total !== all.length) notes.push(`화면 표기 전체 ${total}개 중 ${all.length}개 읽음`);
     if (pages > 1) { try { await gotoPage(1, kind); } catch { /* 무시 */ } }
     const tables = allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length }));
@@ -880,7 +897,10 @@
       // 다운로드를 누른 뒤 뜨는 창('엑셀 다운로드' / '확인' / '요청')의 버튼을 누르고, 창 글자를 알려 준다
       try {
         const dlg = [...deepAll('[role="dialog"], [aria-modal="true"], .modal, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="layer" i]')].filter((e) => visible(e) && clean(e.innerText).length > 3 && e.getBoundingClientRect().height > 40).sort((a, b) => a.getBoundingClientRect().height - b.getBoundingClientRect().height)[0];
-        if (!dlg) { sendResponse({ ok: false, reason: '창 없음' }); return true; }
+        if (!dlg) {
+          const notes = [...new Set([...deepAll('div, span, p, li')].filter((e) => visible(e) && !e.children.length && /다운로드|요청|완료|이력|센터|생성/.test(clean(e.innerText)) && clean(e.innerText).length > 8 && clean(e.innerText).length < 120).map((e) => clean(e.innerText)))].slice(0, 5);
+          sendResponse({ ok: false, reason: '창 없음', text: notes.length ? '(창 없음) 화면 안내: ' + notes.join(' / ') : '', buttons: [] }); return true;
+        }
         const btns = [...dlg.querySelectorAll('button, a, [role="button"]')].filter((b) => visible(b) && !b.disabled);
         const b = btns.find((x) => /^(엑셀\s*)?다운로드(\s*요청)?$/.test(clean(x.innerText))) || btns.find((x) => /^(확인|요청|다운로드 요청|생성|내려받기)$/.test(clean(x.innerText)));
         if (b) fire(b, [...HOVER, ...CLICK]);
@@ -889,10 +909,15 @@
     } else if (msg?.type === 'pagerDiag') {
       // 진단: 표 아래쪽의 짧은 버튼·링크 (쪽 번호, 화살표, 'N개씩 보기')
       try {
-        const tb = [...deepAll('table, [role="grid"], .ag-root')].map((t) => t.getBoundingClientRect()).filter((r) => r.height > 50).sort((a, b) => b.height - a.height)[0];
-        const y0 = tb ? tb.bottom - 5 : 0;
-        const items = [...deepAll('button, a, li, select, [role="button"], [role="combobox"]')].filter((e) => visible(e) && e.getBoundingClientRect().top >= y0 && !e.closest('table')).map((e) => { const t = clean(e.innerText || e.value || '').slice(0, 14); const a = (e.getAttribute('aria-label') || e.getAttribute('title') || '').slice(0, 20); const c = typeof e.className === 'string' ? e.className.split(/\s+/).find((x) => /page|next|prev|arrow|size/i.test(x)) || '' : ''; return [e.tagName.toLowerCase(), t, a, c].filter(Boolean).join(':'); }).filter((x) => x.split(':').length > 1);
-        sendResponse({ ok: true, items: [...new Set(items)].slice(0, 30) });
+        const PG = /^(\d{1,4}|[<>‹›«»]|이전|다음|처음|마지막|first|last|prev|next|\d+\s*개\s*씩.*|\d+\s*건.*|더\s*보기.*)$/i;
+        const items = [...deepAll('button, a, li, select, span, div, [role="button"], [role="combobox"]')].filter((e) => {
+          if (!visible(e) || e.closest('table, [role="row"], footer') || e.children.length > 3) return false;
+          const t = clean(e.innerText || e.value || ''); const a = (e.getAttribute('aria-label') || e.getAttribute('title') || '') + ' ' + (typeof e.className === 'string' ? e.className : '');
+          return PG.test(t) || /pag|next|prev|page-size|pagesize|load-?more/i.test(a);
+        }).map((e) => { const t = clean(e.innerText || e.value || '').slice(0, 14); const a = (e.getAttribute('aria-label') || e.getAttribute('title') || '').slice(0, 20); const c = typeof e.className === 'string' ? e.className.split(/\s+/).find((x) => /page|next|prev|arrow|size/i.test(x)) || '' : ''; return [e.tagName.toLowerCase(), t, a, c].filter(Boolean).join(':'); }).filter((x) => x.split(':').length > 1);
+        const tot = (clean(document.body.innerText).match(/(?:총|전체|검색\s*결과)\s*[\d,]+\s*(?:개|건)|[\d,]+\s*(?:개|건)\s*중|\d+\s*-\s*\d+\s*\/\s*[\d,]+/g) || []).slice(0, 4);
+        const scr = [...deepAll('div, section, main, tbody')].filter((e) => { const cs = getComputedStyle(e); return e.scrollHeight > e.clientHeight + 40 && /(auto|scroll)/.test(cs.overflowY); }).length;
+        sendResponse({ ok: true, items: [...new Set(items)].slice(0, 30), totals: tot, scrollers: scr, rows: window.__ccPick('inventory')?.records?.length || 0 });
       } catch (e) { sendResponse({ ok: false, error: e.message }); }
     } else if (msg?.type === 'tableHeads') {
       // 진단: 화면에서 찾은 표들의 칸 이름과 첫 줄

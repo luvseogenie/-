@@ -67,7 +67,7 @@ export async function importAdReportFile(buf, filename, date) {
 // 로켓그로스 재고 엑셀 (윙 재고 화면에서 받은 파일) → 오늘 날짜 재고로 저장
 export async function importInventoryFile(buf, filename, records = null) {
   records ||= await fileToRecords(buf, filename, ['재고']);
-  const rows = normalizeInventory(records); if (!rows.length) throw new Error('재고 파일에서 옵션ID·재고 열을 찾지 못했습니다');
+  const rows = normalizeInventory(records); if (!rows.length) throw new Error(`재고 파일에서 옵션ID·재고 열을 찾지 못했습니다 (파일의 칸 이름: ${Object.keys(records[0] || {}).slice(0, 15).join(' | ') || '없음'})`);
   const t = new Date(); const date = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   const d = await S.load(); S.setInventory(d, date, rows, { merge: true }); await S.save(d);
   return { kind: 'inventory', date, saved: rows.length, records };

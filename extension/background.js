@@ -824,7 +824,7 @@ async function collectInventory() {
     const mineL = S.brandCheckerLoose(d); const miss = INV.inventoryForecast(d, date).rows.filter((x) => x.missing && mineL(x.option_name, x.product_name, x.group_name));
     if (miss.length >= 3) {
       const pg = await chrome.tabs.sendMessage(tab.id, { type: 'pagerDiag' }).catch(() => null);
-      await log(`[재고] 판매 기록엔 있는데 재고 화면에서 못 읽은 옵션 ${miss.length}개 (예: ${miss.slice(0, 4).map((x) => x.option_id).join(', ')}) → 엑셀 다운로드로 전체 재고를 받아 더해 봅니다. 화면 아래 쪽 버튼: ${(pg?.items || []).join(' / ').slice(0, 400) || '못 찾음'}`);
+      await log(`[재고] 판매 기록엔 있는데 재고 화면에서 못 읽은 옵션 ${miss.length}개 (예: ${miss.slice(0, 4).map((x) => x.option_id).join(', ')}) → 엑셀 다운로드로 전체 재고를 받아 더해 봅니다. 쪽 넘김 관련 버튼: ${(pg?.items || []).join(' / ').slice(0, 400) || '못 찾음'} · 전체 개수 글자: ${(pg?.totals || []).join(' / ') || '없음'} · 스크롤 칸 ${pg?.scrollers ?? '?'}개`);
       try {
         await installHook(tab.id); expectUntil = Date.now() + 150000; expectDate = null; lastHookedUrl = null;
         const waiting = waitForReport(120000);
