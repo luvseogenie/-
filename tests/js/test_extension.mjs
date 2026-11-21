@@ -1403,3 +1403,29 @@ console.log('extension logic: all checks passed');
   assert.equal(INV.apiInventoryRows([], []), null); assert.equal(INV.apiInventoryRows([{ vendorItemId: 96000000001, name: 'x' }], []), null);
   console.log('inventory rows from page data: all checks passed');
 }
+
+// 경쟁사 매출 추정: 리뷰 증가 ÷ 리뷰 작성률 × 가격
+{
+  const C = await import('../../extension/lib/competitor.js');
+  assert.throws(() => C.competitorId('그냥 글자')); assert.throws(() => C.competitorId('https://example.com/x'));
+  assert.equal(C.competitorId('https://shop.coupang.com/A00123456?source=brandstore'), 'v:A00123456');
+  assert.equal(C.competitorId('https://www.coupang.com/np/search?q=%EB%8B%B4%EC%9A%94'), 'q:담요');
+  const d = { sales: {} };
+  const a = C.addCompetitor(d, 'https://shop.coupang.com/A00123456', 'A사'); C.addCompetitor(d, 'https://shop.coupang.com/A00123456', 'A사 새이름'); assert.equal(d.competitors.length, 1); assert.equal(d.competitors[0].name, 'A사 새이름');
+  const day = (n) => { const x = new Date(2026, 10, 7 + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  for (let i = 0; i <= 14; i++) C.setCompetitorSnapshot(d, a.id, day(i), [{ pid: '111', name: '담요', price: 20000, reviews: 1000 + i * 2 }, { pid: '222', name: '조끼', price: 30000, reviews: 50 + (i >= 7 ? 1 : 0) }, ...(i === 14 ? [{ pid: '333', name: '새 상품', price: 9000, reviews: 3 }] : [])]);
+  const T = day(14);
+  let e = C.estimateCompetitor(d, a.id, T);   // 기본 2%: 하루 리뷰 2개 → 하루 100개 → 월 3000개 × 2만원 = 6천만원
+  assert.equal(e.ready, true); assert.equal(e.reliable, true); assert.equal(e.rate.rate, 0.02);
+  const p1 = e.products.find((p) => p.pid === '111'); assert.equal(p1.reviewsPerDay, 2); assert.equal(Math.round(p1.estQtyDay), 100); assert.equal(Math.round(p1.estMonthRev), 60000000);
+  const p2 = e.products.find((p) => p.pid === '222'); assert.equal(Math.round(p2.estMonthRev), Math.round(1 / 14 / 0.02 * 30 * 30000));
+  assert.equal(e.products.find((p) => p.pid === '333').estMonthRev, null);   // 하루만 본 상품은 추정 없음
+  assert.equal(e.products[0].pid, '111'); assert.equal(Math.round(e.totalMonthRev), Math.round(60000000 + p2.estMonthRev));
+  // 내 스토어로 리뷰 작성률 맞추기: 내 판매 1000개에 리뷰 10개 → 1%
+  const m = C.addCompetitor(d, 'https://shop.coupang.com/A00999999', '나', true);
+  for (let i = 0; i <= 14; i++) { C.setCompetitorSnapshot(d, m.id, day(i), [{ pid: '900', name: '내 담요', price: 20000, reviews: 500 + Math.floor(i * 10 / 14) }]); if (i) d.sales[day(i)] = { X: { option_id: 'X', quantity: i === 14 ? 1000 - 13 * 71 : 71 } }; }
+  const rr = C.reviewRate(d, T); assert.equal(rr.calibrated, true); assert.equal(Math.round(rr.rate * 1000) / 1000, 0.01);
+  e = C.estimateCompetitor(d, a.id, T); assert.equal(Math.round(e.products.find((p) => p.pid === '111').estQtyDay), 200);   // 작성률 1% → 판매 2배
+  C.removeCompetitor(d, a.id); assert.ok(!d.compSnaps[a.id]); assert.equal(d.competitors.length, 1);
+  console.log('competitor revenue estimate: all checks passed');
+}

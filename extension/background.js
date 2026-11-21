@@ -8,6 +8,7 @@ import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js';
 import * as RT from './lib/realtime.js';
 import * as INV from './lib/inventory.js';
+import * as COMP from './lib/competitor.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invUrl: '' };
 let expectUntil = 0, expectDate = null;
@@ -1150,6 +1151,58 @@ async function inventoryCatchUp() {
     autoRunning = true; try { await inventoryRun(); } finally { autoRunning = false; }
   } catch (e) { await log(`[재고] 점검 실패: ${e.message}`); }
 }
+// ---- 경쟁사: 하루 한 번 스토어 화면의 상품별 리뷰 수·가격을 기록 (쿠팡에 부담 주지 않게 천천히, 하루 한 번) ----
+let compRunning = false;
+async function collectCompetitor(c, s) {
+  const { tab, close } = await openWorkTab(c.url, s);
+  try {
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`화면을 열지 못했습니다: ${bad}`);
+    const r = await chrome.tabs.sendMessage(tab.id, { type: 'productCards', maxPages: 10 }).catch((e) => ({ ok: false, error: e.message }));
+    // 다음 쪽이 새 주소로 열리는 화면: 그 주소로 이동해 이어 읽는다 (최대 10쪽, 쪽 사이 2~4초 쉼)
+    const seenUrls = new Set([c.url]);
+    for (let i = 0; r?.ok && r.nextHref && i < 9 && !seenUrls.has(r.nextHref); i++) {
+      seenUrls.add(r.nextHref); await sleep(2000 + Math.random() * 2000);
+      await chrome.tabs.update(tab.id, { url: r.nextHref }); await sleep(Math.min(s.waitSeconds, 8) * 1000);
+      if (await ensureInjectable(tab.id, s)) break;
+      const r2 = await chrome.tabs.sendMessage(tab.id, { type: 'productCards', maxPages: 10 }).catch(() => null);
+      if (!r2?.cards?.length) break;
+      const have = new Set(r.cards.map((x) => x.pid)); const fresh = r2.cards.filter((x) => !have.has(x.pid)); if (!fresh.length) break;
+      r.cards.push(...fresh); r.pages += r2.pages; r.nextHref = r2.nextHref; if (r2.notes?.length) r.notes.push(...r2.notes);
+    }
+    if (!r?.ok || !r.cards?.length) throw new Error(`상품을 찾지 못했습니다 (${r?.error || `제목: ${r?.title || '?'}, 주소: ${String(r?.url || c.url).slice(0, 120)}`})`);
+    const d = await S.load(); const date = RT.todayIso(); const n = COMP.setCompetitorSnapshot(d, c.id, date, r.cards); await S.save(d);
+    const noRev = r.cards.filter((x) => x.reviews == null).length, noPrice = r.cards.filter((x) => x.price == null).length;
+    await log(`[경쟁사] ${c.name}: 상품 ${n}개 기록 (${r.pages}쪽${r.notes?.length ? ' · ' + r.notes.join(', ') : ''}${noRev ? ` · 리뷰 수 못 읽음 ${noRev}개` : ''}${noPrice ? ` · 가격 못 읽음 ${noPrice}개` : ''})${noRev > n / 2 ? ` — 예: ${(r.sample || []).join(' / ')}` : ''}`);
+    return { ok: true, saved: n };
+  } finally { await close(); }
+}
+async function competitorRun(manual = false, onlyId = null) {
+  if (compRunning) return { ok: false, error: '경쟁사를 읽는 중입니다' };
+  compRunning = true;
+  try {
+    const s = await getSettings(); const d = await S.loadLight(); const today = RT.todayIso(); let done = 0; const errs = [];
+    for (const c of d.competitors || []) {
+      if (onlyId && c.id !== onlyId) continue;
+      if (!manual && d.compSnaps?.[c.id]?.[today]) continue;
+      if (done) await sleep(5000 + Math.random() * 10000);   // 스토어 사이 5~15초 쉼
+      try { await collectCompetitor(c, s); done++; } catch (e) { errs.push(`${c.name}: ${e.message}`); await log(`[경쟁사] ${c.name} 실패: ${e.message}`); }
+    }
+    return { ok: !errs.length, done, error: errs.join(' / ') };
+  } finally { compRunning = false; }
+}
+// 매시간 점검: 10~21시, 오늘 아직 안 읽은 경쟁사가 있으면 (하루 3번까지 시도)
+async function competitorCatchUp() {
+  try {
+    const h = new Date().getHours(); if (h < 10 || h > 21) return;
+    if (rtRunning || autoRunning || job.running || compRunning) return;
+    const t = RT.todayIso(); const d = await S.loadLight(); const todo = (d.competitors || []).filter((c) => !d.compSnaps?.[c.id]?.[t]); if (!todo.length) return;
+    const { compTry = {} } = await chrome.storage.local.get('compTry'); const n = compTry.date === t ? compTry.n : 0; if (n >= 3) return;
+    await chrome.storage.local.set({ compTry: { date: t, n: n + 1 } });
+    await log(`[경쟁사] 오늘 기록할 스토어 ${todo.length}곳을 읽습니다 (${n + 1}/3)`);
+    autoRunning = true; try { await competitorRun(false); } finally { autoRunning = false; }
+  } catch (e) { await log(`[경쟁사] 점검 실패: ${e.message}`); }
+}
 async function hourlyCheck() {
   try { const s0 = await getSettings(); if (s0.realtimeEnabled && (!await chrome.alarms.get('realtime').catch(() => null) || !await chrome.alarms.get('rt-watch').catch(() => null))) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
   await purgeEarlyYesterday();
@@ -1243,7 +1296,7 @@ async function tick(kind) {
   } catch { /* 무시 */ }
 }
 chrome.alarms.onAlarm.addListener((a) => { tick(a.name); resumePausedExts(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck().finally(() => inventoryCatchUp()); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); else if (a.name === 'rt-watch') rtWatch(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'daily') { log('[자동] 예약 시각이 되어 수집을 시작합니다').then(() => runAuto()); } else if (a.name === 'hourly') hourlyCheck().finally(() => inventoryCatchUp().finally(() => competitorCatchUp())); else if (a.name === 'retry-auto') retryAuto(); else if (a.name === 'catchup') catchUp(); else if (a.name === 'update-remote') checkRemote(true); else if (a.name === 'update-disk') reloadIfFilesChanged(); else if (a.name === 'realtime') realtimeRun(false); else if (a.name === 'realtime-retry') realtimeRun(false, true); else if (a.name === 'rt-watch') rtWatch(); });
 // ---- 판매 리포트 다운로드 감지: 팝업 ① 이 다운로드를 누른 뒤(또는 사용자가 직접 받은 뒤) 파일을 다시 받아 저장한다.
 const handled = new Set();
 const looksLikeReport = (item) => /(판매|sales|report|리포트)/i.test(item.filename || '') || /(report|sales|excel|download)/i.test(item.finalUrl || item.url || '');
@@ -1313,6 +1366,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'inventoryNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else { autoRunning = true; try { sendResponse(await inventoryRun(true)); } finally { autoRunning = false; } } }
     else if (msg.type === 'realtimeNow') { sendResponse(await realtimeRun(true)); }
+    else if (msg.type === 'competitorNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else sendResponse(await competitorRun(true, msg.id || null)); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);
     else if (msg.type === 'checkUpdate') { sendResponse({ latest: await checkRemote(true), reloaded: await reloadIfFilesChanged() }); }

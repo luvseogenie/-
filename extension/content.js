@@ -285,6 +285,73 @@
     return { ok: all.length > 0, records: all, pages, total: total0, shownTotal: total, notes, date: detectDate(), period: detectPeriod(), url: location.href, tables, errors: [...readErrors] };
   }
 
+  // ---------- 경쟁사: 쿠팡 상품 목록(스토어·검색) 화면의 상품 카드 ----------
+  // 카드 = 상품 링크(/products/숫자)를 하나만 품은 가장 큰 덩어리. 이름·가격(원)·리뷰 수((1,234) 또는 '1,234개 상품평')·'N명 구매' 같은 표시를 읽는다
+  const PID_RE = /\/(?:vp\/)?products\/(\d{5,})/;
+  const numOf = (t) => parseInt(String(t).replace(/[^\d]/g, ''), 10);
+  function readProductCards() {
+    const links = [...deepAll('a[href*="/products/"]')].filter((a) => PID_RE.test(a.getAttribute('href') || ''));
+    const byPid = new Map();
+    for (const a of links) {
+      const pid = (a.getAttribute('href') || '').match(PID_RE)[1];
+      let card = a;
+      for (let up = a.parentElement, i = 0; up && i < 7; up = up.parentElement, i++) {
+        const pids = new Set([...up.querySelectorAll('a[href*="/products/"]')].map((x) => (x.getAttribute('href') || '').match(PID_RE)?.[1]).filter(Boolean));
+        if (pids.size > 1 || up === document.body) break; card = up;
+      }
+      const text = clean(card.innerText || ''); if (!text) continue;
+      const prev = byPid.get(pid); if (prev && prev.text.length >= text.length) continue;
+      // 가격: 'N원' 중 할인 전 가격(취소선)이 아닌 것, 여러 개면 가장 작은 것 (쿠폰·단위가격 '(10g당 100원)' 은 뺀다)
+      const strike = new Set([...card.querySelectorAll('del, s, strike, [class*="base-price" i], [class*="origin" i]')].map((e) => clean(e.innerText)));
+      const prices = [];
+      for (const e of card.querySelectorAll('*')) {
+        if (e.children.length > 2) continue; const t = clean(e.innerText || ''); if (!/[\d,]{3,}\s*원/.test(t) || t.length > 40 || /당\s*[\d,]+\s*원|당\)|적립|쿠폰|배송비/.test(t)) continue;
+        if ([...strike].some((x) => x && x.includes(t))) continue; const n = numOf(t.match(/([\d,]{3,})\s*원/)[1]); if (n >= 100) prices.push(n);
+      }
+      const pv = card.querySelector('[class*="price-value" i], [class*="sale-price" i], [class*="salePrice" i], [class*="final-price" i], [class*="finalPrice" i]');
+      if (pv && /\d/.test(pv.innerText || '')) { const n = numOf(clean(pv.innerText).match(/[\d,]+/)[0]); if (n >= 100) { prices.length = 0; prices.push(n); } }
+      if (!prices.length) {   // 글자에서: 할인 전 가격·단위 가격('(10g당 260원)')·쿠폰 글자를 빼고 남은 'N원' 중 가장 작은 것
+        let t = text; for (const x of strike) if (x) t = t.split(x).join(' ');
+        t = t.replace(/\([^)]*당[^)]*\)/g, ' ').replace(/[\d,]+\s*원\s*(?:할인|쿠폰|적립)/g, ' ');
+        const m = t.match(/([\d,]{3,})\s*원/g); if (m) for (const x of m) { const n = numOf(x); if (n >= 100) prices.push(n); }
+      }
+      // 리뷰 수: '(1,234)' (별점 옆) 또는 '1,234개 상품평/리뷰'
+      let reviews = null; const rc = card.querySelector('[class*="rating-total" i], [class*="review-count" i], [class*="ratingCount" i], [class*="count" i]');
+      const rtxt = rc ? clean(rc.innerText) : ''; let m = rtxt.match(/^\(?\s*([\d,]+)\s*\)?$/);
+      if (!m) m = text.match(/([\d,]+)\s*개?\s*(?:상품평|리뷰|후기)/) || text.match(/\(\s*([\d,]+)\s*\)/);
+      if (m) reviews = numOf(m[1]);
+      const rating = (() => { const r = card.querySelector('[class*="rating" i] [style*="width"], [class*="star" i] [style*="width"]'); const w = r ? parseFloat(r.style.width) : NaN; if (w > 0 && w <= 100) return Math.round(w / 20 * 10) / 10; const t = text.match(/(?:별점|평점)\s*([0-5](?:\.\d)?)/); return t ? parseFloat(t[1]) : null; })();
+      const sold = (text.match(/[\d,.]+\s*(?:천|만)?\s*(?:명|개)?\s*이상\s*구매|[\d,.]+\s*(?:천|만)?\s*명(?:이)?\s*구매/) || [''])[0];
+      const nameEl = card.querySelector('[class*="name" i], [class*="title" i]'); const img = card.querySelector('img[alt]');
+      let name = clean(nameEl?.innerText || '') || clean(img?.getAttribute('alt') || '') || clean(a.getAttribute('title') || '') || text.split(/\s{2,}|\n/)[0];
+      byPid.set(pid, { pid, name: name.slice(0, 120), price: prices.length ? Math.min(...prices) : null, reviews, rating, sold, text: text.slice(0, 300) });
+    }
+    return [...byPid.values()];
+  }
+  // 끝까지: 아래로 내려 더 불러오고, 쪽 번호가 있으면 다음 쪽으로 (최대 maxPages)
+  async function readAllCards(maxPages = 10) {
+    const all = new Map(); const add = () => { let n = 0; for (const c of readProductCards()) { if (!all.has(c.pid)) n++; const p = all.get(c.pid); if (!p || (c.reviews != null && p.reviews == null) || c.text.length > p.text.length) all.set(c.pid, c); } return n; };
+    await waitUntil(() => readProductCards().length > 0, 8000);
+    let pages = 1; const notes = []; let nextHref = null; const startPage = Number(new URL(location.href).searchParams.get('page')) || 1;
+    for (let pg = startPage; pg < startPage + maxPages; pg++) {
+      add();
+      for (let k = 0, idle = 0; k < 15 && idle < 2; k++) { const before = all.size; window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll')); await wait(1200); add(); idle = all.size > before ? 0 : idle + 1; }
+      const np = numberedPager(); const nb = np?.items.find((b) => clean(b.innerText) === String(pg + 1));
+      const next = nb || [...deepAll('a, button')].find((b) => visible(b) && !b.disabled && /^(다음|다음\s*페이지|next|›|>)$/i.test(clean(b.innerText) || b.getAttribute('aria-label') || ''));
+      if (!next) break;
+      // 진짜 주소로 가는 링크면 누르지 않고 주소만 알려 준다 (페이지가 새로 열리면 읽던 것이 끊기므로 확장이 그 주소로 이동해 이어 읽는다)
+      const href = next.tagName === 'A' ? next.getAttribute('href') || '' : '';
+      if (href && !/^(#|javascript:)/i.test(href)) { nextHref = new URL(href, location.href).href; break; }
+      const fp = readProductCards().map((c) => c.pid).join(','); fire(next, [...HOVER, ...CLICK]);
+      if (!(await waitUntil(() => { const f2 = readProductCards().map((c) => c.pid).join(','); return f2 && f2 !== fp; }, 8000))) { notes.push(`${pg + 1}쪽으로 안 넘어감`); break; }
+      pages++; await wait(800);
+    }
+    window.scrollTo(0, 0);
+    const cards = [...all.values()].map(({ text, ...c }) => c);
+    const sample = [...all.values()].slice(0, 2).map((c) => c.text.slice(0, 120));
+    return { ok: cards.length > 0, cards, pages, notes, nextHref, url: location.href, title: document.title, sample };
+  }
+
   // 칸 글자: 이름 링크(a)가 있으면 그 글자만 (배지 'AI 스마트광고'·'오늘의 Pick', 마우스 올리면 나오는 '수정'·'삭제' 버튼 글자는 뺀다)
   function cellText(c) {
     const links = [...c.querySelectorAll('a')].map((a) => clean(a.innerText)).filter(Boolean);
@@ -893,6 +960,8 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload(msg.items || null).then(sendResponse);
+    } else if (msg?.type === 'productCards') {
+      readAllCards(msg.maxPages || 10).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.message || e), cards: [] }));
     } else if (msg?.type === 'confirmDialog') {
       // 다운로드를 누른 뒤 뜨는 창('엑셀 다운로드' / '확인' / '요청')의 버튼을 누르고, 창 글자를 알려 준다
       try {

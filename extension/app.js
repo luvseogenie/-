@@ -9,6 +9,7 @@ import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib
 import * as AR from './lib/adreport.js';
 import { importAdReportFile, importInventoryFile } from './lib/importer.js';
 import * as INV from './lib/inventory.js';
+import * as COMP from './lib/competitor.js';
 import { fixDay as fixRtDay, recomputeDay as recomputeRtDay } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
@@ -63,7 +64,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { comp: '경쟁사', inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -87,7 +88,7 @@ function resetPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { resetPage(b.dataset.page); if (location.hash.slice(1) === b.dataset.page) showPage(b.dataset.page); else location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'comp') renderComp(); else if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); try { renderAdrowsBanner(); } catch { /* 무시 */ } }
 // 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
@@ -956,6 +957,41 @@ $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim();
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14 }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
 $('#inv-now').onclick = async () => { const b = $('#inv-now'); b.disabled = true; msg('#inv-msg', '윙 재고 화면을 여는 중… (작은 창이 떴다 닫힙니다, 1분쯤)'); const r = await chrome.runtime.sendMessage({ type: 'inventoryNow' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderInventory(); msg('#inv-msg', r?.ok ? '재고를 읽었습니다' : `읽지 못했습니다: ${(r?.error || '').slice(0, 300)}`, r?.ok ? 'ok' : 'err'); };
 $('#inv-file').onchange = async (ev) => { const fl = ev.target.files[0]; if (!fl) return; try { const r = await importInventoryFile(await fl.arrayBuffer(), fl.name); await reload(); renderInventory(); msg('#inv-msg', `재고 ${r.saved}개 옵션을 저장했습니다`, 'ok'); } catch (e) { msg('#inv-msg', e.message, 'err'); } ev.target.value = ''; };
+
+/* ===== 경쟁사 매출 추정 ===== */
+function renderComp() {
+  const t = localIso(today); const st = { ...COMP.DEFAULT_COMP, ...(DATA.compSettings || {}) };
+  if (document.activeElement !== $('#comp-rate')) $('#comp-rate').value = Math.round(st.reviewRate * 1000) / 10;
+  if (document.activeElement !== $('#comp-days')) $('#comp-days').value = st.days;
+  const rr = COMP.reviewRate(DATA, t); $('#comp-rate-how').textContent = rr.calibrated ? `지금 쓰는 값 ${Math.round(rr.rate * 1000) / 10}% (${rr.how})` : '';
+  const list = DATA.competitors || []; const wonM = (v) => (v >= 1e8 ? (v / 1e8).toFixed(1) + '억' : v >= 1e4 ? Math.round(v / 1e4).toLocaleString('ko-KR') + '만' : fmtInt(v)) + '원';
+  if (!list.length) { $('#comp-list').innerHTML = '<div class="card empty">아직 넣은 경쟁사가 없습니다. 위에 스토어 주소를 넣고 추가하세요.</div>'; return; }
+  let h = '';
+  for (const c of list) {
+    const e = COMP.estimateCompetitor(DATA, c.id, t);
+    const head = !e.lastDate ? '<span class="sub">아직 기록 없음 — 오늘 중 자동으로 읽거나 \'지금 읽기\' 를 누르세요</span>'
+      : !e.ready ? `<span class="sub">기록 ${e.days}일 (${e.firstDate.slice(5)}~${e.lastDate.slice(5)}) · 추정은 기록 3일째부터 나옵니다</span>`
+      : `<b class="num" style="font-size:20px">${wonM(e.totalMonthRev)}</b> <span class="sub">/ 월 추정 · 하루 ${fmtInt(e.totalMonthQty / 30)}개 · 상품 ${e.measured}개 · 기록 ${e.span}일${e.reliable ? '' : ' (7일 전이라 아직 거침)'} · 리뷰 작성률 ${Math.round(e.rate.rate * 1000) / 10}%</span>`;
+    h += `<details class="card" open style="margin-top:12px"><summary><b>${esc(c.name)}</b>${c.mine ? ' <span class="pill">내 스토어</span>' : ''} ${head}</summary>
+      <div class="row" style="margin:6px 0;gap:6px"><a class="sub" href="${esc(c.url)}" target="_blank" rel="noopener">스토어 열기</a><button class="btn sm" data-comp-now="${esc(c.id)}">지금 읽기</button><button class="btn sm" data-comp-del="${esc(c.id)}">빼기</button></div>
+      ${e.products.length ? `<div class="tablewrap" style="max-height:420px"><table><thead><tr><th class="l">상품</th><th>가격</th><th>리뷰 수</th><th>하루 리뷰 +</th><th>하루 판매(추정)</th><th>월 판매(추정)</th><th>월 매출(추정)</th></tr></thead><tbody>${e.products.slice(0, 300).map((p) => `<tr><td class="l"><a href="https://www.coupang.com/vp/products/${esc(p.pid)}" target="_blank" rel="noopener">${esc(p.name || p.pid)}</a>${p.sold ? ` <span class="pill gray">${esc(p.sold)}</span>` : ''}</td><td class="num">${p.price ? fmtInt(p.price) : '-'}</td><td class="num">${p.reviews != null ? fmtInt(p.reviews) : '-'}</td><td class="num">${p.reviewsPerDay != null ? (Math.round(p.reviewsPerDay * 10) / 10) : '<span class="sub">기록 중</span>'}</td><td class="num">${p.estQtyDay != null ? fmtInt(p.estQtyDay) : ''}</td><td class="num">${p.estMonthQty != null ? fmtInt(p.estMonthQty) : ''}</td><td class="num"><b>${p.estMonthRev != null ? wonM(p.estMonthRev) : ''}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
+    </details>`;
+  }
+  $('#comp-list').innerHTML = h;
+  $$('#comp-list button[data-comp-del]').forEach((b) => b.onclick = async () => { if (!confirm('이 경쟁사와 기록을 지울까요?')) return; const dd = await reload(); COMP.removeCompetitor(dd, b.dataset.compDel); await S.save(dd); await reload(); renderComp(); });
+  $$('#comp-list button[data-comp-now]').forEach((b) => b.onclick = () => compNow(b, b.dataset.compNow));
+}
+async function compNow(b, id = null) {
+  b.disabled = true; msg('#comp-msg', '스토어 화면을 여는 중… (작은 창이 떴다 닫힙니다)');
+  const r = await chrome.runtime.sendMessage({ type: 'competitorNow', id }).catch((e) => ({ ok: false, error: e.message }));
+  b.disabled = false; await reload(); renderComp(); msg('#comp-msg', r?.ok ? `읽었습니다 (${r.done}곳)` : `읽지 못했습니다: ${(r?.error || '').slice(0, 200)}`, r?.ok ? 'ok' : 'err');
+}
+$('#comp-add').onclick = async () => {
+  try { const dd = await reload(); const c = COMP.addCompetitor(dd, $('#comp-url').value, $('#comp-name').value.trim(), $('#comp-mine').checked); await S.save(dd); await reload(); $('#comp-url').value = ''; $('#comp-name').value = ''; $('#comp-mine').checked = false; renderComp(); msg('#comp-msg', `'${c.name}' 를 넣었습니다. 지금 한 번 읽어 둘게요`, 'ok'); compNow($('#comp-now'), c.id); }
+  catch (e) { msg('#comp-msg', e.message, 'err'); }
+};
+$('#comp-now').onclick = () => compNow($('#comp-now'));
+$('#comp-set-save').onclick = async () => { const dd = await reload(); dd.compSettings = { ...(dd.compSettings || {}), reviewRate: Math.max(0.003, Math.min(0.2, (Number($('#comp-rate').value) || 2) / 100)), days: Math.max(3, Math.min(60, Number($('#comp-days').value) || 14)) }; await S.save(dd); await reload(); renderComp(); msg('#comp-msg', '저장했습니다', 'ok'); };
 
 /* ===== 캠페인 합치기 ===== */
 function renderMergeCard() {
