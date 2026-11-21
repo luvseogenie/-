@@ -209,8 +209,8 @@
           <span class="sub">한 번에 보낼 양</span><input type="number" id="inv-cover" class="tiny" min="1" max="180"><span class="sub">일치 ·</span>
           <span class="sub">안전 재고</span><input type="number" id="inv-safety" class="tiny" min="0" max="60"><span class="sub">일치 ·</span>
           <span class="sub">알림: 품절</span><input type="number" id="inv-alert" class="tiny" min="1" max="90"><span class="sub">일 전부터</span><button class="btn sm" id="inv-set-save">저장</button></div>
-        <p class="sub" style="margin:6px 0 0">주소를 넣어 두면 매일 자동 수집 뒤 재고도 읽고, 품절이 가까운 옵션을 알림으로 알려 줍니다. 하루 판매 = 로켓그로스 판매의 최근 7일 평균과 30일 평균 중 큰 값. 남은 일수 = 재고 ÷ 하루 판매. <b>발주 추천 = 하루 판매 × (입고까지 + 보낼 양 + 안전 재고) − 재고 − 입고 예정</b>.</p>
-        <div class="row" style="margin-top:8px"><input id="inv-search" placeholder="상품명·옵션ID 검색" style="width:240px"><label class="chk"><input type="checkbox" id="inv-only-low" checked> 부족·품절만 위로 (안 팔리는 옵션 숨김)</label><span class="sub" id="inv-count"></span></div>
+        <p class="sub" style="margin:6px 0 0">상품마다 <b>입고 소요일</b>(중국 주문~쿠팡 입고 완료까지)과 <b>시즌 종료일</b>(그 뒤 팔릴 양은 주문하지 않음, 예: 크리스마스 리본 12-25)을 상품별 묶음 줄에서 따로 넣을 수 있습니다. 비우면 위의 기본값을 씁니다.<br>주소를 넣어 두면 매일 자동 수집 뒤 재고도 읽고, 품절이 가까운 옵션을 알림으로 알려 줍니다. 하루 판매 = 로켓그로스 판매의 최근 7일 평균과 30일 평균 중 큰 값. 남은 일수 = 재고 ÷ 하루 판매. <b>발주 추천 = 하루 판매 × (입고까지 + 보낼 양 + 안전 재고) − 재고 − 입고 예정</b>.</p>
+        <div class="row" style="margin-top:8px"><input id="inv-search" placeholder="상품명·옵션ID 검색" style="width:240px"><label class="chk"><input type="checkbox" id="inv-group" checked> 상품별로 묶기</label><label class="chk"><input type="checkbox" id="inv-only-low" checked> 안 팔리고 재고도 없는 옵션 숨김</label><span class="sub" id="inv-count"></span></div>
         <div class="tablewrap" style="margin-top:8px;max-height:70vh"><table id="inv-table"><thead><tr><th class="l">상태</th><th class="l">옵션ID</th><th class="l">상품 · 옵션</th><th>재고</th><th>입고 예정</th><th>하루 판매 (7일/30일)</th><th>남은 일수</th><th>품절 예상일</th><th>발주 추천</th></tr></thead><tbody></tbody></table></div>
       </div>
     </section>

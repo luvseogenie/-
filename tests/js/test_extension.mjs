@@ -1230,3 +1230,23 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(f.rows.map((x) => x.level), ['out', 'danger', 'idle']);
   console.log('rocket growth inventory forecast: all checks passed');
 }
+
+// 재고: 상품마다 입고 소요일, 시즌 종료일(그 뒤 팔릴 양은 주문 안 함), 상품별 묶기
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-21'; const sales = {};
+  for (let i = 1; i <= 30; i++) { const dt = new Date(2026, 10, 21 - i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    sales[iso] = { R1: { option_id: 'R1', quantity: 10, sales_type: '로켓그로스' }, R2: { option_id: 'R2', quantity: 5, sales_type: '로켓그로스' }, B1: { option_id: 'B1', quantity: 2, sales_type: '로켓그로스' } }; }
+  const inv = { R1: { option_id: 'R1', product_id: 'RIB', product_name: 'DUGN 리본', option_name: '레드', stock: 100, inbound: 0 }, R2: { option_id: 'R2', product_id: 'RIB', product_name: 'DUGN 리본', option_name: '골드', stock: 20, inbound: 0 }, B1: { option_id: 'B1', product_id: 'BLK', product_name: 'DUGN 담요', option_name: '블루', stock: 30, inbound: 0 } };
+  const d = { sales, inventory: { [T]: inv }, invSettings: { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 } };
+  S.setInvProduct(d, 'BLK', { leadDays: 35 }); S.setInvProduct(d, 'RIB', { seasonEnd: '2026-12-25' });
+  const f = INV.inventoryForecast(d, T); const r1 = f.rows.find((x) => x.option_id === 'R1'), r2 = f.rows.find((x) => x.option_id === 'R2'), b1 = f.rows.find((x) => x.option_id === 'B1');
+  assert.equal(b1.lead, 35); assert.equal(b1.level, 'danger'); assert.equal(b1.reorder, 2 * (35 + 30 + 7) - 30);   // 입고 35일: 15일 남은 담요는 '위험', 72일치 주문
+  assert.equal(r1.reorder, 10 * 34 - 100); assert.equal(r2.reorder, 5 * 34 - 20);   // 시즌 종료(12/25)까지 34일치만 (기본이면 47일치)
+  const g = INV.groupByProduct(f.rows); const rib = g.find((x) => x.key === 'RIB');
+  assert.equal(rib.options.length, 2); assert.equal(rib.stock, 120); assert.equal(rib.reorder, 240 + 150); assert.equal(rib.rate, 15); assert.equal(rib.level, 'danger');
+  const past = INV.inventoryForecast({ ...d, invProduct: { RIB: { seasonEnd: '2026-11-20' } } }, T).rows.find((x) => x.option_id === 'R1');
+  assert.equal(past.seasonOver, true); assert.equal(past.reorder, 0);   // 시즌이 끝났으면 주문 추천 없음
+  S.setInvProduct(d, 'BLK', { leadDays: '', seasonEnd: '' }); assert.ok(!d.invProduct.BLK);
+  console.log('inventory per-product lead time and season end: all checks passed');
+}

@@ -35,6 +35,19 @@ export function normalizeInventory(records) {
   return Object.values(out);
 }
 
+// 상품 묶음 열쇠: 등록상품ID (없으면 상품명)
+export const productKey = (x) => String(x.product_id || x.product_name || x.option_id);
+// 상품별로 묶기: 재고·입고 예정·하루 판매·발주 추천은 합계, 남은 일수·품절 예상일은 가장 급한 옵션, 상태는 가장 나쁜 것
+export function groupByProduct(rows) {
+  const order = { out: 0, danger: 1, warn: 2, ok: 3, idle: 4 }; const g = {};
+  for (const r of rows) {
+    const x = (g[r.key] ||= { key: r.key, product_id: r.product_id, product_name: r.product_name, lead: r.lead, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: 'idle', options: [] });
+    x.options.push(r); x.stock += r.stock; x.inbound += r.inbound || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
+    if (r.daysLeft < x.daysLeft) { x.daysLeft = r.daysLeft; x.stockoutDate = r.stockoutDate; }
+    if (order[r.level] < order[x.level]) x.level = r.level;
+  }
+  return Object.values(g).sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
+}
 export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 };
 
 // 옵션별 예측. d.inventory = { 'YYYY-MM-DD': { option_id: row } } 중 가장 최근 날짜를 쓴다.
@@ -54,14 +67,21 @@ export function inventoryForecast(d, today, settings = {}) {
     }
   }
   const n30 = Math.max(1, Math.min(30, days30.size)), n7 = Math.max(1, Math.min(7, [...days30].filter((x) => x >= s7).length));
+  const dayDiff = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
   const rows = Object.values(inv).map((x) => {
+    const key = productKey(x); const ps = (d.invProduct || {})[key] || {};
+    const lead = ps.leadDays != null && ps.leadDays !== '' ? Number(ps.leadDays) : st.leadDays;   // 상품마다 다른 입고 소요일 (없으면 기본값)
+    const seasonEnd = ps.seasonEnd || '';
     const r7 = (q7[x.option_id] || 0) / n7, r30 = (q30[x.option_id] || 0) / n30; const rate = Math.max(r7, r30);
     const left = rate > 0 ? x.stock / rate : Infinity;
     const out = rate > 0 ? addDays(asOf, Math.floor(left)) : null;
-    const target = rate * (st.leadDays + st.coverDays + st.safetyDays);   // 입고까지 + 보낼 기간 + 안전 재고
-    const reorder = rate > 0 ? Math.max(0, Math.ceil(target - x.stock - (x.inbound || 0))) : 0;
-    const level = rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= st.leadDays ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
-    return { ...x, r7, r30, rate, daysLeft: left, stockoutDate: out, reorder, level };
+    // 채울 기간 = 입고까지 + 보낼 양 + 안전 재고. 시즌 종료일이 있으면 그 날까지만 (시즌이 끝난 뒤 팔릴 양은 주문하지 않는다)
+    let need = lead + st.coverDays + st.safetyDays; const seasonLeft = seasonEnd ? dayDiff(asOf, seasonEnd) : null;
+    if (seasonLeft != null) need = Math.min(need, Math.max(0, seasonLeft));
+    const reorder = rate > 0 ? Math.max(0, Math.ceil(rate * need - x.stock - (x.inbound || 0))) : 0;
+    const seasonOver = seasonLeft != null && seasonLeft <= 0;
+    const level = rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
+    return { ...x, key, lead, seasonEnd, seasonOver, r7, r30, rate, daysLeft: left, stockoutDate: out, reorder, level };
   });
   const order = { out: 0, danger: 1, warn: 2, ok: 3, idle: 4 };
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));

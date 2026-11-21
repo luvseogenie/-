@@ -216,3 +216,7 @@ details.inline .menu .btn { text-align: left; }
 .rt-hourly th, .rt-hourly td { padding: 6px 8px; overflow-wrap: anywhere; }
 .rt-hourly th:first-child, .rt-hourly td:first-child { width: 56px; }
 .rt-miss { margin-top: 6px; line-height: 1.6; white-space: normal; }
+
+/* 재고: 상품 묶음 줄과 그 아래 옵션 줄 */
+#inv-table tr.inv-prod td { background: #f6f8fb; border-top: 2px solid var(--line); vertical-align: top; }
+#inv-table tr.inv-opt td:nth-child(3) { padding-left: 22px; }

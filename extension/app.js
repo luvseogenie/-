@@ -872,10 +872,25 @@ async function renderInventory() {
   const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length;
   $('#inv-count').textContent = f.asOf ? `옵션 ${rows.length}개 · 부족·품절 ${nLow}개` : '';
   const one = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1));
-  $('#inv-table tbody').innerHTML = rows.slice(0, 600).map((x) => { const [t, c] = LV[x.level];
-    return `<tr><td class="l"><span class="pill ${c === 'neg' ? 'warn' : c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : ''}">${t}</span></td><td class="l num">${esc(x.option_id)}</td><td class="l">${esc(x.product_name)}${x.option_name && x.option_name !== x.product_name ? `<div class="sub">${esc(x.option_name)}</div>` : ''}</td><td class="num"><b>${fmtInt(x.stock)}</b></td><td class="num">${x.inbound ? fmtInt(x.inbound) : ''}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${c === 'neg' ? 'neg' : ''}">${x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}</td></tr>`; }).join('');
+  const pill = (lv) => { const [t, c] = LV[lv]; return `<span class="pill ${c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : c === 'warn' ? 'background:#fff3c4;color:#6b4a00' : ''}">${t}</span>`; };
+  const cells = (x) => `<td class="num"><b>${fmtInt(x.stock)}</b></td><td class="num">${x.inbound ? fmtInt(x.inbound) : ''}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${['out', 'danger'].includes(x.level) ? 'neg' : ''}">${x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.seasonOver ? '<span class="sub">시즌 끝</span>' : x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}</td>`;
+  const optRow = (x, sub) => `<tr${sub ? ' class="inv-opt"' : ''}><td class="l">${pill(x.level)}</td><td class="l num">${esc(x.option_id)}</td><td class="l">${sub ? `<span class="sub">${esc(x.option_name || x.product_name)}</span>` : `${esc(x.product_name)}${x.option_name && x.option_name !== x.product_name ? `<div class="sub">${esc(x.option_name)}</div>` : ''}`}</td>${cells(x)}</tr>`;
+  let html = '';
+  if ($('#inv-group').checked) {
+    for (const g of INV.groupByProduct(rows).slice(0, 300)) {
+      const ps = (DATA.invProduct || {})[g.key] || {};
+      html += `<tr class="inv-prod"><td class="l">${pill(g.level)}</td><td class="l sub">${esc(g.product_id || '')}</td><td class="l"><b>${esc(g.product_name)}</b> <span class="sub">옵션 ${g.options.length}개</span>
+        <div class="row" style="margin-top:4px;gap:4px"><span class="sub">입고 소요</span><input type="number" class="tiny" data-inv-lead="${esc(g.key)}" min="0" max="180" placeholder="${st.leadDays}" value="${ps.leadDays ?? ''}"><span class="sub">일 · 시즌 종료</span><input type="date" data-inv-season="${esc(g.key)}" value="${esc(ps.seasonEnd || '')}" style="width:140px"><button class="btn sm" data-inv-psave="${esc(g.key)}">저장</button></div></td>${cells(g)}</tr>`;
+      html += g.options.map((x) => optRow(x, true)).join('');
+    }
+  } else html = rows.slice(0, 600).map((x) => optRow(x, false)).join('');
+  $('#inv-table tbody').innerHTML = html;
+  $$('#inv-table button[data-inv-psave]').forEach((b) => b.onclick = async () => {
+    const key = b.dataset.invPsave; const lead = $(`#inv-table input[data-inv-lead="${CSS.escape(key)}"]`).value.trim(); const season = $(`#inv-table input[data-inv-season="${CSS.escape(key)}"]`).value;
+    const dd = await reload(); S.setInvProduct(dd, key, { leadDays: lead, seasonEnd: season }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '상품 설정을 저장했습니다', 'ok');
+  });
 }
-$('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory();
+$('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory(); $('#inv-group').onchange = () => renderInventory();
 $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim(); if (v && !/^https:\/\/[^/]*coupang\.com\//.test(v)) { msg('#inv-msg', '쿠팡 윙 주소(https://wing.coupang.com/…)를 넣어 주세요', 'err'); return; } await chrome.storage.sync.set({ invUrl: v }); msg('#inv-msg', v ? '저장했습니다. 매일 자동 수집 뒤 재고도 읽습니다' : '지웠습니다', 'ok'); };
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14 }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
 $('#inv-now').onclick = async () => { const b = $('#inv-now'); b.disabled = true; msg('#inv-msg', '윙 재고 화면을 여는 중… (작은 창이 떴다 닫힙니다, 1분쯤)'); const r = await chrome.runtime.sendMessage({ type: 'inventoryNow' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderInventory(); msg('#inv-msg', r?.ok ? '재고를 읽었습니다' : `읽지 못했습니다: ${(r?.error || '').slice(0, 300)}`, r?.ok ? 'ok' : 'err'); };
