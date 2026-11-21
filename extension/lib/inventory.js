@@ -16,18 +16,22 @@ const cleanId = (v) => { let s = String(v ?? '').trim().replace(/,/g, ''); if (s
 // 재고 표인지: 옵션ID 와 재고 열이 있으면
 export function isInventoryTable(headers) {
   const n = headers.map(normHeader);
-  return firstMatch(n, INV_FIELDS[0][1], INV_FIELDS[0][2]) != null && firstMatch(n, INV_FIELDS[4][1], INV_FIELDS[4][2]) != null;
+  return firstMatch(n, INV_FIELDS[0][1], INV_FIELDS[0][2]) != null && firstMatch(n, INV_FIELDS[4][1], INV_FIELDS[4][2]) != null && !n.some((h) => /매출|판매량|광고비|캠페인/.test(h));
 }
 // 화면 표·엑셀 줄 → [{ option_id, product_name, option_name, product_id, stock, inbound }]
 export function normalizeInventory(records) {
   if (!records.length) return [];
   const headers = Object.keys(records[0]); const normed = headers.map(normHeader);
   const idx = {}; for (const [f, al, ex] of INV_FIELDS) idx[f] = firstMatch(normed, al, ex);
-  if (idx.option_id == null || idx.stock == null) return [];
+  if (idx.stock == null) return [];
+  // 옵션ID 칸이 따로 없으면 다른 칸 글자 속 '옵션ID: 123…' 에서 찾는다 (상품 정보 칸에 함께 적힌 화면)
+  const OID_IN_TEXT = /(?:옵션\s*ID|옵션아이디|vendorItemId)\s*[:：]?\s*(\d{8,})/i;
   const out = {};
   for (const rec of records) {
     const get = (f) => (idx[f] == null ? null : rec[headers[idx[f]]]);
-    const oid = cleanId(get('option_id')); if (!/^\d{5,}$/.test(oid)) continue;
+    let oid = idx.option_id != null ? cleanId(get('option_id')) : '';
+    if (!/^\d{5,}$/.test(oid)) { for (const v of Object.values(rec)) { const m = String(v ?? '').match(OID_IN_TEXT); if (m) { oid = m[1]; break; } } }
+    if (!/^\d{5,}$/.test(oid)) continue;
     const row = (out[oid] ||= { option_id: oid, product_name: '', option_name: '', product_id: '', stock: 0, inbound: 0 });
     row.product_name ||= String(get('product_name') ?? '').trim(); row.option_name ||= String(get('option_name') ?? '').trim(); row.product_id ||= cleanId(get('product_id'));
     row.stock += parseNumber(get('stock')) ?? 0; row.inbound += parseNumber(get('inbound')) ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다

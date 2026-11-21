@@ -796,10 +796,21 @@ async function collectInventory() {
     const li = await ensureLoggedIn(tab.id, s.invUrl, s); if (li.needed && !li.ok) throw new Error(li.reason);
     await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null);
     let r = await readWithRetry(tab.id, 'inventory', Date.now() + s.waitSeconds * 1000 + 30000);
-    if (!r) { const bd = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); throw new Error(`재고 표(옵션ID·재고 열)를 찾지 못했습니다 — ${await describePage(tab.id)} · 화면 버튼: ${(bd?.buttons || []).slice(0, 20).join(' | ').slice(0, 300)}`); }
-    const full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full;
-    const rows = INV.normalizeInventory(r.records);
-    if (!rows.length) throw new Error(`재고 표는 찾았지만 옵션ID·재고 열을 알아보지 못했습니다 (표 제목: ${Object.keys(r.records[0] || {}).join(' | ').slice(0, 300)})`);
+    let rows = [];
+    let full = null; if (r) { full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full; rows = INV.normalizeInventory(r.records); }
+    if (!rows.length) {
+      // 화면 표로 못 읽으면: '엑셀 다운로드' 로 재고 파일을 받아 읽는다 (받은 파일은 재고 표로 알아보고 저장된다)
+      const heads = await chrome.tabs.sendMessage(tab.id, { type: 'tableHeads' }).catch(() => null);
+      const headTxt = (heads?.tables || []).map((t) => `[${t.kind} ${t.rows}줄] ${t.headers.join(' | ')}${t.first?.length ? ` / 첫 줄: ${t.first.join(' | ')}` : ''}`).join(' ;; ').slice(0, 900);
+      await log(`[재고] 화면 표로 못 읽어 엑셀 다운로드로 받아 봅니다. 화면의 표: ${headTxt || '없음'}`);
+      await installHook(tab.id); expectUntil = Date.now() + 150000; expectDate = null; lastHookedUrl = null;
+      const waiting = waitForReport(90000);
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload', items: ['재고', '전체', '엑셀', 'Excel', 'xlsx', '다운로드'] }).catch(() => null);
+      if (!c?.ok) { settle(null); throw new Error(`재고 표를 찾지 못했고 엑셀 다운로드 버튼도 누르지 못했습니다 — 화면의 표: ${headTxt || '없음'}`); }
+      const res = await waiting;
+      if (res?.ok && res.kind === 'inventory') { await log(`[재고] 엑셀로 로켓그로스 재고 ${res.saved}개 옵션 저장 (${c.clicked})`); return { ok: true, saved: res.saved }; }
+      throw new Error(`재고 표를 찾지 못했고, 엑셀 다운로드(${c.clicked})로도 재고 파일을 받지 못했습니다 (${res?.kind ? `받은 파일 종류: ${res.kind}` : res?.error || '파일 없음'}) — 화면의 표: ${headTxt || '없음'}`);
+    }
     const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows); await S.save(d);
     await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}${full?.pages > 1 ? `, ${full.pages}쪽` : ''})`);
     return { ok: true, saved: rows.length };

@@ -256,7 +256,7 @@
   const KIND_RULES = {
     sales: { must: ['옵션id'], any: ['매출', '판매량'] },   // 판매분석의 필터 줄('판매된 옵션 (63)')이 표로 오인되지 않도록 옵션ID 헤더를 요구
     ads: { must: ['캠페인'], any: ['광고비', '노출', '예산', '클릭', '비용'] },
-    inventory: { must: ['재고'], any: ['옵션id', '옵션 id', 'vendoritemid', '옵션아이디'] },   // 로켓그로스 재고 화면
+    inventory: { must: ['재고'], any: ['옵션id', '옵션 id', 'vendoritemid', '옵션아이디', '옵션', '상품'] },   // 로켓그로스 재고 화면 (옵션ID 가 '상품 정보' 칸 안에 글자로 들어 있는 경우도)
   };
 
   function pickTable(tables, kind) {
@@ -363,14 +363,14 @@
     fire(item, HOVER); fire(item, CLICK);
     return { ok: true };
   }
-  async function clickAnyDownload() {
+  async function clickAnyDownload(items = null) {
     const labels = ['엑셀 다운로드', '엑셀다운로드', '다운로드', '보고서 다운로드', '리포트 다운로드', '내보내기', 'Excel'];
     let btn = null;
     for (const l of labels) { btn = findByText(l)[0] || findByText(l, false)[0]; if (btn) break; }
     if (!btn) return { ok: false, reason: '다운로드 버튼을 찾지 못했습니다', diag: visibleTexts('다운로드') };
     fire(btn, HOVER); fire(btn, CLICK);
     // 하위 메뉴가 열리면 '캠페인' 또는 '엑셀' 이 들어간 항목을 누른다
-    const item = await findItem(['캠페인 보고서', '캠페인', '엑셀', 'Excel', 'xlsx'], 5);
+    const item = await findItem(items || ['캠페인 보고서', '캠페인', '엑셀', 'Excel', 'xlsx'], 5);
     if (item && item !== btn) { fire(item, HOVER); fire(item, CLICK); }
     return { ok: true, clicked: clean(btn.innerText).slice(0, 30) + (item ? ' → ' + clean(item.innerText).slice(0, 30) : '') };
   }
@@ -831,7 +831,10 @@
     } else if (msg?.type === 'readAll') {
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
-      clickAnyDownload().then(sendResponse);
+      clickAnyDownload(msg.items || null).then(sendResponse);
+    } else if (msg?.type === 'tableHeads') {
+      // 진단: 화면에서 찾은 표들의 칸 이름과 첫 줄
+      try { sendResponse({ ok: true, tables: allTables().slice(0, 6).map((t) => ({ kind: t.kind, rows: t.rows.length, headers: t.headers.filter(Boolean).slice(0, 16), first: (t.rows[0] || []).slice(0, 8).map((x) => String(x).slice(0, 40)) })) }); } catch (e) { sendResponse({ ok: false, error: e.message }); }
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly, inDialog: !!msg.inDialog }));
     } else if (msg?.type === 'findRowByText') {
