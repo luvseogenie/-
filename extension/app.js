@@ -889,11 +889,15 @@ async function renderInventory() {
   const f = INV.inventoryForecast(DATA, localIso(today)); const st = f.settings;
   for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
   $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준` : '아직 재고를 읽지 않았습니다';
-  const mine = S.brandChecker(DATA); const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
-  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
+  const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
+  const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
+  const hidBrand = onlyMine ? f.rows.filter((x) => !mine0(x.option_name, x.product_name, x.group_name)).length : 0;
+  const hidIdle = onlyLow ? f.rows.filter((x) => x.level === 'idle' && !(x.stock > 0)).length : 0;
+  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name, x.group_name) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
   const LV = { out: ['품절', 'neg'], danger: ['위험', 'neg'], warn: ['주의', 'warn'], unknown: ['재고 미확인', 'gray'], ok: ['여유', 'pos'], idle: ['판매 없음', 'sub'] };
   const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length; const nMiss = rows.filter((x) => x.missing).length;
-  $('#inv-count').textContent = f.asOf ? `옵션 ${rows.length}개 · 부족·품절 ${nLow}개${nMiss ? ` · 재고 미확인 ${nMiss}개` : ''}` : '';
+  const nProd = new Set(rows.map((x) => x.key)).size; const inv0 = Object.keys((DATA.inventory || {})[f.asOf] || {}).length;
+  $('#inv-count').textContent = f.asOf ? `윙에서 읽은 옵션 ${inv0}개 · 보이는 상품 ${nProd}개 / 옵션 ${rows.length}개 · 부족·품절 ${nLow}개${nMiss ? ` · 재고 미확인 ${nMiss}개` : ''}${hidBrand ? ` · 다른 브랜드라 숨김 ${hidBrand}개` : ''}${hidIdle ? ` · 판매·재고 없어 숨김 ${hidIdle}개` : ''}` : '';
   const one = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1));
   const pill = (lv) => { const [t, c] = LV[lv]; return `<span class="pill ${c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : c === 'warn' ? 'background:#fff3c4;color:#6b4a00' : ''}">${t}</span>`; };
   const seasonBadge = (x) => x.seasonType === 'season' ? `<span class="pill" style="background:#fde8f1;color:#a3195b">시즌${x.seasonEnd ? ` ~${x.seasonEnd.slice(5).replace('-', '/')}` : ''}</span>` : x.seasonType === 'year' ? '<span class="pill" style="background:#e6f4ea;color:#1e6b34">비시즌</span>' : '<span class="pill gray">구분 없음</span>';
@@ -934,7 +938,7 @@ $('#inv-bulk-go').onclick = async () => {
     $('#inv-bulk-ids').value = '';
   } catch (e) { msg('#inv-msg', e.message, 'err'); }
 };
-$('#inv-season-filter').onchange = () => renderInventory();
+$('#inv-season-filter').onchange = () => renderInventory(); $('#inv-only-mine').onchange = () => renderInventory();
 $('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory(); $('#inv-group').onchange = () => renderInventory();
 $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim(); if (v && !/^https:\/\/[^/]*coupang\.com\//.test(v)) { msg('#inv-msg', '쿠팡 윙 주소(https://wing.coupang.com/…)를 넣어 주세요', 'err'); return; } await chrome.storage.sync.set({ invUrl: v }); msg('#inv-msg', v ? '저장했습니다. 매일 자동 수집 뒤 재고도 읽습니다' : '지웠습니다', 'ok'); };
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14 }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };

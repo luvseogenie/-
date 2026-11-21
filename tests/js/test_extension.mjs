@@ -1336,3 +1336,12 @@ console.log('extension logic: all checks passed');
   assert.equal(INV.seasonTypeOf({ seasonEnd: '2026-12-25' }), 'season'); assert.equal(INV.seasonTypeOf({}), '');
   console.log('inventory missing options, season type, bulk by product ID: all checks passed');
 }
+
+// 재고 브랜드 확인: 이름 앞에 배지 글자가 붙어도 브랜드가 들어 있으면 내 것
+{
+  const loose = S.brandCheckerLoose({ brands: ['DUGN'] }), strict = S.brandChecker({ brands: ['DUGN'] });
+  assert.equal(strict('로켓그로스 DUGN 담요'), false); assert.equal(loose('로켓그로스 DUGN 담요'), true);
+  assert.equal(loose('아이템위너 dugnstudio 리본'), true); assert.equal(loose('남의 상품'), false); assert.equal(loose('', null), true);
+  assert.equal(S.brandCheckerLoose({ brands: [] })('아무거나'), true);
+  console.log('inventory loose brand check: all checks passed');
+}

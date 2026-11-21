@@ -826,7 +826,7 @@ async function inventoryRun(manual = false) {
   const s = await getSettings(); if (!s.invUrl) return manual ? { ok: false, error: "재고 화면 주소가 비어 있습니다" } : null;
   try { await collectInventory(); } catch (e) { await log(`[재고] 실패: ${e.message}`); return { ok: false, error: e.message }; }
   try {
-    const d = await S.load(); const mine = S.brandChecker(d); const f = INV.inventoryForecast(d, RT.todayIso());
+    const d = await S.load(); const mine = S.brandCheckerLoose(d); const f = INV.inventoryForecast(d, RT.todayIso());
     const low = f.rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level) && mine(x.option_name, x.product_name));
     if (low.length) {
       const top = low.slice(0, 3).map((x) => `${String(x.option_name || x.product_name).slice(0, 20)}(${x.level === 'out' ? '품절' : `${Math.floor(x.daysLeft)}일 남음`})`).join(', ');

@@ -156,9 +156,25 @@
   const rowsFingerprint = (kind) => { const p = window.__ccPick(kind); return p ? p.records.map((r) => Object.values(r).slice(0, 3).join('~')).join('|') : ''; };   // 첫 칸이 비어 있는 표(체크박스·사진)도 쪽이 바뀐 걸 알 수 있게 앞 3칸
   // 조건이 될 때까지 기다린다 (최대 ms)
   async function waitUntil(cond, ms, step = 300) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cond()) return true; await wait(step); } return cond(); }
+  // 직접 만든 드롭다운 ('50개씩 보기' 를 누르면 '10개씩 / 50개씩 / 100개씩' 목록이 뜨는 화면)
+  async function maximizeCustomPageSize(kind) {
+    const RE = /^\s*(\d{2,4})\s*개\s*씩(\s*보기)?\s*$/;
+    const hits = [...deepAll('button, [role="button"], [role="combobox"], div, span')].filter((e) => visible(e) && RE.test(clean(e.innerText)) && !e.closest('[role="listbox"], [role="option"], ul, select'));
+    const btn = hits.find((e) => !hits.some((o) => o !== e && e.contains(o)));   // 가장 안쪽 (누르면 바깥 버튼으로 전달된다)
+    if (!btn) return null;
+    const cur = parseInt(clean(btn.innerText).match(RE)[1], 10);
+    fire(btn, [...HOVER, ...CLICK]); await wait(600);
+    const opts = [...deepAll('li, [role="option"], button, a, div, span')].filter((e) => e !== btn && !btn.contains(e) && visible(e) && !e.children.length && RE.test(clean(e.innerText)));
+    const best = opts.reduce((a, o) => (parseInt(clean(o.innerText).match(RE)[1], 10) > (a ? parseInt(clean(a.innerText).match(RE)[1], 10) : 0) ? o : a), null);
+    if (!best || parseInt(clean(best.innerText).match(RE)[1], 10) <= cur) { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return null; }
+    const before = rowsFingerprint(kind); const label = clean(best.innerText);
+    fire(best, [...HOVER, ...CLICK]);
+    const changed = await waitUntil(() => rowsFingerprint(kind) !== before, 8000); await wait(500);
+    return label + (changed ? '' : ' (적용 안 됨)');
+  }
   async function maximizePageSize(kind) {
-    const sel = [...deepAll('select')].find((s) => [...s.options].filter((o) => /^\s*\d+\s*(개|건|rows|items)?\s*$/i.test(o.textContent)).length >= 2);
-    if (!sel) return null;
+    const sel = [...deepAll('select')].find((s) => [...s.options].filter((o) => /^\s*\d+\s*(개|건|rows|items)?(\s*씩(\s*보기)?)?\s*$/i.test(o.textContent)).length >= 2);
+    if (!sel) return maximizeCustomPageSize(kind);
     const best = [...sel.options].reduce((a, o) => (parseInt(o.textContent, 10) || 0) > (parseInt(a.textContent, 10) || 0) ? o : a);
     if (best.value === sel.value) return null;
     const before = rowsFingerprint(kind); const beforeTotal = pageTotal();

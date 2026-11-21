@@ -406,6 +406,12 @@ export function brandChecker(d) {
   const norm = (n) => String(n || '').trim().toLowerCase().replace(/^[\[(【「<\s]+/, '').replace(/\s+/g, '');
   return (...names) => { const ns = names.map(norm).filter((n) => n && n !== '-'); return !ns.length || ns.some((n) => b.some((x) => n.startsWith(x))); };
 }
+// 재고용: 윙 재고 화면은 내 계정 재고라, 이름 맨 앞이 아니어도(앞에 '로켓그로스'·'아이템위너' 같은 배지 글자가 붙어도) 브랜드가 들어 있으면 내 것
+export function brandCheckerLoose(d) {
+  const b = (Array.isArray(d.brands) ? d.brands : []).map((x) => String(x).trim().toLowerCase().replace(/\s+/g, '')).filter(Boolean);
+  if (!b.length) return () => true;
+  return (...names) => { const ns = names.map((n) => String(n || '').toLowerCase().replace(/\s+/g, '')).filter((n) => n && n !== '-'); return !ns.length || ns.some((n) => b.some((x) => n.includes(x))); };
+}
 export function removeNotMine(d) {
   const mine = brandChecker(d); const facts = optionFacts(d); const ev = campaignEvidence(d); const out = [];
   d.options = d.options.filter((o) => {
