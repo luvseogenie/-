@@ -817,8 +817,29 @@ async function collectInventory() {
       throw new Error(`재고 표를 찾지 못했고, 엑셀 다운로드(${c.clicked})로도 재고 파일을 받지 못했습니다 (${res?.kind ? `받은 파일 종류: ${res.kind}` : res?.error || '파일 없음'}) — 화면의 표: ${headTxt || '없음'}`);
     }
     if (rows.unmatched?.length) await log(`[재고] 화면 ${(r?.records || []).length}줄 중 ${rows.unmatched.length}줄은 옵션을 찾지 못해 뺐습니다 (화면에 옵션ID가 없고, 판매 기록의 옵션명과도 안 맞음). 예: ${rows.unmatched.slice(0, 6).join(' / ')}`);
-    const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows); await S.save(d);
+    const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows, { merge: true });
+    d.inventoryMeta = { date, at: Date.now(), screenRows: (r?.records || []).length, saved: rows.length, pages: full?.pages || 1, notes: full?.notes || [] }; await S.save(d);
     await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, 화면 ${(r?.records || []).length}줄 · ${full?.pages || 1}쪽 읽음${full?.notes?.length ? ' · ' + full.notes.join(', ') : ''})`);
+    // 판매 기록엔 있는데 재고 화면에서 못 읽은 로켓그로스 옵션이 많으면: 화면 아래 버튼 모양을 남기고, 엑셀 다운로드로 전체 재고를 받아 더한다
+    const mineL = S.brandCheckerLoose(d); const miss = INV.inventoryForecast(d, date).rows.filter((x) => x.missing && mineL(x.option_name, x.product_name, x.group_name));
+    if (miss.length >= 3) {
+      const pg = await chrome.tabs.sendMessage(tab.id, { type: 'pagerDiag' }).catch(() => null);
+      await log(`[재고] 판매 기록엔 있는데 재고 화면에서 못 읽은 옵션 ${miss.length}개 (예: ${miss.slice(0, 4).map((x) => x.option_id).join(', ')}) → 엑셀 다운로드로 전체 재고를 받아 더해 봅니다. 화면 아래 쪽 버튼: ${(pg?.items || []).join(' / ').slice(0, 400) || '못 찾음'}`);
+      try {
+        await installHook(tab.id); expectUntil = Date.now() + 150000; expectDate = null; lastHookedUrl = null;
+        const waiting = waitForReport(90000);
+        const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload', items: ['엑셀', 'Excel', 'xlsx', '전체', '다운로드'] }).catch(() => null);
+        if (!c?.ok) { settle(null); await log('[재고] 엑셀 다운로드 버튼을 찾지 못했습니다 (화면에서 읽은 것만 저장)'); }
+        else {
+          const res = await waiting;
+          if (res?.ok && res.kind === 'inventory') {
+            const d2 = await S.load(); const n = Object.keys(d2.inventory?.[date] || {}).length; d2.inventoryMeta = { ...(d2.inventoryMeta || {}), excel: res.saved }; await S.save(d2);
+            const left = INV.inventoryForecast(d2, date).rows.filter((x) => x.missing && mineL(x.option_name, x.product_name, x.group_name)).length;
+            await log(`[재고] 엑셀로 ${res.saved}개 옵션을 더 받아 합쳤습니다 (오늘 재고 ${n}개 옵션, 아직 못 찾은 옵션 ${left}개)`);
+          } else await log(`[재고] 엑셀 다운로드(${c.clicked})로 재고 파일을 받지 못했습니다 (${res?.kind ? `받은 파일 종류: ${res.kind}` : res?.error || '파일 없음'})`);
+        }
+      } catch (e) { await log(`[재고] 엑셀로 더 받기 실패: ${e.message}`); }
+    }
     return { ok: true, saved: rows.length };
   } finally { await close(); }
 }

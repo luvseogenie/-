@@ -1345,3 +1345,26 @@ console.log('extension logic: all checks passed');
   assert.equal(S.brandCheckerLoose({ brands: [] })('아무거나'), true);
   console.log('inventory loose brand check: all checks passed');
 }
+
+// 재고: 같은 날 나눠 읽은 재고 합치기, 옵션ID 가 다르게 읽힌 줄을 이름으로 맞추기, 옵션 이름표와 정렬
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-21'; const d = { sales: {}, inventory: {} };
+  S.setInventory(d, T, [{ option_id: 'A', stock: 1 }]); S.setInventory(d, T, [{ option_id: 'B', stock: 2 }], { merge: true }); S.setInventory(d, T, [{ option_id: 'A', stock: 5 }], { merge: true });
+  assert.deepEqual(Object.values(d.inventory[T]).map((x) => [x.option_id, x.stock]), [['A', 5], ['B', 2]]);
+  S.setInventory(d, T, [{ option_id: 'C', stock: 1 }]); assert.deepEqual(Object.keys(d.inventory[T]), ['C']);   // merge 없으면 바꿔 넣기
+  const day = '2026-11-20';
+  const s = (o, name) => ({ option_id: o, product_id: 'P', product_name: 'DUGN 담요', option_name: name, quantity: 2, sales_type: '로켓그로스' });
+  const e = { sales: { [day]: { S2: s('S2', '2개 블루'), S12: s('S12', '12개 블루'), S3: s('S3', '1개 레드') } },
+    inventory: { [T]: { X12: { option_id: 'X12', product_id: 'P', product_name: 'DUGN 담요, 12개 블루', stock: 40 }, S3: { option_id: 'S3', product_id: 'P', product_name: 'DUGN 담요, 1개 레드', stock: 9 } } } };
+  const f = INV.inventoryForecast(e, T); const by = (id) => f.rows.find((x) => x.option_id === id);
+  assert.equal(by('S12').stock, 40); assert.equal(by('S12').inv_option_id, 'X12'); assert.ok(!by('X12'));   // 다른 ID 로 읽힌 '12개 블루' 를 판매 옵션 S12 로
+  assert.equal(by('S2').missing, true);   // '2개 블루' 는 '12개 블루' 줄에 붙지 않는다
+  assert.equal(by('S3').label, '1개 레드'); assert.equal(by('S3').stock, 9);
+  assert.equal(INV.optionLabel({ product_name: 'DUGN 담요, 1개 블루' }, 'DUGN 담요'), '1개 블루');
+  assert.equal(INV.optionLabel({ product_name: 'DUGN 담요 대형, 3개 그레이' }, ''), '3개 그레이');
+  const names = ['10개 블루', '2개 블루', '1개 레드', '가방', '하늘'].map((label) => ({ label }));
+  assert.deepEqual(INV.sortInventory(names, 'asc').map((x) => x.label), ['1개 레드', '2개 블루', '10개 블루', '가방', '하늘']);
+  assert.deepEqual(INV.sortInventory(names, 'desc').map((x) => x.label), ['하늘', '가방', '10개 블루', '2개 블루', '1개 레드']);
+  console.log('inventory merge, ID reconcile, labels and sorting: all checks passed');
+}

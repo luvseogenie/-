@@ -865,6 +865,14 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload(msg.items || null).then(sendResponse);
+    } else if (msg?.type === 'pagerDiag') {
+      // 진단: 표 아래쪽의 짧은 버튼·링크 (쪽 번호, 화살표, 'N개씩 보기')
+      try {
+        const tb = [...deepAll('table, [role="grid"], .ag-root')].map((t) => t.getBoundingClientRect()).filter((r) => r.height > 50).sort((a, b) => b.height - a.height)[0];
+        const y0 = tb ? tb.bottom - 5 : 0;
+        const items = [...deepAll('button, a, li, select, [role="button"], [role="combobox"]')].filter((e) => visible(e) && e.getBoundingClientRect().top >= y0 && !e.closest('table')).map((e) => { const t = clean(e.innerText || e.value || '').slice(0, 14); const a = (e.getAttribute('aria-label') || e.getAttribute('title') || '').slice(0, 20); const c = typeof e.className === 'string' ? e.className.split(/\s+/).find((x) => /page|next|prev|arrow|size/i.test(x)) || '' : ''; return [e.tagName.toLowerCase(), t, a, c].filter(Boolean).join(':'); }).filter((x) => x.split(':').length > 1);
+        sendResponse({ ok: true, items: [...new Set(items)].slice(0, 30) });
+      } catch (e) { sendResponse({ ok: false, error: e.message }); }
     } else if (msg?.type === 'tableHeads') {
       // 진단: 화면에서 찾은 표들의 칸 이름과 첫 줄
       try { sendResponse({ ok: true, tables: allTables().slice(0, 6).map((t) => ({ kind: t.kind, rows: t.rows.length, headers: t.headers.filter(Boolean).slice(0, 16), first: (t.rows[0] || []).slice(0, 8).map((x) => String(x).slice(0, 160)) })) }); } catch (e) { sendResponse({ ok: false, error: e.message }); }

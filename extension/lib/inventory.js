@@ -58,6 +58,23 @@ export function normalizeInventory(records, { names = [] } = {}) {
   const res = Object.values(out); res.unmatched = unmatched; return res;
 }
 
+// 옵션 이름표: 옵션명이 있으면 그것, 없으면 상품명에서 상품 이름 부분을 뗀 나머지 ('DUGN 담요, 1개 블루' → '1개 블루')
+export function optionLabel(x, groupName = '') {
+  if (x.option_name) return String(x.option_name).trim();
+  let n = String(x.product_name || '').trim(); const g = String(groupName || '').trim();
+  if (g && n.startsWith(g) && n.length > g.length) n = n.slice(g.length).replace(/^[\s,·/\-]+/, '');
+  else if (n.includes(',')) n = n.slice(n.lastIndexOf(',') + 1).trim();
+  return n || String(x.option_id);
+}
+// 이름 정렬: 숫자는 크기대로 ('2개' < '10개'), 한글 가나다순
+const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+export const nameCompare = (a, b) => collator.compare(String(a || ''), String(b || ''));
+// sort: 'asc' | 'desc' | 'urgent' — 상품 순서와 그 안 옵션 순서
+export function sortInventory(groupsOrRows, sort = 'asc', nameOf = (x) => x.label || x.product_name) {
+  const o = LEVEL_ORDER; const arr = [...groupsOrRows];
+  if (sort === 'urgent') return arr.sort((a, b) => (o[a.level] - o[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
+  const dir = sort === 'desc' ? -1 : 1; return arr.sort((a, b) => dir * nameCompare(nameOf(a), nameOf(b)));
+}
 // 상품 묶음 열쇠: 등록상품ID (없으면 상품명)
 export const productKey = (x) => String(x.product_id || x.product_name || x.option_id);
 // 상품별로 묶기: 재고·입고 예정·하루 판매·발주 추천은 합계, 남은 일수·품절 예상일은 가장 급한 옵션, 상태는 가장 나쁜 것
@@ -106,11 +123,24 @@ export function inventoryForecast(d, today, settings = {}) {
   // 재고 화면 줄에 등록상품ID 가 없으면 판매 기록에서 채운다 (상품별 묶기·일괄 설정이 등록상품ID 로 되도록)
   const base = Object.values(inv).map((x) => (x.product_id || !facts[x.option_id]?.product_id ? x : { ...x, product_id: facts[x.option_id].product_id }));
   const pids = new Set(base.map((x) => x.product_id).filter(Boolean));
+  // 재고 화면의 옵션ID 가 판매 기록과 다르게 읽힌 줄: 같은 등록상품에서 이름 끝이 판매 기록 옵션명과 같으면 같은 옵션으로 본다
+  const strays = base.filter((x) => !facts[x.option_id]);
+  const used = new Set();
+  const takeStray = (f) => {
+    const on = nk(f.option_name); if (on.length < 2) return null;
+    const cands = strays.filter((x) => !used.has(x) && (!x.product_id || !f.product_id || x.product_id === f.product_id));
+    const full = (x) => nk(`${x.product_name || ''} ${x.option_name || ''}`);
+    const ends = (x) => { const t = full(x); return t.endsWith(on) && !/\d$/.test(t.slice(0, t.length - on.length)); };   // '12개 블루' 가 '2개 블루' 로 잡히지 않게
+    return cands.find((x) => nk(x.option_name) === on) || cands.find(ends) || null;
+  };
   for (const [oid, f] of Object.entries(facts)) {
     if (inv[oid] || !f.rg) continue;
     if (!(f.product_id && pids.has(f.product_id)) && !(q30[oid] > 0)) continue;
+    const st0 = takeStray(f);
+    if (st0) { used.add(st0); base.push({ ...st0, option_id: oid, inv_option_id: st0.option_id, product_id: st0.product_id || f.product_id, option_name: f.option_name || st0.option_name }); continue; }
     base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });
   }
+  for (let i = base.length - 1; i >= 0; i--) if (used.has(base[i])) base.splice(i, 1);
   const rows = base.map((x) => {
     const key = productKey(x); const ps = (d.invProduct || {})[key] || {}; const f = facts[x.option_id] || {};
     const lead = ps.leadDays != null && ps.leadDays !== '' ? Number(ps.leadDays) : st.leadDays;   // 상품마다 다른 입고 소요일 (없으면 기본값)
@@ -125,7 +155,8 @@ export function inventoryForecast(d, today, settings = {}) {
     const seasonOver = seasonLeft != null && seasonLeft <= 0;
     const level = x.missing ? 'unknown' : rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
     const option_name = x.option_name || (x.missing ? '' : f.option_name && f.option_name !== x.product_name ? f.option_name : '');
-    return { ...x, option_name, group_name: f.product_name || x.product_name, key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
+    const group_name = f.product_name || x.product_name;
+    return { ...x, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));

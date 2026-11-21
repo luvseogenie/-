@@ -252,8 +252,9 @@ export function cleanCampaignNames(d) {
   return Object.keys(map).length > 0;
 }
 // 로켓그로스 재고: d.inventory = { 'YYYY-MM-DD': { option_id: { option_id, product_name, option_name, product_id, stock, inbound } } } — 최근 60일만
-export function setInventory(d, date, rows) {
-  d.inventory ||= {}; d.inventory[date] = Object.fromEntries(rows.map((r) => [r.option_id, r]));
+// merge: 같은 날 앞서 읽은 재고에 더한다 (화면 여러 쪽 + 엑셀처럼 나눠 읽어도 빠지지 않게, 새 값이 이김)
+export function setInventory(d, date, rows, { merge = false } = {}) {
+  d.inventory ||= {}; d.inventory[date] = { ...(merge ? d.inventory[date] || {} : {}), ...Object.fromEntries(rows.map((r) => [r.option_id, r])) };
   for (const k of Object.keys(d.inventory).sort().slice(0, -60)) delete d.inventory[k];
   return rows.length;
 }

@@ -69,7 +69,7 @@ export async function importInventoryFile(buf, filename, records = null) {
   records ||= await fileToRecords(buf, filename, ['재고']);
   const rows = normalizeInventory(records); if (!rows.length) throw new Error('재고 파일에서 옵션ID·재고 열을 찾지 못했습니다');
   const t = new Date(); const date = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-  const d = await S.load(); S.setInventory(d, date, rows); await S.save(d);
+  const d = await S.load(); S.setInventory(d, date, rows, { merge: true }); await S.save(d);
   return { kind: 'inventory', date, saved: rows.length, records };
 }
 export async function importAnyFile(buf, filename, date) {

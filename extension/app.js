@@ -893,7 +893,9 @@ async function renderInventory() {
   const { invUrl = '' } = await chrome.storage.sync.get('invUrl'); if (document.activeElement !== $('#inv-url')) $('#inv-url').value = invUrl;
   const f = INV.inventoryForecast(DATA, localIso(today)); const st = f.settings;
   for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
-  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준` : '아직 재고를 읽지 않았습니다';
+  const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
+  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
+  const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
   const hidBrand = onlyMine ? f.rows.filter((x) => !mine0(x.option_name, x.product_name, x.group_name)).length : 0;
@@ -907,16 +909,16 @@ async function renderInventory() {
   const pill = (lv) => { const [t, c] = LV[lv]; return `<span class="pill ${c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : c === 'warn' ? 'background:#fff3c4;color:#6b4a00' : ''}">${t}</span>`; };
   const seasonBadge = (x) => x.seasonType === 'season' ? `<span class="pill" style="background:#fde8f1;color:#a3195b">시즌${x.seasonEnd ? ` ~${x.seasonEnd.slice(5).replace('-', '/')}` : ''}</span>` : x.seasonType === 'year' ? '<span class="pill" style="background:#e6f4ea;color:#1e6b34">비시즌</span>' : '<span class="pill gray">구분 없음</span>';
   const cells = (x) => `<td class="num">${x.missing ? '<span class="sub" title="윙 재고 화면에서 이 옵션을 못 읽었습니다 (품절이라 목록에 없거나 다음 쪽)">?</span>' : `<b>${fmtInt(x.stock)}</b>`}</td><td class="num sub">${x.inbound ? fmtInt(x.inbound) : ''}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${['out', 'danger'].includes(x.level) ? 'neg' : ''}">${x.missing ? '' : x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.seasonOver ? '<span class="sub">시즌 끝</span>' : x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}${x.reorderIfOut ? `<div class="sub" style="font-size:11px">품절이면 ${fmtInt(x.reorderIfOut)}개</div>` : ''}</td>`;
-  const optRow = (x, sub) => `<tr${sub ? ' class="inv-opt"' : ''}><td class="l">${pill(x.level)}</td><td class="l num">${esc(x.option_id)}</td><td class="l">${sub ? `<span class="sub">${esc(x.option_name || x.product_name)}</span>` : `${esc(x.product_name)} ${seasonBadge(x)}${x.option_name && x.option_name !== x.product_name ? `<div class="sub">${esc(x.option_name)}</div>` : ''}`}</td>${cells(x)}</tr>`;
+  const optRow = (x, sub) => `<tr${sub ? ' class="inv-opt"' : ''}><td class="l">${pill(x.level)}</td><td class="l num">${esc(x.option_id)}</td><td class="l">${sub ? `<span class="sub">${esc(x.label)}</span>${x.inv_option_id ? ` <span class="sub" style="font-size:11px" title="윙 재고 화면에는 다른 옵션ID(${esc(x.inv_option_id)})로 나와 이름으로 맞춤">≈</span>` : ''}` : `${esc(x.group_name || x.product_name)} ${seasonBadge(x)}<div class="sub">${esc(x.label)}</div>`}</td>${cells(x)}</tr>`;
   let html = '';
   if ($('#inv-group').checked) {
-    for (const g of INV.groupByProduct(rows).slice(0, 300)) {
+    for (const g of INV.sortInventory(INV.groupByProduct(rows), sortBy, (g) => g.product_name).slice(0, 300)) {
       const ps = (DATA.invProduct || {})[g.key] || {}; const k = esc(g.key); const stype = INV.seasonTypeOf(ps);
       html += `<tr class="inv-prod"><td class="l">${pill(g.level)}</td><td class="l sub"><label class="chk" title="위 '등록상품ID로 일괄' 에 함께 적용"><input type="checkbox" data-inv-pick="${k}"> ${esc(g.product_id || '')}</label></td><td class="l"><b>${esc(g.product_name)}</b> ${seasonBadge(g)} <span class="sub">옵션 ${g.options.length}개${g.missingCount ? ` (재고 미확인 ${g.missingCount}개)` : ''}</span>
         <div class="row" style="margin-top:4px;gap:4px"><select data-inv-stype="${k}"><option value="" ${!stype ? 'selected' : ''}>구분 없음</option><option value="season" ${stype === 'season' ? 'selected' : ''}>시즌 상품</option><option value="year" ${stype === 'year' ? 'selected' : ''}>비시즌(연중)</option></select><span class="sub">입고 소요</span><input type="number" class="tiny" data-inv-lead="${k}" min="0" max="180" placeholder="${st.leadDays}" value="${ps.leadDays ?? ''}"><span class="sub">일 · 시즌 종료</span><input type="date" data-inv-season="${k}" value="${esc(ps.seasonEnd || '')}" style="width:140px" ${stype === 'year' ? 'disabled' : ''}><button class="btn sm" data-inv-psave="${k}">저장</button></div></td>${cells(g)}</tr>`;
-      html += g.options.map((x) => optRow(x, true)).join('');
+      html += INV.sortInventory(g.options, sortBy, (x) => x.label).map((x) => optRow(x, true)).join('');
     }
-  } else html = rows.slice(0, 600).map((x) => optRow(x, false)).join('');
+  } else html = INV.sortInventory(rows, sortBy, (x) => `${x.group_name || x.product_name} ${x.label}`).slice(0, 600).map((x) => optRow(x, false)).join('');
   $('#inv-table tbody').innerHTML = html;
   const field = (attr, key) => $(`#inv-table [${attr}="${CSS.escape(key)}"]`);
   $$('#inv-table select[data-inv-stype]').forEach((sel) => sel.onchange = () => { const e = field('data-inv-season', sel.dataset.invStype); if (e) e.disabled = sel.value === 'year'; });
@@ -943,7 +945,9 @@ $('#inv-bulk-go').onclick = async () => {
     $('#inv-bulk-ids').value = '';
   } catch (e) { msg('#inv-msg', e.message, 'err'); }
 };
-$('#inv-season-filter').onchange = () => renderInventory(); $('#inv-only-mine').onchange = () => renderInventory();
+$('#inv-season-filter').onchange = () => renderInventory();
+try { const v = localStorage.getItem('invSort'); if (v) $('#inv-sort').value = v; } catch { /* 무시 */ }
+$('#inv-sort').onchange = () => { try { localStorage.setItem('invSort', $('#inv-sort').value); } catch { /* 무시 */ } renderInventory(); }; $('#inv-only-mine').onchange = () => renderInventory();
 $('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory(); $('#inv-group').onchange = () => renderInventory();
 $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim(); if (v && !/^https:\/\/[^/]*coupang\.com\//.test(v)) { msg('#inv-msg', '쿠팡 윙 주소(https://wing.coupang.com/…)를 넣어 주세요', 'err'); return; } await chrome.storage.sync.set({ invUrl: v }); msg('#inv-msg', v ? '저장했습니다. 매일 자동 수집 뒤 재고도 읽습니다' : '지웠습니다', 'ok'); };
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14 }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
