@@ -251,6 +251,17 @@
       if (i > 1 && !added) notes.push(`${i}쪽이 앞쪽과 같은 내용`);
       if (pageTotal() <= i) break;
     }
+    // 쪽 번호가 없고 '더보기' 버튼으로 늘어나는 목록이면 끝까지 누른다
+    if (pages === 1 && pageTotal() <= 1) {
+      let more = 0;
+      for (let k = 0; k < 40; k++) {
+        const btn = [...deepAll('button, a, [role="button"]')].find((b) => visible(b) && !b.disabled && /^(더\s*보기|더보기|목록\s*더\s*보기|more|load\s*more)(\s*[(\d/)\s]*)?$/i.test(clean(b.innerText)));
+        if (!btn) break; const n0 = window.__ccPick(kind)?.records?.length || 0;
+        fire(btn, [...HOVER, ...CLICK]); if (!(await waitUntil(() => (window.__ccPick(kind)?.records?.length || 0) > n0, 6000))) break;
+        more++; for (const r of window.__ccPick(kind).records) { const key = Object.values(r).slice(0, 1).join('|'); if (!seen.has(key)) { seen.add(key); all.push(r); } }
+      }
+      if (more) notes.push(`'더보기' ${more}번`);
+    }
     const total = shownTotal(); if (total && total !== all.length) notes.push(`화면 표기 전체 ${total}개 중 ${all.length}개 읽음`);
     if (pages > 1) { try { await gotoPage(1, kind); } catch { /* 무시 */ } }
     const tables = allTables().map((t) => ({ kind: t.kind, headers: t.headers.slice(0, 14), rows: t.rows.length }));
@@ -865,6 +876,16 @@
       readAllPages(msg.kind).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e && e.stack || e), tables: [], errors: [...readErrors] }));
     } else if (msg?.type === 'clickAnyDownload') {
       clickAnyDownload(msg.items || null).then(sendResponse);
+    } else if (msg?.type === 'confirmDialog') {
+      // 다운로드를 누른 뒤 뜨는 창('엑셀 다운로드' / '확인' / '요청')의 버튼을 누르고, 창 글자를 알려 준다
+      try {
+        const dlg = [...deepAll('[role="dialog"], [aria-modal="true"], .modal, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="layer" i]')].filter((e) => visible(e) && clean(e.innerText).length > 3 && e.getBoundingClientRect().height > 40).sort((a, b) => a.getBoundingClientRect().height - b.getBoundingClientRect().height)[0];
+        if (!dlg) { sendResponse({ ok: false, reason: '창 없음' }); return true; }
+        const btns = [...dlg.querySelectorAll('button, a, [role="button"]')].filter((b) => visible(b) && !b.disabled);
+        const b = btns.find((x) => /^(엑셀\s*)?다운로드(\s*요청)?$/.test(clean(x.innerText))) || btns.find((x) => /^(확인|요청|다운로드 요청|생성|내려받기)$/.test(clean(x.innerText)));
+        if (b) fire(b, [...HOVER, ...CLICK]);
+        sendResponse({ ok: !!b, clicked: b ? clean(b.innerText).slice(0, 20) : '', text: clean(dlg.innerText).slice(0, 200), buttons: btns.map((x) => clean(x.innerText).slice(0, 12)).filter(Boolean).slice(0, 10) });
+      } catch (e) { sendResponse({ ok: false, error: e.message }); }
     } else if (msg?.type === 'pagerDiag') {
       // 진단: 표 아래쪽의 짧은 버튼·링크 (쪽 번호, 화살표, 'N개씩 보기')
       try {

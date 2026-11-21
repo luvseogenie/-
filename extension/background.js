@@ -827,10 +827,12 @@ async function collectInventory() {
       await log(`[재고] 판매 기록엔 있는데 재고 화면에서 못 읽은 옵션 ${miss.length}개 (예: ${miss.slice(0, 4).map((x) => x.option_id).join(', ')}) → 엑셀 다운로드로 전체 재고를 받아 더해 봅니다. 화면 아래 쪽 버튼: ${(pg?.items || []).join(' / ').slice(0, 400) || '못 찾음'}`);
       try {
         await installHook(tab.id); expectUntil = Date.now() + 150000; expectDate = null; lastHookedUrl = null;
-        const waiting = waitForReport(90000);
+        const waiting = waitForReport(120000);
         const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload', items: ['엑셀', 'Excel', 'xlsx', '전체', '다운로드'] }).catch(() => null);
         if (!c?.ok) { settle(null); await log('[재고] 엑셀 다운로드 버튼을 찾지 못했습니다 (화면에서 읽은 것만 저장)'); }
         else {
+          await sleep(2500); const dg = await chrome.tabs.sendMessage(tab.id, { type: 'confirmDialog' }).catch(() => null);
+          if (dg?.text) await log(`[재고] 다운로드 뒤 뜬 창: "${dg.text}" · 버튼: ${(dg.buttons || []).join(' / ')}${dg.clicked ? ` → '${dg.clicked}' 누름` : ''}`);
           const res = await waiting;
           if (res?.ok && res.kind === 'inventory') {
             const d2 = await S.load(); const n = Object.keys(d2.inventory?.[date] || {}).length; d2.inventoryMeta = { ...(d2.inventoryMeta || {}), excel: res.saved }; await S.save(d2);

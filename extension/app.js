@@ -900,7 +900,7 @@ async function renderInventory() {
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
   const hidBrand = onlyMine ? f.rows.filter((x) => !mine0(x.option_name, x.product_name, x.group_name)).length : 0;
   const hidIdle = onlyLow ? f.rows.filter((x) => x.level === 'idle' && !(x.stock > 0)).length : 0;
-  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name, x.group_name) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
+  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name, x.group_name) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name} ${x.group_name} ${x.label}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
   const LV = { out: ['품절', 'neg'], danger: ['위험', 'neg'], warn: ['주의', 'warn'], unknown: ['재고 미확인', 'gray'], ok: ['여유', 'pos'], idle: ['판매 없음', 'sub'] };
   const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length; const nMiss = rows.filter((x) => x.missing).length;
   const nProd = new Set(rows.map((x) => x.key)).size; const inv0 = Object.keys((DATA.inventory || {})[f.asOf] || {}).length;
@@ -913,8 +913,8 @@ async function renderInventory() {
   let html = '';
   if ($('#inv-group').checked) {
     for (const g of INV.sortInventory(INV.groupByProduct(rows), sortBy, (g) => g.product_name).slice(0, 300)) {
-      const ps = (DATA.invProduct || {})[g.key] || {}; const k = esc(g.key); const stype = INV.seasonTypeOf(ps);
-      html += `<tr class="inv-prod"><td class="l">${pill(g.level)}</td><td class="l sub"><label class="chk" title="위 '등록상품ID로 일괄' 에 함께 적용"><input type="checkbox" data-inv-pick="${k}"> ${esc(g.product_id || '')}</label></td><td class="l"><b>${esc(g.product_name)}</b> ${seasonBadge(g)} <span class="sub">옵션 ${g.options.length}개${g.missingCount ? ` (재고 미확인 ${g.missingCount}개)` : ''}</span>
+      const ps = g.ps || {}; const k = esc(g.key); const stype = INV.seasonTypeOf(ps);
+      html += `<tr class="inv-prod"><td class="l">${pill(g.level)}</td><td class="l sub"><label class="chk" title="위 '등록상품ID로 일괄' 에 함께 적용${g.product_ids.length > 1 ? ' · 등록상품ID: ' + esc(g.product_ids.join(', ')) : ''}"><input type="checkbox" data-inv-pick="${k}"> ${g.product_ids.length > 1 ? `등록상품ID ${g.product_ids.length}개` : esc(g.product_id || '')}</label></td><td class="l"><b>${esc(g.product_name)}</b> ${seasonBadge(g)} <span class="sub">옵션 ${g.options.length}개${g.missingCount ? ` (재고 미확인 ${g.missingCount}개)` : ''}</span>
         <div class="row" style="margin-top:4px;gap:4px"><select data-inv-stype="${k}"><option value="" ${!stype ? 'selected' : ''}>구분 없음</option><option value="season" ${stype === 'season' ? 'selected' : ''}>시즌 상품</option><option value="year" ${stype === 'year' ? 'selected' : ''}>비시즌(연중)</option></select><span class="sub">입고 소요</span><input type="number" class="tiny" data-inv-lead="${k}" min="0" max="180" placeholder="${st.leadDays}" value="${ps.leadDays ?? ''}"><span class="sub">일 · 시즌 종료</span><input type="date" data-inv-season="${k}" value="${esc(ps.seasonEnd || '')}" style="width:140px" ${stype === 'year' ? 'disabled' : ''}><button class="btn sm" data-inv-psave="${k}">저장</button></div></td>${cells(g)}</tr>`;
       html += INV.sortInventory(g.options, sortBy, (x) => x.label).map((x) => optRow(x, true)).join('');
     }
@@ -939,9 +939,12 @@ $('#inv-bulk-go').onclick = async () => {
   if (lead !== '') patch.leadDays = Number(lead);
   if (!Object.keys(patch).length) { msg('#inv-msg', '구분·시즌 종료일·입고 소요일 중 하나는 넣으세요', 'err'); return; }
   try {
-    const known = new Set(INV.inventoryForecast(DATA, localIso(today)).rows.map((x) => x.key)); const unknown = ids.filter((x) => !known.has(x));
-    const dd = await reload(); const n = S.setInvProducts(dd, ids, patch); await S.save(dd); await reload(); renderInventory();
-    msg('#inv-msg', `등록상품 ${n}개의 모든 옵션에 적용했습니다${unknown.length ? ` (재고 목록에 아직 없는 ID: ${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ' 등' : ''})` : ''}`, 'ok');
+    // 넣은 등록상품ID(또는 옵션ID) → 그 상품 묶음 (옵션마다 등록상품ID 가 달라도 같은 상품이면 함께)
+    const fr = INV.inventoryForecast(DATA, localIso(today)).rows; const keys = new Set(picked); const unknown = [];
+    for (const id of typed) { const hit = fr.filter((x) => x.product_id === id || x.option_id === id || x.key === id); if (hit.length) hit.forEach((x) => keys.add(x.key)); else { unknown.push(id); keys.add(id); } }
+    const base = Object.fromEntries(fr.map((x) => [x.key, x.ps || {}]));
+    const dd = await reload(); const n = S.setInvProducts(dd, [...keys], patch, { base }); await S.save(dd); await reload(); renderInventory();
+    msg('#inv-msg', `상품 ${n}개의 모든 옵션에 적용했습니다${unknown.length ? ` (재고 목록에 아직 없는 ID: ${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ' 등' : ''})` : ''}`, 'ok');
     $('#inv-bulk-ids').value = '';
   } catch (e) { msg('#inv-msg', e.message, 'err'); }
 };

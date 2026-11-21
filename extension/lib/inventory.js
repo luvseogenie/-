@@ -59,13 +59,31 @@ export function normalizeInventory(records, { names = [] } = {}) {
 }
 
 // 옵션 이름표: 옵션명이 있으면 그것, 없으면 상품명에서 상품 이름 부분을 뗀 나머지 ('DUGN 담요, 1개 블루' → '1개 블루')
-export function optionLabel(x, groupName = '') {
-  if (x.option_name) return String(x.option_name).trim();
-  let n = String(x.product_name || '').trim(); const g = String(groupName || '').trim();
-  if (g && n.startsWith(g) && n.length > g.length) n = n.slice(g.length).replace(/^[\s,·/\-]+/, '');
-  else if (n.includes(',')) n = n.slice(n.lastIndexOf(',') + 1).trim();
-  return n || String(x.option_id);
+// 앞부분이 상품명과 같으면 (띄어쓰기·쉼표 차이는 무시하고) 떼어 낸다
+function cutPrefix(n, g) {
+  const gk = nk(g); if (!gk) return null; let i = 0, j = 0;
+  while (i < n.length && j < gk.length) { const c = nk(n[i]); if (!c) { i++; continue; } if (c !== gk[j]) return null; i++; j++; }
+  return j === gk.length ? n.slice(i).replace(/^[\s,·/\-]+/, '').trim() : null;
 }
+export function optionLabel(x, groupName = '') {
+  const g = String(groupName || '').trim();
+  for (const src of [x.option_name, x.product_name]) {
+    const n = String(src || '').trim(); if (!n) continue;
+    const cut = g ? cutPrefix(n, g) : null; if (cut) return cut;
+    if (src === x.option_name && !(g && nk(n) === nk(g))) return n;
+    if (n.includes(',')) return n.slice(n.indexOf(',') + 1).trim();   // '상품명, 블랙, 공용 S' → '블랙, 공용 S'
+  }
+  return String(x.option_id);
+}
+// 상품 이름 (묶음용): 판매 기록 상품명, 없으면 화면 글자의 첫 쉼표 앞. 앞에 붙은 배지 글자는 뗀다
+const BADGE = /^(?:\s*(?:로켓그로스|아이템위너|판매중지|판매중|품절임박|품절|배지)\s*)+/;
+export function baseProductName(x, salesProductName = '') {
+  let n = String(salesProductName || '').trim();
+  if (!n) { n = String(x.product_name || '').trim(); if (n.includes(',')) n = n.slice(0, n.indexOf(',')).trim(); }
+  return n.replace(BADGE, '').trim();
+}
+// 묶음 열쇠: 상품 이름이 같으면 등록상품ID 가 옵션마다 달라도 한 상품 (예: 옵션마다 따로 등록된 조끼)
+export const groupKeyOf = (x, salesProductName = '') => { const b = baseProductName(x, salesProductName); return nk(b).length >= 4 ? 'n:' + nk(b) : productKey(x); };
 // 이름 정렬: 숫자는 크기대로 ('2개' < '10개'), 한글 가나다순
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 export const nameCompare = (a, b) => collator.compare(String(a || ''), String(b || ''));
@@ -83,7 +101,8 @@ export const LEVEL_ORDER = { out: 0, danger: 1, warn: 2, unknown: 3, ok: 4, idle
 export function groupByProduct(rows) {
   const order = LEVEL_ORDER; const g = {};
   for (const r of rows) {
-    const x = (g[r.key] ||= { key: r.key, product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
+    const x = (g[r.key] ||= { key: r.key, ps: r.ps || {}, product_ids: [], product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
+    if (r.product_id && !x.product_ids.includes(r.product_id)) x.product_ids.push(r.product_id);
     x.options.push(r); x.stock += r.stock || 0; x.inbound += r.inbound || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
     if (r.missing) { x.missingCount++; continue; }
     if (r.daysLeft < x.daysLeft) { x.daysLeft = r.daysLeft; x.stockoutDate = r.stockoutDate; }
@@ -141,8 +160,12 @@ export function inventoryForecast(d, today, settings = {}) {
     base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });
   }
   for (let i = base.length - 1; i >= 0; i--) if (used.has(base[i])) base.splice(i, 1);
+  const IP = d.invProduct || {}; const keyOf = (x) => groupKeyOf(x, facts[x.option_id]?.product_name);
+  const groupPs = {};   // 상품 설정: 이름 열쇠로 저장한 것, 없으면 그 상품 옵션들의 등록상품ID 로 저장한 것
+  for (const x of base) { const k = keyOf(x); if (IP[k]) groupPs[k] = IP[k]; }
+  for (const x of base) { const k = keyOf(x); if (!groupPs[k]) for (const id of [x.product_id, productKey(x)]) if (id && IP[id]) { groupPs[k] = IP[id]; break; } }
   const rows = base.map((x) => {
-    const key = productKey(x); const ps = (d.invProduct || {})[key] || {}; const f = facts[x.option_id] || {};
+    const key = keyOf(x); const ps = groupPs[key] || {}; const f = facts[x.option_id] || {};
     const lead = ps.leadDays != null && ps.leadDays !== '' ? Number(ps.leadDays) : st.leadDays;   // 상품마다 다른 입고 소요일 (없으면 기본값)
     const seasonType = seasonTypeOf(ps); const seasonEnd = seasonType === 'year' ? '' : ps.seasonEnd || '';
     const r7 = (q7[x.option_id] || 0) / n7, r30 = (q30[x.option_id] || 0) / n30; const rate = Math.max(r7, r30);
@@ -155,8 +178,8 @@ export function inventoryForecast(d, today, settings = {}) {
     const seasonOver = seasonLeft != null && seasonLeft <= 0;
     const level = x.missing ? 'unknown' : rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
     const option_name = x.option_name || (x.missing ? '' : f.option_name && f.option_name !== x.product_name ? f.option_name : '');
-    const group_name = f.product_name || x.product_name;
-    return { ...x, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
+    const group_name = baseProductName(x, f.product_name) || f.product_name || x.product_name;
+    return { ...x, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));

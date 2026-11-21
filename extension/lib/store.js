@@ -266,10 +266,10 @@ export function setInvProduct(d, key, { leadDays = '', seasonEnd = '', season = 
   if (v.leadDays === '' && !v.seasonEnd && !v.season) delete d.invProduct[key]; else d.invProduct[key] = v;
 }
 // 여러 등록상품ID 에 한 번에: patch 의 칸 중 undefined 는 그대로 둔다 (예: 시즌 종료일만 일괄로 넣고 입고 소요일은 상품마다 그대로)
-export function setInvProducts(d, keys, patch = {}) {
+export function setInvProducts(d, keys, patch = {}, { base = {} } = {}) {   // base: 지금 적용 중인 설정 (예전에 등록상품ID 로 저장한 것) — 처음 저장할 때 이어받는다
   const ids = [...new Set((keys || []).map((k) => String(k).trim()).filter(Boolean))]; if (!ids.length) throw new Error('등록상품ID 를 하나 이상 넣거나 고르세요');
   for (const k of ids) {
-    const cur = (d.invProduct || {})[k] || {}; const next = { leadDays: cur.leadDays ?? '', seasonEnd: cur.seasonEnd || '', season: cur.season || '' };
+    const cur = (d.invProduct || {})[k] || base[k] || {}; const next = { leadDays: cur.leadDays ?? '', seasonEnd: cur.seasonEnd || '', season: cur.season || '' };
     for (const f of ['leadDays', 'seasonEnd', 'season']) if (patch[f] !== undefined) next[f] = patch[f];
     if (patch.seasonEnd && patch.season === undefined && next.season !== 'season') next.season = 'season';   // 시즌 종료일을 넣으면 시즌 상품
     setInvProduct(d, k, next);

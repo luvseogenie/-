@@ -1262,7 +1262,7 @@ console.log('extension logic: all checks passed');
   const f = INV.inventoryForecast(d, T); const r1 = f.rows.find((x) => x.option_id === 'R1'), r2 = f.rows.find((x) => x.option_id === 'R2'), b1 = f.rows.find((x) => x.option_id === 'B1');
   assert.equal(b1.lead, 35); assert.equal(b1.level, 'danger'); assert.equal(b1.reorder, 2 * (35 + 30 + 7) - 30);   // 입고 35일: 15일 남은 담요는 '위험', 72일치 주문
   assert.equal(r1.reorder, 10 * 34 - 100); assert.equal(r2.reorder, 5 * 34 - 20);   // 시즌 종료(12/25)까지 34일치만 (기본이면 47일치)
-  const g = INV.groupByProduct(f.rows); const rib = g.find((x) => x.key === 'RIB');
+  const g = INV.groupByProduct(f.rows); const rib = g.find((x) => x.product_ids.includes('RIB'));
   assert.equal(rib.options.length, 2); assert.equal(rib.stock, 120); assert.equal(rib.reorder, 240 + 150); assert.equal(rib.rate, 15); assert.equal(rib.level, 'danger');
   const past = INV.inventoryForecast({ ...d, invProduct: { RIB: { seasonEnd: '2026-11-20' } } }, T).rows.find((x) => x.option_id === 'R1');
   assert.equal(past.seasonOver, true); assert.equal(past.reorder, 0);   // 시즌이 끝났으면 주문 추천 없음
@@ -1321,13 +1321,13 @@ console.log('extension logic: all checks passed');
   assert.ok(by('B9')); assert.ok(by('X1'));   // 같은 상품이라 넣음 / 최근 30일 로켓그로스 판매라 넣음
   assert.ok(!by('W1')); assert.ok(!by('Z1'));  // 판매자배송만, 오래전 판매는 넣지 않음
   assert.equal(by('B1').reorder, 2 * 47 - 50);   // 입고 예정 500 은 빼지 않는다 (참고만)
-  const g = INV.groupByProduct(f.rows).find((x) => x.key === '15753767118');
+  const g = INV.groupByProduct(f.rows).find((x) => x.product_ids.includes('15753767118'));
   assert.equal(g.options.length, 4); assert.equal(g.missingCount, 2); assert.equal(g.level, 'danger');   // 미확인 옵션은 상품 상태에 안 넣음 (B2: 10개 ÷ 하루 2 = 5일)
   // 시즌 구분과 일괄 설정
   assert.throws(() => S.setInvProducts(d, [], { season: 'season' }));
   assert.equal(S.setInvProducts(d, ['15753767118', ' 777 ', '777'], { seasonEnd: '2026-12-25' }), 2);
   f = INV.inventoryForecast(d, T);
-  assert.ok(f.rows.filter((x) => x.key === '15753767118').every((x) => x.seasonType === 'season' && x.seasonEnd === '2026-12-25'));   // 등록상품의 모든 옵션 (미확인 옵션 포함)
+  assert.ok(f.rows.filter((x) => x.product_id === '15753767118').every((x) => x.seasonType === 'season' && x.seasonEnd === '2026-12-25'));   // 등록상품의 모든 옵션 (미확인 옵션 포함)
   assert.equal(f.rows.find((x) => x.option_id === 'B1').reorder, 2 * 34 - 50);   // 시즌 종료까지 34일치
   S.setInvProducts(d, ['15753767118'], { leadDays: 35 }); assert.deepEqual(d.invProduct['15753767118'], { leadDays: 35, seasonEnd: '2026-12-25', season: 'season' });   // 다른 칸은 그대로
   S.setInvProducts(d, ['777'], { season: 'year' }); f = INV.inventoryForecast(d, T);
@@ -1367,4 +1367,25 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(INV.sortInventory(names, 'asc').map((x) => x.label), ['1개 레드', '2개 블루', '10개 블루', '가방', '하늘']);
   assert.deepEqual(INV.sortInventory(names, 'desc').map((x) => x.label), ['하늘', '가방', '10개 블루', '2개 블루', '1개 레드']);
   console.log('inventory merge, ID reconcile, labels and sorting: all checks passed');
+}
+
+// 재고 묶기: 옵션마다 등록상품ID 가 달라도 상품 이름이 같으면 한 상품 (패딩 조끼), 옵션 이름표는 상품명을 뗀 나머지
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-21', day = '2026-11-20'; const NAME = 'DUGN 더따뜻한 프리미엄 남녀공용 기모 내피 경량 패딩 조끼';
+  const v = (o, pid, opt) => ({ option_id: o, product_id: pid, product_name: NAME, option_name: `${NAME}, ${opt}`, quantity: 1, sales_type: '로켓그로스' });
+  const d = { sales: { [day]: { V1: v('V1', '16437682321', '블랙, 공용 S'), V2: v('V2', '16443588146', '블랙, 공용 XL'), V3: v('V3', '16445327538', '그레이, 공용 M') } },
+    inventory: { [T]: { V1: { option_id: 'V1', product_id: '16437682321', product_name: `로켓그로스 ${NAME}, 블랙, 공용 S`, stock: 30 }, N1: { option_id: 'N1', product_id: '1999', product_name: `${NAME}, 네이비, 공용 L`, stock: 5 } } },
+    invProduct: { '16443588146': { leadDays: 25, seasonEnd: '', season: 'year' } } };
+  const f = INV.inventoryForecast(d, T); const gs = INV.groupByProduct(f.rows);
+  assert.equal(gs.length, 1); const g = gs[0];
+  assert.equal(g.options.length, 4); assert.equal(g.product_name, NAME); assert.equal(g.product_ids.length, 4);
+  assert.deepEqual(INV.sortInventory(g.options, 'asc', (x) => x.label).map((x) => x.label), ['그레이, 공용 M', '네이비, 공용 L', '블랙, 공용 S', '블랙, 공용 XL']);
+  assert.ok(f.rows.every((x) => x.lead === 25 && x.seasonType === 'year'));   // 등록상품ID 하나로 저장한 예전 설정도 상품 전체에
+  S.setInvProducts(d, [g.key], { seasonEnd: '2027-02-28' }, { base: { [g.key]: g.ps } });
+  assert.ok(INV.inventoryForecast(d, T).rows.every((x) => x.seasonType === 'season' && x.seasonEnd === '2027-02-28' && x.lead === 25));   // 이름 열쇠로 저장하면 그게 먼저
+  assert.equal(INV.optionLabel({ option_name: 'DUGN 담요, 1개 블루' }, 'DUGN 담요'), '1개 블루');
+  assert.equal(INV.optionLabel({ option_name: '1개 블루' }, 'DUGN 담요'), '1개 블루');
+  assert.equal(INV.baseProductName({ product_name: '로켓그로스 DUGN 리본, 레드' }), 'DUGN 리본');
+  console.log('inventory grouping by product name across product IDs: all checks passed');
 }
