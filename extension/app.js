@@ -7,7 +7,8 @@ import { barChart, stackedChart, lineChart, sparkline, comboChart } from './lib/
 import { campaignEffects, beforeAfter } from './lib/traffic.js';
 import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib/check.js';
 import * as AR from './lib/adreport.js';
-import { importAdReportFile } from './lib/importer.js';
+import { importAdReportFile, importInventoryFile } from './lib/importer.js';
+import * as INV from './lib/inventory.js';
 import { fixDay as fixRtDay, recomputeDay as recomputeRtDay } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
@@ -62,7 +63,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -86,7 +87,7 @@ function resetPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { resetPage(b.dataset.page); if (location.hash.slice(1) === b.dataset.page) showPage(b.dataset.page); else location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); try { renderAdrowsBanner(); } catch { /* 무시 */ } }
 // 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
@@ -858,6 +859,27 @@ function showSalesDiag(camp, start, end) {
     toast(`${oid} → ${camp} 장부에 연결했습니다${marginFor(oid) ? '' : ' (마진은 캠페인 · 옵션 탭에서 넣어 주세요)'}`); showSalesDiag(camp, start, end);
   });
 }
+
+/* ===== 로켓그로스 재고 ===== */
+async function renderInventory() {
+  const { invUrl = '' } = await chrome.storage.sync.get('invUrl'); if (document.activeElement !== $('#inv-url')) $('#inv-url').value = invUrl;
+  const f = INV.inventoryForecast(DATA, localIso(today)); const st = f.settings;
+  for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
+  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준` : '아직 재고를 읽지 않았습니다';
+  const mine = S.brandChecker(DATA); const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked;
+  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name) && (!q || `${x.option_id} ${x.product_name} ${x.option_name}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0));
+  const LV = { out: ['품절', 'neg'], danger: ['위험', 'neg'], warn: ['주의', 'warn'], ok: ['여유', 'pos'], idle: ['판매 없음', 'sub'] };
+  const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length;
+  $('#inv-count').textContent = f.asOf ? `옵션 ${rows.length}개 · 부족·품절 ${nLow}개` : '';
+  const one = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1));
+  $('#inv-table tbody').innerHTML = rows.slice(0, 600).map((x) => { const [t, c] = LV[x.level];
+    return `<tr><td class="l"><span class="pill ${c === 'neg' ? 'warn' : c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : ''}">${t}</span></td><td class="l num">${esc(x.option_id)}</td><td class="l">${esc(x.product_name)}${x.option_name && x.option_name !== x.product_name ? `<div class="sub">${esc(x.option_name)}</div>` : ''}</td><td class="num"><b>${fmtInt(x.stock)}</b></td><td class="num">${x.inbound ? fmtInt(x.inbound) : ''}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${c === 'neg' ? 'neg' : ''}">${x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}</td></tr>`; }).join('');
+}
+$('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory();
+$('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim(); if (v && !/^https:\/\/[^/]*coupang\.com\//.test(v)) { msg('#inv-msg', '쿠팡 윙 주소(https://wing.coupang.com/…)를 넣어 주세요', 'err'); return; } await chrome.storage.sync.set({ invUrl: v }); msg('#inv-msg', v ? '저장했습니다. 매일 자동 수집 뒤 재고도 읽습니다' : '지웠습니다', 'ok'); };
+$('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14 }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
+$('#inv-now').onclick = async () => { const b = $('#inv-now'); b.disabled = true; msg('#inv-msg', '윙 재고 화면을 여는 중… (작은 창이 떴다 닫힙니다, 1분쯤)'); const r = await chrome.runtime.sendMessage({ type: 'inventoryNow' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderInventory(); msg('#inv-msg', r?.ok ? '재고를 읽었습니다' : `읽지 못했습니다: ${(r?.error || '').slice(0, 300)}`, r?.ok ? 'ok' : 'err'); };
+$('#inv-file').onchange = async (ev) => { const fl = ev.target.files[0]; if (!fl) return; try { const r = await importInventoryFile(await fl.arrayBuffer(), fl.name); await reload(); renderInventory(); msg('#inv-msg', `재고 ${r.saved}개 옵션을 저장했습니다`, 'ok'); } catch (e) { msg('#inv-msg', e.message, 'err'); } ev.target.value = ''; };
 
 /* ===== 캠페인 합치기 ===== */
 function renderMergeCard() {

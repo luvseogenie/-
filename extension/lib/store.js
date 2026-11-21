@@ -251,6 +251,13 @@ export function cleanCampaignNames(d) {
   cleanCampaignNames.last = map;   // { 원래 이름: 정리된 이름 } (화면 안내용)
   return Object.keys(map).length > 0;
 }
+// 로켓그로스 재고: d.inventory = { 'YYYY-MM-DD': { option_id: { option_id, product_name, option_name, product_id, stock, inbound } } } — 최근 60일만
+export function setInventory(d, date, rows) {
+  d.inventory ||= {}; d.inventory[date] = Object.fromEntries(rows.map((r) => [r.option_id, r]));
+  for (const k of Object.keys(d.inventory).sort().slice(0, -60)) delete d.inventory[k];
+  return rows.length;
+}
+export function setInvSettings(d, st) { d.invSettings = { ...(d.invSettings || {}), ...st }; }
 // ---- 캠페인 합치기 (잘못 만든·이름을 바꾼 캠페인 → 다른 캠페인으로) ----
 // d.campaignAliases = { 옛 이름: 새 이름 }: 합친 뒤에 옛 이름으로 들어오는 광고 값·보고서도 새 이름으로 넣는다
 const aliasOf = (d, c) => { const m = d.campaignAliases || {}; let x = c; for (let i = 0; i < 5 && m[x]; i++) x = m[x]; return x; };

@@ -4,6 +4,7 @@ import { fileToRecords, fileHeaders } from './xlsx.js';
 import { normalizeSales, normalizeAds, parseDate, yesterdayIso, lastHeaders } from './parse.js';
 import { isAdReport, normalizeAdReport } from './adreport.js';
 import { todayIso, KEY_RT_SALES } from './realtime.js';
+import { isInventoryTable, normalizeInventory } from './inventory.js';
 export { lastHeaders };
 export async function logHeaders(kind, filename) { try { const { logs = [] } = await chrome.storage.local.get('logs'); logs.push(`${new Date().toLocaleString('ko-KR')} [파일 헤더] ${kind} ${filename || ''}: ${(lastHeaders[kind] || []).join(' | ')}`); await chrome.storage.local.set({ logs: logs.slice(-100) }); } catch { /* 무시 */ } }
 
@@ -63,7 +64,17 @@ export async function importAdReportFile(buf, filename, date) {
 }
 
 // 파일 헤더를 보고 판매 리포트인지 광고 보고서인지 판단해 저장한다.
+// 로켓그로스 재고 엑셀 (윙 재고 화면에서 받은 파일) → 오늘 날짜 재고로 저장
+export async function importInventoryFile(buf, filename, records = null) {
+  records ||= await fileToRecords(buf, filename, ['재고']);
+  const rows = normalizeInventory(records); if (!rows.length) throw new Error('재고 파일에서 옵션ID·재고 열을 찾지 못했습니다');
+  const t = new Date(); const date = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  const d = await S.load(); S.setInventory(d, date, rows); await S.save(d);
+  return { kind: 'inventory', date, saved: rows.length, records };
+}
 export async function importAnyFile(buf, filename, date) {
+  const inv = await fileToRecords(buf, filename, ['재고']).catch(() => []);
+  if (inv.length && isInventoryTable(Object.keys(inv[0]))) return importInventoryFile(buf, filename, inv);
   const ads = await fileToRecords(buf, filename, ['캠페인']).catch(() => []);
   if (ads.length && isAdReport(Object.keys(ads[0]))) return importAdReportFile(buf, filename, date);
   if (!ads.length) { const hdr = await fileHeaders(buf, filename, ['캠페인']); if (hdr && isAdReport(hdr)) return importAdReportFile(buf, filename, date); }   // 데이터 0줄인 광고 보고서

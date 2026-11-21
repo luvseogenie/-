@@ -7,8 +7,9 @@ import { normalizeSales, normalizeAds, yesterdayIso } from './lib/parse.js';
 import { importAnyFile } from './lib/importer.js';
 import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js';
 import * as RT from './lib/realtime.js';
+import * as INV from './lib/inventory.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23 };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invUrl: '' };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -785,6 +786,39 @@ async function collectWithRetry(kind, dateOverride, tries = 3) {
 const RETRY_MAX = 3;
 const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' };
 let autoRunning = false;
+// ---- 로켓그로스 재고: 윙 재고 화면(설정의 주소)을 열어 표를 읽고 오늘 날짜 재고로 저장 → 품절이 가까운 옵션 알림 ----
+async function collectInventory() {
+  const s = await getSettings(); if (!s.invUrl) throw new Error("재고 화면 주소가 비어 있습니다 (재고 화면 → '윙 재고 화면 주소' 에 넣기)");
+  const { tab, close } = await openWorkTab(s.invUrl, s);
+  try {
+    await sleep(Math.min(s.waitSeconds, 8) * 1000);
+    const bad = await ensureInjectable(tab.id, s); if (bad) throw new Error(`재고 화면을 열지 못했습니다: ${bad}`);
+    const li = await ensureLoggedIn(tab.id, s.invUrl, s); if (li.needed && !li.ok) throw new Error(li.reason);
+    await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null);
+    let r = await readWithRetry(tab.id, 'inventory', Date.now() + s.waitSeconds * 1000 + 30000);
+    if (!r) { const bd = await chrome.tabs.sendMessage(tab.id, { type: 'buttonsDiag' }).catch(() => null); throw new Error(`재고 표(옵션ID·재고 열)를 찾지 못했습니다 — ${await describePage(tab.id)} · 화면 버튼: ${(bd?.buttons || []).slice(0, 20).join(' | ').slice(0, 300)}`); }
+    const full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full;
+    const rows = INV.normalizeInventory(r.records);
+    if (!rows.length) throw new Error(`재고 표는 찾았지만 옵션ID·재고 열을 알아보지 못했습니다 (표 제목: ${Object.keys(r.records[0] || {}).join(' | ').slice(0, 300)})`);
+    const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows); await S.save(d);
+    await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}${full?.pages > 1 ? `, ${full.pages}쪽` : ''})`);
+    return { ok: true, saved: rows.length };
+  } finally { await close(); }
+}
+async function inventoryRun(manual = false) {
+  const s = await getSettings(); if (!s.invUrl) return manual ? { ok: false, error: "재고 화면 주소가 비어 있습니다" } : null;
+  try { await collectInventory(); } catch (e) { await log(`[재고] 실패: ${e.message}`); return { ok: false, error: e.message }; }
+  try {
+    const d = await S.load(); const mine = S.brandChecker(d); const f = INV.inventoryForecast(d, RT.todayIso());
+    const low = f.rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level) && mine(x.option_name, x.product_name));
+    if (low.length) {
+      const top = low.slice(0, 3).map((x) => `${String(x.option_name || x.product_name).slice(0, 20)}(${x.level === 'out' ? '품절' : `${Math.floor(x.daysLeft)}일 남음`})`).join(', ');
+      notify(`재고 부족 ${low.length}개 옵션: ${top}${low.length > 3 ? ' 등' : ''} — 광고계산기 재고 화면에서 발주 추천 수량을 보세요`);
+      await log(`[재고] 부족·품절 ${low.length}개: ${low.slice(0, 10).map((x) => `${x.option_id}(${x.level === 'out' ? '품절' : Math.floor(x.daysLeft) + '일'}, 추천 ${x.reorder}개)`).join(', ')}`);
+    }
+  } catch (e) { await log(`[재고] 계산 실패: ${e.message}`); }
+  return { ok: true };
+}
 // ---- 실시간(오늘) ROAS: 매 정시(설정한 시간대) 광고센터 '오늘' + 판매분석 '오늘' 판매 리포트 → 캠페인별 등록상품 매출 합 ÷ 광고비 ----
 let rtRunning = false;
 // 매 정시 실시간이 다른 수집(13시 매일 수집·재시도 등)과 겹치거나 실패하면 그 시각 안에서 다시 시도한다 (5~10분 뒤, 50분까지)
@@ -989,6 +1023,7 @@ async function runAutoInner(dateOverride, kinds) {
     } catch (e) { await log(`[자동] 지난 날 광고 보고서 보충 실패: ${e.message}`); }
   }
   if (!dateOverride) await refreshCampaignOptions();
+  if (!dateOverride) await inventoryRun();   // 로켓그로스 재고 (주소를 넣어 둔 경우)
   if (!dateOverride) await autoBackup('자동 수집 뒤');
   return results;
 }
@@ -1205,6 +1240,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     else if (msg.type === 'downloadUrl') { sendResponse({ ok: true }); if (msg.url && Date.now() < expectUntil) await fetchAndImport(msg.url, msg.how || '', sender?.tab?.url || sender?.url); else await log(`[다운로드] 기다리는 중이 아닐 때 새 창 주소가 잡혔습니다 (무시): ${String(msg.url || '').slice(0, 100)}`); }
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
+    else if (msg.type === 'inventoryNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else { autoRunning = true; try { sendResponse(await inventoryRun(true)); } finally { autoRunning = false; } } }
     else if (msg.type === 'realtimeNow') { sendResponse(await realtimeRun(true)); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);

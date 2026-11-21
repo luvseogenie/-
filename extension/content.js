@@ -256,6 +256,7 @@
   const KIND_RULES = {
     sales: { must: ['옵션id'], any: ['매출', '판매량'] },   // 판매분석의 필터 줄('판매된 옵션 (63)')이 표로 오인되지 않도록 옵션ID 헤더를 요구
     ads: { must: ['캠페인'], any: ['광고비', '노출', '예산', '클릭', '비용'] },
+    inventory: { must: ['재고'], any: ['옵션id', '옵션 id', 'vendoritemid', '옵션아이디'] },   // 로켓그로스 재고 화면
   };
 
   function pickTable(tables, kind) {

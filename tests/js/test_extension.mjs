@@ -1206,3 +1206,27 @@ console.log('extension logic: all checks passed');
   assert.equal(snap.total.qty, 6);
   console.log('options moved to a new campaign mid-way: all checks passed');
 }
+
+// 로켓그로스 재고: 표 읽기(창고별 여러 줄은 합침) → 하루 판매(로켓그로스만, 7일·30일 중 큰 값) → 남은 일수·품절 예상일·발주 추천
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const recs = [
+    { '등록상품ID': '777', '옵션ID': '96000000001', '상품명': 'DUGN 담요', '옵션명': '블루', '판매가능재고': '30', '입고예정수량': '0', '출고불가재고': '5' },
+    { '등록상품ID': '777', '옵션ID': '96000000001', '상품명': 'DUGN 담요', '옵션명': '블루', '판매가능재고': '10', '입고예정수량': '20', '출고불가재고': '0' },
+    { '등록상품ID': '777', '옵션ID': '96000000002', '상품명': 'DUGN 담요', '옵션명': '레드', '판매가능재고': '0', '입고예정수량': '', '출고불가재고': '' },
+    { '등록상품ID': '888', '옵션ID': '96000000003', '상품명': 'DUGN 조끼', '옵션명': 'L', '판매가능재고': '500', '입고예정수량': '', '출고불가재고': '' },
+  ];
+  assert.ok(INV.isInventoryTable(Object.keys(recs[0])));
+  const rows = INV.normalizeInventory(recs); const b = rows.find((x) => x.option_id === '96000000001');
+  assert.equal(rows.length, 3); assert.equal(b.stock, 40); assert.equal(b.inbound, 20); assert.equal(b.product_id, '777');   // 출고불가 재고는 세지 않음
+  const sales = {}; const T = '2026-11-21';
+  for (let i = 1; i <= 30; i++) { const dt = new Date(2026, 10, 21 - i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    sales[iso] = { '96000000001': { option_id: '96000000001', quantity: i <= 7 ? 4 : 1, sales_type: '로켓그로스' }, '96000000002': { option_id: '96000000002', quantity: 1, sales_type: '로켓그로스' }, W: { option_id: '96000000003', quantity: 9, sales_type: '판매자배송' } }; }
+  const d = { sales, inventory: { [T]: Object.fromEntries(rows.map((r) => [r.option_id, r])) }, invSettings: { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 } };
+  const f = INV.inventoryForecast(d, T); const blue = f.rows.find((x) => x.option_id === '96000000001'), red = f.rows.find((x) => x.option_id === '96000000002'), vest = f.rows.find((x) => x.option_id === '96000000003');
+  assert.equal(blue.r7, 4); assert.equal(blue.rate, 4); assert.equal(blue.daysLeft, 10); assert.equal(blue.level, 'danger');   // 40개 ÷ 하루 4개 = 10일 (입고까지 10일 이하 → 위험)
+  assert.equal(blue.stockoutDate, '2026-12-01'); assert.equal(blue.reorder, 4 * 47 - 40 - 20);   // 4 × (10+30+7) − 재고 40 − 입고 예정 20
+  assert.equal(red.level, 'out'); assert.equal(vest.level, 'idle'); assert.equal(vest.rate, 0);   // 판매자배송 판매는 창고 재고 속도에 넣지 않음
+  assert.deepEqual(f.rows.map((x) => x.level), ['out', 'danger', 'idle']);
+  console.log('rocket growth inventory forecast: all checks passed');
+}

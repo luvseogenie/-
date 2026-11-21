@@ -16,6 +16,7 @@
       <button data-page="ledger"><span class="ico">▤</span>광고 장부</button>
       <button data-page="campaign"><span class="ico">🔎</span>캠페인 분석</button>
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
+      <button data-page="inventory"><span class="ico">📦</span>재고</button>
       <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
       <button data-page="expense"><span class="ico">－</span>광고 외 지출</button>
       <button data-page="traffic"><span class="ico">🚦</span>트래픽 효과</button>
@@ -199,6 +200,20 @@
     </section>
 
     <!-- ===== 트래픽 효과 ===== -->
+    <section id="page-inventory" style="display:none">
+      <div class="card">
+        <h2 style="margin-top:0">📦 로켓그로스 재고 <span class="sub" id="inv-asof"></span></h2>
+        <div class="row"><label class="sub" style="width:130px">윙 재고 화면 주소</label><input id="inv-url" style="flex:1;min-width:320px" placeholder="윙 → 로켓그로스 → 재고 현황 화면을 열고 주소창의 주소를 복사해 붙여 넣으세요"><button class="btn sm" id="inv-url-save">저장</button><button class="btn primary sm" id="inv-now">지금 윙에서 재고 읽기</button><label class="btn sm">재고 엑셀 올리기 <input type="file" id="inv-file" accept=".xlsx,.xls,.csv" style="display:none"></label><span id="inv-msg" class="msg"></span></div>
+        <div class="row" style="margin-top:6px"><label class="sub" style="width:130px">계산 기준</label>
+          <span class="sub">입고까지</span><input type="number" id="inv-lead" class="tiny" min="0" max="120"><span class="sub">일 ·</span>
+          <span class="sub">한 번에 보낼 양</span><input type="number" id="inv-cover" class="tiny" min="1" max="180"><span class="sub">일치 ·</span>
+          <span class="sub">안전 재고</span><input type="number" id="inv-safety" class="tiny" min="0" max="60"><span class="sub">일치 ·</span>
+          <span class="sub">알림: 품절</span><input type="number" id="inv-alert" class="tiny" min="1" max="90"><span class="sub">일 전부터</span><button class="btn sm" id="inv-set-save">저장</button></div>
+        <p class="sub" style="margin:6px 0 0">주소를 넣어 두면 매일 자동 수집 뒤 재고도 읽고, 품절이 가까운 옵션을 알림으로 알려 줍니다. 하루 판매 = 로켓그로스 판매의 최근 7일 평균과 30일 평균 중 큰 값. 남은 일수 = 재고 ÷ 하루 판매. <b>발주 추천 = 하루 판매 × (입고까지 + 보낼 양 + 안전 재고) − 재고 − 입고 예정</b>.</p>
+        <div class="row" style="margin-top:8px"><input id="inv-search" placeholder="상품명·옵션ID 검색" style="width:240px"><label class="chk"><input type="checkbox" id="inv-only-low" checked> 부족·품절만 위로 (안 팔리는 옵션 숨김)</label><span class="sub" id="inv-count"></span></div>
+        <div class="tablewrap" style="margin-top:8px;max-height:70vh"><table id="inv-table"><thead><tr><th class="l">상태</th><th class="l">옵션ID</th><th class="l">상품 · 옵션</th><th>재고</th><th>입고 예정</th><th>하루 판매 (7일/30일)</th><th>남은 일수</th><th>품절 예상일</th><th>발주 추천</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
     <section id="page-traffic" style="display:none">
       <div id="tf-empty" class="card empty" style="display:none"><b>트래픽 설정이 없습니다</b><div class="sub">광고 장부 → <b>트래픽 슬롯 설정</b>에서 캠페인별 사용 기간과 슬롯 수를 적어 두면 여기서 효과를 봅니다.</div></div>
       <div id="tf-body">
