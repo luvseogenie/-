@@ -1250,3 +1250,36 @@ console.log('extension logic: all checks passed');
   S.setInvProduct(d, 'BLK', { leadDays: '', seasonEnd: '' }); assert.ok(!d.invProduct.BLK);
   console.log('inventory per-product lead time and season end: all checks passed');
 }
+
+// 날짜로 나누기: 52번에 있던 담요 옵션을 11/19부터 70번으로 옮김. 52번 보고서에 그 옵션 기록이 없어도 11/18까지는 52번 줄
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: spend * 4, impressions: 100, clicks: 10, ad_orders: 1, target_roas: 5, budget: 10000, conversion: 0.1, ctr: 0.1 });
+  const C52 = '52. 똑딱이 담요_300%_260915', C70 = '70. 똑딱이 담요_300%_261119';
+  const d = { legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {}, margins: [{ option_id: 'K1', effective_from: '', margin: 3000 }, { option_id: 'K2', effective_from: '', margin: 3000 }],
+    options: [{ option_id: 'K1', product_name: 'DUGN 담요 그레이', campaign: C70, sort_order: 1 }, { option_id: 'K2', product_name: 'DUGN 담요 아이보리', campaign: C52, sort_order: 2 }],
+    ads: { '2026-11-17': { [C52]: ad(C52, 50000) }, '2026-11-18': { [C52]: ad(C52, 50000) }, '2026-11-19': { [C52]: ad(C52, 40000), [C70]: ad(C70, 10000) }, '2026-11-20': { [C52]: ad(C52, 40000), [C70]: ad(C70, 10000) } },
+    sales: Object.fromEntries(['2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20'].map((x) => [x, { K1: { option_id: 'K1', quantity: 5, revenue: 100000 }, K2: { option_id: 'K2', quantity: 2, revenue: 40000 } }])) };
+  const row = (led, n) => led.campaigns.find((c) => c.campaign === n);
+  // 기록이 없으면(지금까지): 52번이 그날 광고비를 썼어도 K1 은 지금 연결된 70번 줄 — 화면에서 본 문제
+  let led = computeLedger(d, '2026-11-17', '2026-11-20');
+  assert.equal(row(led, C70).days['2026-11-17'].actual_qty, 5);
+  assert.throws(() => S.setLinkHistory(d, [], C52, '2026-11-19'));
+  assert.throws(() => S.setLinkHistory(d, ['K1'], '', '2026-11-19'));
+  const r = S.setLinkHistory(d, ['K1'], C52, '2026-11-19'); assert.equal(r.until, '2026-11-18');
+  led = computeLedger(d, '2026-11-17', '2026-11-20');
+  assert.equal(row(led, C52).days['2026-11-17'].actual_qty, 7); assert.equal(row(led, C52).days['2026-11-18'].actual_qty, 7);   // 11/18까지 K1(5) + K2(2)
+  assert.equal(row(led, C70).days['2026-11-17']?.actual_qty || 0, 0);
+  assert.equal(row(led, C70).days['2026-11-19'].actual_qty, 5); assert.equal(row(led, C52).days['2026-11-19'].actual_qty, 2);   // 11/19부터 나뉨
+  // 직접 넣은 옵션(manual)이어도 날짜 기록이 먼저
+  d.options[0].manual = true; led = computeLedger(d, '2026-11-17', '2026-11-20'); assert.equal(row(led, C52).days['2026-11-18'].actual_qty, 7); delete d.options[0].manual;
+  // 같은 캠페인으로 다시 저장하면 날짜만 바뀜
+  S.setLinkHistory(d, ['K1'], C52, '2026-11-18'); assert.equal(d.linkHistory.K1.length, 1); assert.equal(d.linkHistory.K1[0].until, '2026-11-17');
+  S.setLinkHistory(d, ['K1'], C52, '2026-11-19');
+  assert.deepEqual(S.linkHistoryList(d).map((x) => [x.option_id, x.campaign, x.until, x.linked]), [['K1', C52, '2026-11-18', C70]]);
+  // 원인 보기: 52번에서 K1 도 보인다
+  assert.ok(S.campaignSalesDiag(d, C52, '2026-11-17', '2026-11-20', led.attribution).some((x) => x.option_id === 'K1'));
+  // 캠페인 합치기: 기록 안 캠페인 이름도 바뀜
+  S.mergeCampaign(d, C52, '52. 담요 새이름'); assert.equal(d.linkHistory.K1[0].campaign, '52. 담요 새이름');
+  assert.equal(S.clearLinkHistory(d, ['K1']), 1); assert.ok(!d.linkHistory.K1);
+  console.log('date-based option move between campaigns: all checks passed');
+}

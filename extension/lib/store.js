@@ -283,6 +283,33 @@ export function campaignUsage(d, c) {
   for (const day of Object.values(d.legacy || {})) if (day[c]) u.legacyDays++;
   return u;
 }
+// 날짜로 나누기: 옵션들이 startDate 부터 지금 캠페인, 그 전날까지는 fromCampaign 에 있었다고 기록
+// d.linkHistory = { option_id: [{ campaign, until: 'YYYY-MM-DD' }] } (until 오름차순, 그 날까지 그 캠페인)
+const addDaysIso = (iso, n) => { const x = new Date(iso + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+export function setLinkHistory(d, optionIds, fromCampaign, startDate) {
+  fromCampaign = String(fromCampaign || '').trim();
+  if (!fromCampaign) throw new Error('그 전에 있던 캠페인을 고르세요');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate || ''))) throw new Error('옮긴 날짜를 넣으세요');
+  const ids = [...new Set((optionIds || []).map((x) => String(x).trim()).filter(Boolean))]; if (!ids.length) throw new Error('옵션을 하나 이상 고르세요');
+  const until = addDaysIso(startDate, -1); const h = (d.linkHistory ||= {});
+  for (const oid of ids) {
+    const list = (h[oid] || []).filter((x) => x.until !== until && x.campaign !== fromCampaign);   // 같은 캠페인 기록은 새 날짜로 바꾼다
+    list.push({ campaign: fromCampaign, until, at: new Date().toISOString().slice(0, 16) });
+    h[oid] = list.sort((a, b) => a.until.localeCompare(b.until));
+  }
+  return { options: ids.length, until };
+}
+export function clearLinkHistory(d, optionIds) {
+  const h = d.linkHistory || {}; let n = 0;
+  for (const oid of optionIds || Object.keys(h)) if (h[oid]) { delete h[oid]; n++; }
+  return n;
+}
+// 화면용: [{ option_id, campaign, until, linked }]
+export function linkHistoryList(d) {
+  const linked = Object.fromEntries((d.options || []).map((o) => [o.option_id, o.campaign]));
+  const out = []; for (const [oid, list] of Object.entries(d.linkHistory || {})) for (const x of list) out.push({ option_id: oid, campaign: x.campaign, until: x.until, linked: linked[oid] || '' });
+  return out.sort((a, b) => (a.linked || '').localeCompare(b.linked || '') || a.until.localeCompare(b.until) || a.option_id.localeCompare(b.option_id));
+}
 export function mergeCampaign(d, from, to) {
   from = String(from || '').trim(); to = String(to || '').trim();
   if (!from || !to || from === to) throw new Error('합칠 두 캠페인을 다르게 고르세요');
@@ -300,6 +327,7 @@ export function mergeCampaign(d, from, to) {
   if (d.excludes?.[from]) { const a = d.excludes[to] || []; d.excludes[to] = [...a, ...d.excludes[from].filter((x) => !a.some((y) => y.keyword === x.keyword))]; delete d.excludes[from]; }
   for (const t of d.traffic || []) if (t.campaign === from) t.campaign = to;
   for (const r of d.relinks || []) { if (r.from === from) r.from = to; if (r.to === from) r.to = to; }
+  for (const list of Object.values(d.linkHistory || {})) for (const x of list) if (x.campaign === from) x.campaign = to;
   for (const key of ['campaignKinds', 'campMode', 'zeroRoas']) { const m = d[key]; if (m && from in m) { if (!(to in m)) m[to] = m[from]; delete m[from]; } }
   d.campaignAliases = { ...(d.campaignAliases || {}), [from]: to }; for (const [k, v] of Object.entries(d.campaignAliases)) if (v === from) d.campaignAliases[k] = to;
   const when = new Date().toISOString().slice(0, 16); d.nameMerges = [...(d.nameMerges || []), { from, to, when, manual: true }].slice(-300);
@@ -559,7 +587,8 @@ export function campaignSalesDiag(d, camp, start, end, attribution = {}) {
   const conv = {}, ads = new Set();
   for (const [date, rows] of Object.entries(d.adrows || {})) { if (date < start || date > end) continue; for (const r of rows) if (r.campaign === camp && r.option_id) { const k = String(r.option_id); ads.add(k); conv[k] = (conv[k] || 0) + (r.qty14 || r.orders14 || 0); } }
   const sold = {}; for (const [date, day] of Object.entries(d.sales || {})) { if (date < start || date > end) continue; for (const r of Object.values(day)) if (r.quantity > 0) sold[r.option_id] = (sold[r.option_id] || 0) + r.quantity; }
-  const base = new Set([...d.options.filter((o) => o.campaign === camp).map((o) => o.option_id), ...ads]);
+  const hist = Object.entries(d.linkHistory || {}).filter(([, l]) => l.some((x) => x.campaign === camp && x.until >= start)).map(([oid]) => oid);   // 날짜로 나눠 예전에 이 캠페인에 있던 옵션
+  const base = new Set([...d.options.filter((o) => o.campaign === camp).map((o) => o.option_id), ...ads, ...hist]);
   const pids = new Set([...base].map((oid) => facts[oid]?.product_id).filter(Boolean));
   // 광고에 넣은 옵션이 한 번도 안 팔렸으면 등록상품ID 를 몰라서, 상품명(옵션명의 첫 덩어리)으로도 같은 상품을 찾는다
   const nm = (x) => String(x || '').split(',')[0].replace(/[\s·_()\[\]-]/g, '').toLowerCase();

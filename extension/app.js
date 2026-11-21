@@ -932,6 +932,33 @@ $('#merge-go').onclick = async () => {
 };
 $('#merge-card').addEventListener('toggle', () => { if ($('#merge-card').open) renderMergeCard(); });
 
+/* ===== 옵션을 날짜로 나누기 ===== */
+function renderLinkHistCard() {
+  const nowSel = $('#lh-now'), prevSel = $('#lh-prev'); if (!nowSel) return;
+  const names = S.sortCampaigns(S.campaigns(DATA)); const keep = [nowSel.value, prevSel.value];
+  const opts = (sel) => '<option value="">(캠페인 고르기)</option>' + names.map((n) => `<option value="${esc(n)}" ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  nowSel.innerHTML = opts(keep[0]); prevSel.innerHTML = opts(keep[1]);
+  const showOpts = () => {
+    const c = nowSel.value; if (!c) { $('#lh-opts').innerHTML = ''; return; }
+    const list = (DATA.options || []).filter((o) => o.campaign === c);
+    $('#lh-opts').innerHTML = list.length ? `옮긴 옵션 (지금 '${esc(c)}' 에 연결된 ${list.length}개 · 옮긴 것만 체크):<div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px">${list.map((o) => `<label class="chk"><input type="checkbox" data-lh-oid="${esc(o.option_id)}" checked> ${esc(o.option_id)} <span class="sub">${esc(String(o.option_name || o.product_name || '').slice(0, 40))}</span></label>`).join('')}</div>` : `'${esc(c)}' 에 연결된 옵션이 없습니다`;
+  };
+  nowSel.onchange = showOpts; showOpts();
+  const rows = S.linkHistoryList(DATA);
+  $('#lh-list').innerHTML = rows.length ? `<div class="sub" style="margin-bottom:4px">저장된 기록 (그 날까지는 예전 캠페인 줄에 넣습니다)</div><table class="tbl"><thead><tr><th class="l">옵션ID</th><th class="l">지금 캠페인</th><th class="l">예전 캠페인</th><th>이 날까지 예전 캠페인</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr><td class="l num">${esc(r.option_id)}</td><td class="l">${esc(r.linked)}</td><td class="l">${esc(r.campaign)}</td><td class="num">${esc(r.until)}</td><td><button class="btn sm" data-lh-del="${esc(r.option_id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
+  $$('#lh-list button[data-lh-del]').forEach((b) => b.onclick = async () => { const dd = await reload(); S.clearLinkHistory(dd, [b.dataset.lhDel]); await S.save(dd); await refreshAll(); renderLinkHistCard(); msg('#lh-msg', '기록을 지웠습니다', 'ok'); });
+}
+$('#lh-save').onclick = async () => {
+  const now = $('#lh-now').value, prev = $('#lh-prev').value, date = $('#lh-date').value;
+  if (!now || !prev || now === prev) { msg('#lh-msg', '지금 캠페인과 그 전 캠페인을 다르게 고르세요', 'err'); return; }
+  const ids = $$('#lh-opts input[data-lh-oid]').filter((x) => x.checked).map((x) => x.dataset.lhOid);
+  try {
+    const dd = await reload(); const r = S.setLinkHistory(dd, ids, prev, date); await S.save(dd); await refreshAll(); renderLinkHistCard();
+    msg('#lh-msg', `저장했습니다: 옵션 ${r.options}개는 ${r.until.slice(5).replace('-', '/')}까지 '${prev}', ${date.slice(5).replace('-', '/')}부터 '${now}' 줄에 들어갑니다`, 'ok');
+  } catch (e) { msg('#lh-msg', e.message, 'err'); }
+};
+$('#lh-card').addEventListener('toggle', () => { if ($('#lh-card').open) renderLinkHistCard(); });
+
 /* ===== 트래픽 슬롯 설정 ===== */
 // 트래픽 슬롯 칸은 접힘이 기본. 펼친 상태는 기억한다
 try { $('#tr-details').open = localStorage.getItem('cc-tr-open') === '1'; } catch { /* 무시 */ }

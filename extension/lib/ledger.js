@@ -74,7 +74,10 @@ export function computeLedger(d, start, end) {
   // 광고를 꺼 둔 캠페인은 쿠팡 광고 목록에 안 잡히는 경우가 있어 목록 여부로는 판단하지 않는다. 윙 옵션처럼 광고에 넣지 않은 옵션도 캠페인에 연결해 두면 같은 규칙
   // 모음(AI) 캠페인: 옵션이 지금 전용 캠페인에 연결돼 있으면, 전용 캠페인을 만들기 전 모음 캠페인에서 팔린 것도 전용 캠페인 줄로 (광고비는 모음 캠페인 줄에 그대로)
   const catchAll = catchAllCampaigns(d);
+  // 날짜로 직접 정한 이전 캠페인 (예: 11/18까지는 52번, 그 뒤는 지금 연결된 70번). 어떤 추측보다 먼저 따른다
+  const linkHist = d.linkHistory || {};
   const campaignFor = (oid, date) => {
+    const hist = linkHist[oid]; if (hist) for (const h of hist) if (h.campaign && date <= h.until) return h.campaign;
     const linked = campaignOf[oid]; if (!linked) return null;
     if (handPicked.has(oid)) return linked;
     const skip = (c) => c !== linked && catchAll.has(c) && !catchAll.has(linked);
