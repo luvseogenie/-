@@ -787,6 +787,8 @@ const RETRY_MAX = 3;
 const KIND_NAME = { sales: '판매', ads: '광고', report: '광고 보고서' };
 let autoRunning = false;
 // ---- 로켓그로스 재고: 윙 재고 화면(설정의 주소)을 열어 표를 읽고 오늘 날짜 재고로 저장 → 품절이 가까운 옵션 알림 ----
+// 화면에 옵션ID 가 없을 때 옵션명으로 찾기: 판매 기록의 옵션명(상품명, 옵션값)
+function invNames(d) { const f = S.optionFacts(d); return Object.entries(f).map(([id, x]) => ({ option_id: id, name: x.option_name })).filter((x) => x.name); }
 async function collectInventory() {
   const s = await getSettings(); if (!s.invUrl) throw new Error("재고 화면 주소가 비어 있습니다 (재고 화면 → '윙 재고 화면 주소' 에 넣기)");
   const { tab, close } = await openWorkTab(s.invUrl, s);
@@ -797,15 +799,15 @@ async function collectInventory() {
     await chrome.tabs.sendMessage(tab.id, { type: 'closePopups' }).catch(() => null);
     let r = await readWithRetry(tab.id, 'inventory', Date.now() + s.waitSeconds * 1000 + 30000);
     let rows = [];
-    let full = null; if (r) { full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full; rows = INV.normalizeInventory(r.records); }
+    let full = null; if (r) { full = await readFromTab(tab.id, 'inventory', 'readAll'); if (full?.records?.length > r.records.length) r = full; rows = INV.normalizeInventory(r.records, { names: invNames(await S.load()) }); if (!rows.length && r.records.length) await log(`[재고] 표 ${r.records.length}줄을 읽었지만 옵션을 알아보지 못했습니다. 첫 줄: ${Object.entries(r.records[0]).map(([k, v]) => `${k}=${String(v).slice(0, 200)}`).join(' | ').slice(0, 1200)}`); }
     if (!rows.length) {
       // 화면 표로 못 읽으면: '엑셀 다운로드' 로 재고 파일을 받아 읽는다 (받은 파일은 재고 표로 알아보고 저장된다)
       const heads = await chrome.tabs.sendMessage(tab.id, { type: 'tableHeads' }).catch(() => null);
-      const headTxt = (heads?.tables || []).map((t) => `[${t.kind} ${t.rows}줄] ${t.headers.join(' | ')}${t.first?.length ? ` / 첫 줄: ${t.first.join(' | ')}` : ''}`).join(' ;; ').slice(0, 900);
+      const headTxt = (heads?.tables || []).map((t) => `[${t.kind} ${t.rows}줄] ${t.headers.join(' | ')}${t.first?.length ? ` / 첫 줄: ${t.first.join(' | ')}` : ''}`).join(' ;; ').slice(0, 1500);
       await log(`[재고] 화면 표로 못 읽어 엑셀 다운로드로 받아 봅니다. 화면의 표: ${headTxt || '없음'}`);
       await installHook(tab.id); expectUntil = Date.now() + 150000; expectDate = null; lastHookedUrl = null;
       const waiting = waitForReport(90000);
-      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload', items: ['재고', '전체', '엑셀', 'Excel', 'xlsx', '다운로드'] }).catch(() => null);
+      const c = await chrome.tabs.sendMessage(tab.id, { type: 'clickAnyDownload', items: ['엑셀', 'Excel', 'xlsx', '전체', '다운로드'] }).catch(() => null);
       if (!c?.ok) { settle(null); throw new Error(`재고 표를 찾지 못했고 엑셀 다운로드 버튼도 누르지 못했습니다 — 화면의 표: ${headTxt || '없음'}`); }
       const res = await waiting;
       if (res?.ok && res.kind === 'inventory') { await log(`[재고] 엑셀로 로켓그로스 재고 ${res.saved}개 옵션 저장 (${c.clicked})`); return { ok: true, saved: res.saved }; }

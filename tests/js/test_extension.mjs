@@ -1219,6 +1219,16 @@ console.log('extension logic: all checks passed');
   assert.ok(INV.isInventoryTable(Object.keys(recs[0])));
   const rows = INV.normalizeInventory(recs); const b = rows.find((x) => x.option_id === '96000000001');
   assert.equal(rows.length, 3); assert.equal(b.stock, 40); assert.equal(b.inbound, 20); assert.equal(b.product_id, '777');   // 출고불가 재고는 세지 않음
+  // 새 재고현황 화면: 옵션ID 칸 없음, '재고상태' 한 칸에 판매가능·입고중이 함께 → 옵션명으로 옵션을 찾고 숫자를 뽑는다
+  const nrec = [
+    { '': '', '상품정보': 'DUGN 양면 극세사 망토 똑딱이 담요 대형 고급형 중량UP, 1개 블루 SKU 123', '최근 판매량': '어제 13 매출 (원) 244,400', '재고상태': '판매가능 70일+ 1,061 입고중 0 입고권장 재고 양호', '판매가 (원)': '18,800' },
+    { '': '', '상품정보': 'DUGN 양면 극세사 망토 똑딱이 담요 대형 고급형 중량UP, 1개 블루그레이', '최근 판매량': '어제 2', '재고상태': '판매가능 12 입고중 30', '판매가 (원)': '18,800' },
+    { '': '', '상품정보': '모르는 상품', '최근 판매량': '', '재고상태': '판매가능 5', '판매가 (원)': '' },
+  ];
+  const names = [{ option_id: '91000000001', name: 'DUGN 양면 극세사 망토 똑딱이 담요 대형 고급형 중량UP, 1개 블루' }, { option_id: '91000000002', name: 'DUGN 양면 극세사 망토 똑딱이 담요 대형 고급형 중량UP, 1개 블루그레이' }];
+  const nr = INV.normalizeInventory(nrec, { names }); const n1 = nr.find((x) => x.option_id === '91000000001'), n2 = nr.find((x) => x.option_id === '91000000002');
+  assert.equal(nr.length, 2); assert.equal(n1.stock, 1061); assert.equal(n1.inbound, 0); assert.equal(n2.stock, 12); assert.equal(n2.inbound, 30);
+  assert.equal(INV.normalizeInventory([{ '상품정보': 'X 옵션ID 92000000009', '재고상태': '판매가능 7일 40 입고예정 3' }])[0].stock, 40);
   const sales = {}; const T = '2026-11-21';
   for (let i = 1; i <= 30; i++) { const dt = new Date(2026, 10, 21 - i); const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     sales[iso] = { '96000000001': { option_id: '96000000001', quantity: i <= 7 ? 4 : 1, sales_type: '로켓그로스' }, '96000000002': { option_id: '96000000002', quantity: 1, sales_type: '로켓그로스' }, W: { option_id: '96000000003', quantity: 9, sales_type: '판매자배송' } }; }

@@ -371,7 +371,7 @@
     fire(btn, HOVER); fire(btn, CLICK);
     // 하위 메뉴가 열리면 '캠페인' 또는 '엑셀' 이 들어간 항목을 누른다
     const item = await findItem(items || ['캠페인 보고서', '캠페인', '엑셀', 'Excel', 'xlsx'], 5);
-    if (item && item !== btn) { fire(item, HOVER); fire(item, CLICK); }
+    if (item && item !== btn && !/가이드|안내|도움말/.test(clean(item.innerText))) { fire(item, HOVER); fire(item, CLICK); }
     return { ok: true, clicked: clean(btn.innerText).slice(0, 30) + (item ? ' → ' + clean(item.innerText).slice(0, 30) : '') };
   }
   function pageInfo() {
@@ -834,7 +834,7 @@
       clickAnyDownload(msg.items || null).then(sendResponse);
     } else if (msg?.type === 'tableHeads') {
       // 진단: 화면에서 찾은 표들의 칸 이름과 첫 줄
-      try { sendResponse({ ok: true, tables: allTables().slice(0, 6).map((t) => ({ kind: t.kind, rows: t.rows.length, headers: t.headers.filter(Boolean).slice(0, 16), first: (t.rows[0] || []).slice(0, 8).map((x) => String(x).slice(0, 40)) })) }); } catch (e) { sendResponse({ ok: false, error: e.message }); }
+      try { sendResponse({ ok: true, tables: allTables().slice(0, 6).map((t) => ({ kind: t.kind, rows: t.rows.length, headers: t.headers.filter(Boolean).slice(0, 16), first: (t.rows[0] || []).slice(0, 8).map((x) => String(x).slice(0, 160)) })) }); } catch (e) { sendResponse({ ok: false, error: e.message }); }
     } else if (msg?.type === 'clickText') {
       sendResponse(clickText(msg.texts || [], { exactOnly: !!msg.exactOnly, inDialog: !!msg.inDialog }));
     } else if (msg?.type === 'findRowByText') {

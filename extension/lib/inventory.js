@@ -19,22 +19,36 @@ export function isInventoryTable(headers) {
   return firstMatch(n, INV_FIELDS[0][1], INV_FIELDS[0][2]) != null && firstMatch(n, INV_FIELDS[4][1], INV_FIELDS[4][2]) != null && !n.some((h) => /매출|판매량|광고비|캠페인/.test(h));
 }
 // 화면 표·엑셀 줄 → [{ option_id, product_name, option_name, product_id, stock, inbound }]
-export function normalizeInventory(records) {
+// 새 재고현황 화면: '재고상태' 한 칸에 "판매가능 70일+ 1,061 입고중 0 입고권장 …" 처럼 여러 값이 같이 들어 있다
+const STOCK_IN_TEXT = /판매\s*가능(?:\s*재고)?\s*[:：]?\s*(?:[\d,]+\s*일\s*\+?\s*)?([\d,]+)(?!\s*일)/;
+const INBOUND_IN_TEXT = /입고\s*(?:중|예정|진행)(?:\s*수량)?\s*[:：]?\s*([\d,]+)/;
+const nk = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-]/g, '').toLowerCase();
+// names: [{ option_id, name }] — 옵션ID 가 화면에 없을 때 '상품명, 옵션명' 글자로 옵션을 찾는다 (판매 기록의 옵션명)
+export function normalizeInventory(records, { names = [] } = {}) {
   if (!records.length) return [];
   const headers = Object.keys(records[0]); const normed = headers.map(normHeader);
   const idx = {}; for (const [f, al, ex] of INV_FIELDS) idx[f] = firstMatch(normed, al, ex);
-  if (idx.stock == null) return [];
+  const compound = records.some((rec) => Object.values(rec).some((v) => STOCK_IN_TEXT.test(String(v ?? ''))));
+  if (idx.stock == null && !compound) return [];
   // 옵션ID 칸이 따로 없으면 다른 칸 글자 속 '옵션ID: 123…' 에서 찾는다 (상품 정보 칸에 함께 적힌 화면)
-  const OID_IN_TEXT = /(?:옵션\s*ID|옵션아이디|vendorItemId)\s*[:：]?\s*(\d{8,})/i;
+  const OID_IN_TEXT = /(?:옵션\s*ID|옵션\s*아이디|옵션\s*번호|vendor\s*Item\s*Id|Option\s*ID)\s*[:：]?\s*(\d{8,})/i;
+  const byName = names.map((x) => ({ id: String(x.option_id), k: nk(x.name) })).filter((x) => x.k.length >= 6).sort((a, b) => b.k.length - a.k.length);
+  const pidx = idx.product_name ?? normed.findIndex((h) => h.includes('상품'));
   const out = {};
   for (const rec of records) {
     const get = (f) => (idx[f] == null ? null : rec[headers[idx[f]]]);
     let oid = idx.option_id != null ? cleanId(get('option_id')) : '';
     if (!/^\d{5,}$/.test(oid)) { for (const v of Object.values(rec)) { const m = String(v ?? '').match(OID_IN_TEXT); if (m) { oid = m[1]; break; } } }
+    if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.startsWith(x.k)); if (hit) oid = hit.id; }
     if (!/^\d{5,}$/.test(oid)) continue;
+    let stock = null, inbound = null; const raw = String(get('stock') ?? '');
+    if (/^[\s\d,.\-]+$/.test(raw) && raw.trim()) stock = parseNumber(raw);
+    else { const all = Object.values(rec).map((v) => String(v ?? '')).join(' '); const m = all.match(STOCK_IN_TEXT); if (m) stock = parseNumber(m[1]); const mi = all.match(INBOUND_IN_TEXT); if (mi) inbound = parseNumber(mi[1]); }
+    if (stock == null) continue;
+    if (inbound == null) { const ri = String(get('inbound') ?? ''); inbound = /^[\s\d,.\-]+$/.test(ri) && ri.trim() ? parseNumber(ri) : 0; }
     const row = (out[oid] ||= { option_id: oid, product_name: '', option_name: '', product_id: '', stock: 0, inbound: 0 });
-    row.product_name ||= String(get('product_name') ?? '').trim(); row.option_name ||= String(get('option_name') ?? '').trim(); row.product_id ||= cleanId(get('product_id'));
-    row.stock += parseNumber(get('stock')) ?? 0; row.inbound += parseNumber(get('inbound')) ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다
+    row.product_name ||= String(get('product_name') ?? '').trim().slice(0, 120); row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
+    row.stock += stock ?? 0; row.inbound += inbound ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다
   }
   return Object.values(out);
 }
