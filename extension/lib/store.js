@@ -259,9 +259,21 @@ export function setInventory(d, date, rows) {
 }
 export function setInvSettings(d, st) { d.invSettings = { ...(d.invSettings || {}), ...st }; }
 // 상품마다: 입고 소요일(비우면 기본값), 시즌 종료일(그 뒤 팔릴 양은 발주 추천에서 뺌). key = 등록상품ID
-export function setInvProduct(d, key, { leadDays = '', seasonEnd = '' } = {}) {
-  d.invProduct ||= {}; const v = { leadDays: leadDays === '' || leadDays == null ? '' : Number(leadDays), seasonEnd: seasonEnd || '' };
-  if (v.leadDays === '' && !v.seasonEnd) delete d.invProduct[key]; else d.invProduct[key] = v;
+// season: 'season'(시즌) | 'year'(비시즌·연중) | ''(미정)
+export function setInvProduct(d, key, { leadDays = '', seasonEnd = '', season = '' } = {}) {
+  d.invProduct ||= {}; const v = { leadDays: leadDays === '' || leadDays == null ? '' : Number(leadDays), seasonEnd: season === 'year' ? '' : seasonEnd || '', season: season || '' };
+  if (v.leadDays === '' && !v.seasonEnd && !v.season) delete d.invProduct[key]; else d.invProduct[key] = v;
+}
+// 여러 등록상품ID 에 한 번에: patch 의 칸 중 undefined 는 그대로 둔다 (예: 시즌 종료일만 일괄로 넣고 입고 소요일은 상품마다 그대로)
+export function setInvProducts(d, keys, patch = {}) {
+  const ids = [...new Set((keys || []).map((k) => String(k).trim()).filter(Boolean))]; if (!ids.length) throw new Error('등록상품ID 를 하나 이상 넣거나 고르세요');
+  for (const k of ids) {
+    const cur = (d.invProduct || {})[k] || {}; const next = { leadDays: cur.leadDays ?? '', seasonEnd: cur.seasonEnd || '', season: cur.season || '' };
+    for (const f of ['leadDays', 'seasonEnd', 'season']) if (patch[f] !== undefined) next[f] = patch[f];
+    if (patch.seasonEnd && patch.season === undefined && next.season !== 'season') next.season = 'season';   // 시즌 종료일을 넣으면 시즌 상품
+    setInvProduct(d, k, next);
+  }
+  return ids.length;
 }
 // ---- 캠페인 합치기 (잘못 만든·이름을 바꾼 캠페인 → 다른 캠페인으로) ----
 // d.campaignAliases = { 옛 이름: 새 이름 }: 합친 뒤에 옛 이름으로 들어오는 광고 값·보고서도 새 이름으로 넣는다

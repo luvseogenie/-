@@ -131,15 +131,29 @@
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set; if (setter) setter.call(el, value); else el.value = value;
     el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  // 숫자 버튼 페이지 넘김 ('1 2 3 4 5 >'): 표 밖의 숫자만 적힌 버튼들 중 연속된 숫자가 있는 묶음
+  function numberedPager() {
+    const items = [...deepAll('button, a, li, [role="button"]')].filter((b) => /^\d{1,3}$/.test(clean(b.innerText)) && !b.querySelector('button, a, [role="button"]') && !b.closest('table, [role="row"], .ag-row, .rt-tr, select, [role="listbox"], [role="option"]') && visible(b));
+    const groups = new Map();
+    for (const b of items) { const k = (b.closest('li') || b).parentElement; if (!k) continue; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(b); }
+    let best = null;
+    for (const list of groups.values()) {
+      const nums = [...new Set(list.map((b) => parseInt(clean(b.innerText), 10)))].sort((a, b) => a - b);
+      if (nums.length < 2 || nums[0] < 1 || !nums.some((n, i) => i && n - nums[i - 1] === 1)) continue;
+      if (!best || list.length > best.items.length) best = { items: list, max: nums[nums.length - 1] };
+    }
+    return best;
+  }
   function pageTotal() {
     const m = clean(document.body.innerText).match(/페이지\s*(\d+)?\s*\/\s*(\d+)/) || clean(document.body.innerText).match(/(\d+)\s*\/\s*(\d+)\s*(페이지|page)/i);
-    return m ? parseInt(m[2], 10) : 1;
+    if (m) return parseInt(m[2], 10);
+    const np = numberedPager(); return np ? np.max : 1;
   }
   function pagerInput() {
     return [...deepAll('input')].find((i) => (i.type === 'text' || i.type === 'number') && /^\d+$/.test(i.value) && /\/\s*\d+/.test(clean(i.parentElement?.innerText || '') + clean(i.parentElement?.parentElement?.innerText || '')));
   }
   // 지금 표의 '지문' (첫 칸들) — 페이지가 실제로 바뀌었는지 확인용
-  const rowsFingerprint = (kind) => { const p = window.__ccPick(kind); return p ? p.records.map((r) => Object.values(r)[0]).join('|') : ''; };
+  const rowsFingerprint = (kind) => { const p = window.__ccPick(kind); return p ? p.records.map((r) => Object.values(r).slice(0, 3).join('~')).join('|') : ''; };   // 첫 칸이 비어 있는 표(체크박스·사진)도 쪽이 바뀐 걸 알 수 있게 앞 3칸
   // 조건이 될 때까지 기다린다 (최대 ms)
   async function waitUntil(cond, ms, step = 300) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cond()) return true; await wait(step); } return cond(); }
   async function maximizePageSize(kind) {
@@ -167,6 +181,9 @@
       input.dispatchEvent(new Event('blur', { bubbles: true }));   // react-table 은 blur 에서도 이동
       if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true;
     }
+    // 숫자 버튼: 'n' 이 적힌 버튼을 누른다 (윙 재고 화면처럼 '1 2 3 >' 모양)
+    const np = numberedPager(); const nb = np?.items.find((b) => clean(b.innerText) === String(n));
+    if (nb && !nb.disabled) { fire(nb, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
     // 다음 버튼: '/ N' 글자 오른쪽에 있는 첫 버튼 (입력칸이 없거나 안 먹을 때)
     const anchor = [...deepAll('*')].find((e) => e.children.length === 0 && /^\/\s*\d+$/.test(clean(e.innerText)));
     if (anchor) {
@@ -175,7 +192,7 @@
       if (btn && !btn.disabled) { fire(btn, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
     }
     // '다음' / '>' 글자 버튼
-    const next = [...deepAll('button, a, [role="button"], li')].find((b) => visible(b) && !b.disabled && /^(다음|next|›|>|»)$/i.test(clean(b.innerText)));
+    const next = [...deepAll('button, a, [role="button"], li')].find((b) => visible(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && (/^(다음|next|›|>|»)$/i.test(clean(b.innerText)) || (!clean(b.innerText) && /next|다음/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (typeof b.className === 'string' ? b.className : '')))));
     if (next) { fire(next, [...HOVER, ...CLICK]); if (await waitUntil(() => rowsFingerprint(kind) !== before, 6000)) return true; }
     return false;
   }
@@ -204,7 +221,7 @@
     const all = []; const seen = new Set(); const notes = [];
     const size = await maximizePageSize(kind); if (size) { notes.push(`페이지당 ${size}로 변경`); if (!(await settleRows(kind))) notes.push('줄 내용이 계속 바뀜'); }
     const total0 = pageTotal(); let pages = 0;
-    for (let i = 1; i <= Math.min(total0, 30); i++) {
+    for (let i = 1; i <= 30; i++) {   // 숫자 버튼 페이지는 앞으로 갈수록 뒤 번호가 보이므로 매번 다시 센다 (아래 pageTotal() <= i 에서 멈춤)
       if (i > 1) {
         let ok = await gotoPage(i, kind);
         if (!ok) { await wait(2500); ok = await gotoPage(i, kind); }   // 한 번 더
