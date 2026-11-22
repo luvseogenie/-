@@ -892,7 +892,7 @@ function showSalesDiag(camp, start, end) {
 /* ===== 로켓그로스 재고 ===== */
 async function renderInventory() {
   const { invUrl = '' } = await chrome.storage.sync.get('invUrl'); if (document.activeElement !== $('#inv-url')) $('#inv-url').value = invUrl;
-  const f = INV.inventoryForecast(DATA, localIso(today)); const st = f.settings;
+  const f = INV.inventoryForecast(DATA, localIso(today), { showMissing: $('#inv-show-missing').checked }); const st = f.settings;
   for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
   $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
@@ -941,7 +941,7 @@ $('#inv-bulk-go').onclick = async () => {
   if (!Object.keys(patch).length) { msg('#inv-msg', '구분·시즌 종료일·입고 소요일 중 하나는 넣으세요', 'err'); return; }
   try {
     // 넣은 등록상품ID(또는 옵션ID) → 그 상품 묶음 (옵션마다 등록상품ID 가 달라도 같은 상품이면 함께)
-    const fr = INV.inventoryForecast(DATA, localIso(today)).rows; const keys = new Set(picked); const unknown = [];
+    const fr = INV.inventoryForecast(DATA, localIso(today), { showMissing: $('#inv-show-missing').checked }).rows; const keys = new Set(picked); const unknown = [];
     for (const id of typed) { const hit = fr.filter((x) => x.product_id === id || x.option_id === id || x.key === id); if (hit.length) hit.forEach((x) => keys.add(x.key)); else { unknown.push(id); keys.add(id); } }
     const base = Object.fromEntries(fr.map((x) => [x.key, x.ps || {}]));
     const dd = await reload(); const n = S.setInvProducts(dd, [...keys], patch, { base }); await S.save(dd); await reload(); renderInventory();
@@ -949,7 +949,7 @@ $('#inv-bulk-go').onclick = async () => {
     $('#inv-bulk-ids').value = '';
   } catch (e) { msg('#inv-msg', e.message, 'err'); }
 };
-$('#inv-season-filter').onchange = () => renderInventory();
+$('#inv-season-filter').onchange = () => renderInventory(); $('#inv-show-missing').onchange = () => renderInventory();
 try { const v = localStorage.getItem('invSort'); if (v) $('#inv-sort').value = v; } catch { /* 무시 */ }
 $('#inv-sort').onchange = () => { try { localStorage.setItem('invSort', $('#inv-sort').value); } catch { /* 무시 */ } renderInventory(); }; $('#inv-only-mine').onchange = () => renderInventory();
 $('#inv-search').oninput = () => renderInventory(); $('#inv-only-low').onchange = () => renderInventory(); $('#inv-group').onchange = () => renderInventory();

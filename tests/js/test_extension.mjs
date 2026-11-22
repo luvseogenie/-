@@ -1315,7 +1315,7 @@ console.log('extension logic: all checks passed');
   // 재고 화면은 B1, B2 만 (등록상품ID 없이 읽힌 예전 줄 포함)
   const inv = { B1: { option_id: 'B1', product_id: '15753767118', product_name: 'DUGN 똑딱이 담요, 1개 B1', stock: 50, inbound: 500 }, B2: { option_id: 'B2', product_id: '', product_name: 'DUGN 똑딱이 담요, 1개 B2', stock: 10, inbound: 0 } };
   const d = { sales, inventory: { [T]: inv }, invSettings: { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 } };
-  let f = INV.inventoryForecast(d, T); const by = (id) => f.rows.find((x) => x.option_id === id);
+  let f = INV.inventoryForecast(d, T, { showMissing: true }); const by = (id) => f.rows.find((x) => x.option_id === id);
   assert.equal(by('B2').product_id, '15753767118');   // 판매 기록에서 등록상품ID 를 채움 → 같은 상품으로 묶임
   assert.equal(by('B8').level, 'unknown'); assert.equal(by('B8').missing, true); assert.equal(by('B8').reorder, 0); assert.equal(by('B8').reorderIfOut, 2 * 47);
   assert.ok(by('B9')); assert.ok(by('X1'));   // 같은 상품이라 넣음 / 최근 30일 로켓그로스 판매라 넣음
@@ -1326,11 +1326,11 @@ console.log('extension logic: all checks passed');
   // 시즌 구분과 일괄 설정
   assert.throws(() => S.setInvProducts(d, [], { season: 'season' }));
   assert.equal(S.setInvProducts(d, ['15753767118', ' 777 ', '777'], { seasonEnd: '2026-12-25' }), 2);
-  f = INV.inventoryForecast(d, T);
+  f = INV.inventoryForecast(d, T, { showMissing: true });
   assert.ok(f.rows.filter((x) => x.product_id === '15753767118').every((x) => x.seasonType === 'season' && x.seasonEnd === '2026-12-25'));   // 등록상품의 모든 옵션 (미확인 옵션 포함)
   assert.equal(f.rows.find((x) => x.option_id === 'B1').reorder, 2 * 34 - 50);   // 시즌 종료까지 34일치
   S.setInvProducts(d, ['15753767118'], { leadDays: 35 }); assert.deepEqual(d.invProduct['15753767118'], { leadDays: 35, seasonEnd: '2026-12-25', season: 'season' });   // 다른 칸은 그대로
-  S.setInvProducts(d, ['777'], { season: 'year' }); f = INV.inventoryForecast(d, T);
+  S.setInvProducts(d, ['777'], { season: 'year' }); f = INV.inventoryForecast(d, T, { showMissing: true });
   const x1 = f.rows.find((x) => x.option_id === 'X1'); assert.equal(x1.seasonType, 'year'); assert.equal(x1.seasonEnd, '');   // 비시즌이면 시즌 종료일 없음
   S.setInvProducts(d, ['777'], { season: '', seasonEnd: '' }); assert.ok(!d.invProduct['777']);
   assert.equal(INV.seasonTypeOf({ seasonEnd: '2026-12-25' }), 'season'); assert.equal(INV.seasonTypeOf({}), '');
@@ -1357,7 +1357,7 @@ console.log('extension logic: all checks passed');
   const s = (o, name) => ({ option_id: o, product_id: 'P', product_name: 'DUGN 담요', option_name: name, quantity: 2, sales_type: '로켓그로스' });
   const e = { sales: { [day]: { S2: s('S2', '2개 블루'), S12: s('S12', '12개 블루'), S3: s('S3', '1개 레드') } },
     inventory: { [T]: { X12: { option_id: 'X12', product_id: 'P', product_name: 'DUGN 담요, 12개 블루', stock: 40 }, S3: { option_id: 'S3', product_id: 'P', product_name: 'DUGN 담요, 1개 레드', stock: 9 } } } };
-  const f = INV.inventoryForecast(e, T); const by = (id) => f.rows.find((x) => x.option_id === id);
+  const f = INV.inventoryForecast(e, T, { showMissing: true }); const by = (id) => f.rows.find((x) => x.option_id === id);
   assert.equal(by('S12').stock, 40); assert.equal(by('S12').inv_option_id, 'X12'); assert.ok(!by('X12'));   // 다른 ID 로 읽힌 '12개 블루' 를 판매 옵션 S12 로
   assert.equal(by('S2').missing, true);   // '2개 블루' 는 '12개 블루' 줄에 붙지 않는다
   assert.equal(by('S3').label, '1개 레드'); assert.equal(by('S3').stock, 9);
@@ -1377,13 +1377,13 @@ console.log('extension logic: all checks passed');
   const d = { sales: { [day]: { V1: v('V1', '16437682321', '블랙, 공용 S'), V2: v('V2', '16443588146', '블랙, 공용 XL'), V3: v('V3', '16445327538', '그레이, 공용 M') } },
     inventory: { [T]: { V1: { option_id: 'V1', product_id: '16437682321', product_name: `로켓그로스 ${NAME}, 블랙, 공용 S`, stock: 30 }, N1: { option_id: 'N1', product_id: '1999', product_name: `${NAME}, 네이비, 공용 L`, stock: 5 } } },
     invProduct: { '16443588146': { leadDays: 25, seasonEnd: '', season: 'year' } } };
-  const f = INV.inventoryForecast(d, T); const gs = INV.groupByProduct(f.rows);
+  const f = INV.inventoryForecast(d, T, { showMissing: true }); const gs = INV.groupByProduct(f.rows);
   assert.equal(gs.length, 1); const g = gs[0];
   assert.equal(g.options.length, 4); assert.equal(g.product_name, NAME); assert.equal(g.product_ids.length, 4);
   assert.deepEqual(INV.sortInventory(g.options, 'asc', (x) => x.label).map((x) => x.label), ['그레이, 공용 M', '네이비, 공용 L', '블랙, 공용 S', '블랙, 공용 XL']);
   assert.ok(f.rows.every((x) => x.lead === 25 && x.seasonType === 'year'));   // 등록상품ID 하나로 저장한 예전 설정도 상품 전체에
   S.setInvProducts(d, [g.key], { seasonEnd: '2027-02-28' }, { base: { [g.key]: g.ps } });
-  assert.ok(INV.inventoryForecast(d, T).rows.every((x) => x.seasonType === 'season' && x.seasonEnd === '2027-02-28' && x.lead === 25));   // 이름 열쇠로 저장하면 그게 먼저
+  assert.ok(INV.inventoryForecast(d, T, { showMissing: true }).rows.every((x) => x.seasonType === 'season' && x.seasonEnd === '2027-02-28' && x.lead === 25));   // 이름 열쇠로 저장하면 그게 먼저
   assert.equal(INV.optionLabel({ option_name: 'DUGN 담요, 1개 블루' }, 'DUGN 담요'), '1개 블루');
   assert.equal(INV.optionLabel({ option_name: '1개 블루' }, 'DUGN 담요'), '1개 블루');
   assert.equal(INV.baseProductName({ product_name: '로켓그로스 DUGN 리본, 레드' }), 'DUGN 리본');
@@ -1442,4 +1442,15 @@ console.log('extension logic: all checks passed');
   C.setCompetitorSnapshot(d, c.id, '2026-11-23', [{ pid: '1', name: '담요', price: 19900, reviews: 122 }]);
   assert.equal(C.estimateCompetitor(d, c.id, '2026-11-23').ready, true);   // 다른 날 한 번 더 읽으면 추정
   console.log('competitor CSV and on-demand estimate: all checks passed');
+}
+
+// 재고: 기본은 윙 로켓그로스 재고에 있는 옵션만 (판매 기록에만 있는 옵션은 켜야 보임)
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-22', day = '2026-11-21';
+  const sl = (o, n) => ({ option_id: o, product_id: 'P', product_name: 'DUGN 작업복 바지', option_name: n, quantity: 2, sales_type: '로켓그로스' });
+  const d = { sales: { [day]: { A: sl('A', '블랙, L'), B: sl('B', '블랙, L 판매자배송') } }, inventory: { [T]: { A: { option_id: 'A', product_id: 'P', product_name: 'DUGN 작업복 바지, 블랙, L', stock: 300 } } } };
+  assert.deepEqual(INV.inventoryForecast(d, T).rows.map((x) => x.option_id), ['A']);
+  assert.deepEqual(INV.inventoryForecast(d, T, { showMissing: true }).rows.map((x) => x.option_id).sort(), ['A', 'B']);
+  console.log('inventory shows only Rocket Growth stock by default: all checks passed');
 }

@@ -157,7 +157,7 @@ export function inventoryForecast(d, today, settings = {}) {
     if (!(f.product_id && pids.has(f.product_id)) && !(q30[oid] > 0)) continue;
     const st0 = takeStray(f);
     if (st0) { used.add(st0); base.push({ ...st0, option_id: oid, inv_option_id: st0.option_id, product_id: st0.product_id || f.product_id, option_name: f.option_name || st0.option_name }); continue; }
-    base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });
+    if (st.showMissing) base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });   // 기본은 윙 로켓그로스 재고에 있는 옵션만
   }
   for (let i = base.length - 1; i >= 0; i--) if (used.has(base[i])) base.splice(i, 1);
   const IP = d.invProduct || {}; const keyOf = (x) => groupKeyOf(x, facts[x.option_id]?.product_name);
