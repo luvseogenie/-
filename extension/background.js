@@ -838,7 +838,8 @@ async function collectInventory() {
     }
     if (rows.unmatched?.length) await log(`[재고] 화면 ${(r?.records || []).length}줄 중 ${rows.unmatched.length}줄은 옵션을 찾지 못해 뺐습니다 (화면에 옵션ID가 없고, 판매 기록의 옵션명과도 안 맞음). 예: ${rows.unmatched.slice(0, 6).join(' / ')}`);
     const d = await S.load(); const date = RT.todayIso(); S.setInventory(d, date, rows, { merge: true });
-    d.inventoryMeta = { date, at: Date.now(), screenRows: (r?.records || []).length, saved: rows.length, pages: full?.pages || 1, notes: full?.notes || [] }; await S.save(d);
+    d.inventoryMeta = { date, at: Date.now(), screenRows: (r?.records || []).length, saved: rows.length, pages: full?.pages || 1, notes: full?.notes || [],
+      api: { items: apiInfo?.items?.length || 0, total: apiInfo?.rep?.apiTotal ?? null, requests: apiInfo?.rep?.requests ?? 0, why: apiInfo?.items?.length ? '' : (apiInfo?.none ? '수집 스크립트 없음' : apiInfo?.error || apiInfo?.rep?.reason || '요청 못 봄') } }; await S.save(d);
     await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, 화면 ${(r?.records || []).length}줄 · ${full?.pages || 1}쪽 읽음${full?.notes?.length ? ' · ' + full.notes.join(', ') : ''})`);
     // 판매 기록엔 있는데 재고 화면에서 못 읽은 로켓그로스 옵션이 많으면: 화면 아래 버튼 모양을 남기고, 엑셀 다운로드로 전체 재고를 받아 더한다
     const mineL = S.brandCheckerLoose(d); const miss = INV.inventoryForecast(d, date, { showMissing: true }).rows.filter((x) => (x.missing || x.outGuess) && mineL(x.option_name, x.product_name, x.group_name));

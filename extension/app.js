@@ -895,7 +895,8 @@ async function renderInventory() {
   const f = INV.inventoryForecast(DATA, localIso(today), { showMissing: $('#inv-show-missing').checked }); const st = f.settings;
   for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
-  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
+  const apiTxt = meta?.api ? (meta.api.items ? ` · 서버 데이터 ${meta.api.items}개${meta.api.total ? ` (서버가 말한 전체 ${meta.api.total}개${meta.api.total > meta.api.items ? ' — 덜 읽음' : ''})` : ''}` : ` · 서버 데이터 못 읽음 (${meta.api.why})`) : '';
+  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
   const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
