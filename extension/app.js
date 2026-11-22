@@ -905,6 +905,10 @@ async function renderInventory() {
   const LV = { out: ['품절', 'neg'], danger: ['위험', 'neg'], warn: ['주의', 'warn'], unknown: ['재고 미확인', 'gray'], ok: ['여유', 'pos'], idle: ['판매 없음', 'sub'] };
   const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length; const nMiss = rows.filter((x) => x.missing).length;
   const nProd = new Set(rows.map((x) => x.key)).size; const inv0 = Object.keys((DATA.inventory || {})[f.asOf] || {}).length;
+  // 숨긴 옵션 중 로켓그로스로 잘 팔리는(최근 7일 하루 3개 이상) 것: 품절된 진짜 로켓그로스 옵션일 수 있어 한 줄로 알린다
+  const hot = $('#inv-show-missing').checked || !f.asOf ? [] : INV.inventoryForecast(DATA, localIso(today), { showMissing: true }).rows.filter((x) => x.missing && x.r7 >= 3 && mine0(x.option_name, x.product_name, x.group_name)).sort((a, b) => b.r7 - a.r7);
+  $('#inv-hot').innerHTML = hot.length ? `⚠️ 로켓그로스로 하루 3개 이상 팔리는데 윙 재고 목록에 없는 옵션 ${hot.length}개 — 품절이면 확인하세요: ${hot.slice(0, 5).map((x) => `<b>${esc(x.option_id)}</b> ${esc((x.group_name || '').slice(0, 18))} ${esc(x.label)} (하루 ${Math.round(x.r7)}개)`).join(', ')}${hot.length > 5 ? ' 등' : ''}` : '';
+  $('#inv-hot').style.display = hot.length ? '' : 'none';
   $('#inv-count').textContent = f.asOf ? `윙에서 읽은 옵션 ${inv0}개 · 보이는 상품 ${nProd}개 / 옵션 ${rows.length}개 · 부족·품절 ${nLow}개${nMiss ? ` · 재고 미확인 ${nMiss}개` : ''}${hidBrand ? ` · 다른 브랜드라 숨김 ${hidBrand}개` : ''}${hidIdle ? ` · 판매·재고 없어 숨김 ${hidIdle}개` : ''}` : '';
   const one = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1));
   const pill = (lv) => { const [t, c] = LV[lv]; return `<span class="pill ${c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : c === 'warn' ? 'background:#fff3c4;color:#6b4a00' : ''}">${t}</span>`; };
