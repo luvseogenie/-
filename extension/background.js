@@ -841,7 +841,7 @@ async function collectInventory() {
     d.inventoryMeta = { date, at: Date.now(), screenRows: (r?.records || []).length, saved: rows.length, pages: full?.pages || 1, notes: full?.notes || [] }; await S.save(d);
     await log(`[재고] 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, 화면 ${(r?.records || []).length}줄 · ${full?.pages || 1}쪽 읽음${full?.notes?.length ? ' · ' + full.notes.join(', ') : ''})`);
     // 판매 기록엔 있는데 재고 화면에서 못 읽은 로켓그로스 옵션이 많으면: 화면 아래 버튼 모양을 남기고, 엑셀 다운로드로 전체 재고를 받아 더한다
-    const mineL = S.brandCheckerLoose(d); const miss = INV.inventoryForecast(d, date, { showMissing: true }).rows.filter((x) => x.missing && mineL(x.option_name, x.product_name, x.group_name));
+    const mineL = S.brandCheckerLoose(d); const miss = INV.inventoryForecast(d, date, { showMissing: true }).rows.filter((x) => (x.missing || x.outGuess) && mineL(x.option_name, x.product_name, x.group_name));
     if (miss.length >= 3) {
       const pg = await chrome.tabs.sendMessage(tab.id, { type: 'pagerDiag' }).catch(() => null);
       await log(`[재고] 판매 기록엔 있는데 재고 화면에서 못 읽은 옵션 ${miss.length}개 (예: ${miss.slice(0, 4).map((x) => x.option_id).join(', ')}) → 엑셀 다운로드로 전체 재고를 받아 더해 봅니다. 쪽 넘김 관련 버튼: ${(pg?.items || []).join(' / ').slice(0, 400) || '못 찾음'} · 전체 개수 글자: ${(pg?.totals || []).join(' / ') || '없음'} · 스크롤 칸 ${pg?.scrollers ?? '?'}개`);
@@ -856,7 +856,7 @@ async function collectInventory() {
           const res = await waiting;
           if (res?.ok && res.kind === 'inventory') {
             const d2 = await S.load(); const n = Object.keys(d2.inventory?.[date] || {}).length; d2.inventoryMeta = { ...(d2.inventoryMeta || {}), excel: res.saved }; await S.save(d2);
-            const left = INV.inventoryForecast(d2, date, { showMissing: true }).rows.filter((x) => x.missing && mineL(x.option_name, x.product_name, x.group_name)).length;
+            const left = INV.inventoryForecast(d2, date, { showMissing: true }).rows.filter((x) => (x.missing || x.outGuess) && mineL(x.option_name, x.product_name, x.group_name)).length;
             await log(`[재고] 엑셀로 ${res.saved}개 옵션을 더 받아 합쳤습니다 (오늘 재고 ${n}개 옵션, 아직 못 찾은 옵션 ${left}개)`);
           } else await log(`[재고] 엑셀 다운로드(${c.clicked})로 재고 파일을 받지 못했습니다 (${res?.kind ? `받은 파일 종류: ${res.kind}` : res?.error || '파일 없음'})`);
         }

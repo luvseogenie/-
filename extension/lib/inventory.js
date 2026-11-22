@@ -157,7 +157,11 @@ export function inventoryForecast(d, today, settings = {}) {
     if (!(f.product_id && pids.has(f.product_id)) && !(q30[oid] > 0)) continue;
     const st0 = takeStray(f);
     if (st0) { used.add(st0); base.push({ ...st0, option_id: oid, inv_option_id: st0.option_id, product_id: st0.product_id || f.product_id, option_name: f.option_name || st0.option_name }); continue; }
-    if (st.showMissing) base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });   // 기본은 윙 로켓그로스 재고에 있는 옵션만
+    // 윙 로켓그로스 재고 목록은 품절된 옵션을 빼고 보여 준다 → 최근 로켓그로스로 하루 1개 이상 팔리던 옵션이 목록에 없으면 '품절' 로 본다.
+    // 그보다 적게 팔리는 옵션(묶음 2개·3개 세트 등)은 넣지 않는다 (showMissing 이면 '재고 미확인' 으로 넣음)
+    const hotRate = Math.max((q7[oid] || 0) / n7, (q30[oid] || 0) / n30);
+    if (hotRate >= 1) base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, outGuess: true });
+    else if (st.showMissing) base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });
   }
   for (let i = base.length - 1; i >= 0; i--) if (used.has(base[i])) base.splice(i, 1);
   const IP = d.invProduct || {}; const keyOf = (x) => groupKeyOf(x, facts[x.option_id]?.product_name);
