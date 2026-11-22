@@ -1,4 +1,4 @@
-// 경쟁사 매출 추정: 경쟁사 스토어(또는 검색·상품 목록) 화면의 상품별 리뷰 수·가격을 하루 한 번 기록하고,
+// 경쟁사 매출 추정: 원할 때(자동 수집 없음) 경쟁사 스토어(또는 검색·상품 목록) 화면의 전체 상품의 리뷰 수·가격을 기록하고,
 // 리뷰가 늘어난 속도 ÷ 리뷰 작성률 = 판매량, × 가격 = 매출 로 한 달 매출을 가늠한다. 실제 매출이 아니라 추정치.
 // d.competitors = [{ id, url, name, mine, added }]
 // d.compSnaps = { id: { 'YYYY-MM-DD': { pid: { name, price, reviews, rating, sold } } } }
@@ -60,6 +60,13 @@ export function reviewRate(d, today) {
   return { rate: Number(st.reviewRate) || DEFAULT_COMP.reviewRate, how: '설정값', calibrated: false };
 }
 
+// 엑셀(CSV)용 표: 마지막으로 읽은 전체 상품 + 추정
+export function competitorCsv(d, id, today) {
+  const e = estimateCompetitor(d, id, today); const q = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const head = ['상품ID', '상품명', '가격', '리뷰 수', '별점', '구매 표시', '하루 리뷰 증가', '하루 판매(추정)', '월 판매(추정)', '월 매출(추정)', '링크', '읽은 날'];
+  const rows = e.products.map((p) => [p.pid, p.name, p.price ?? '', p.reviews ?? '', p.rating ?? '', p.sold || '', p.reviewsPerDay != null ? Math.round(p.reviewsPerDay * 100) / 100 : '', p.estQtyDay != null ? Math.round(p.estQtyDay) : '', p.estMonthQty != null ? Math.round(p.estMonthQty) : '', p.estMonthRev != null ? Math.round(p.estMonthRev) : '', `https://www.coupang.com/vp/products/${p.pid}`, e.lastDate || '']);
+  return '\ufeff' + [head, ...rows].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
+}
 export function estimateCompetitor(d, id, today, opt = {}) {
   const st = { ...DEFAULT_COMP, ...(d.compSettings || {}), ...opt };
   const rr = opt.rate ? { rate: opt.rate, how: '지정', calibrated: false } : reviewRate(d, today);
@@ -76,5 +83,5 @@ export function estimateCompetitor(d, id, today, opt = {}) {
   const known = products.filter((p) => p.estMonthRev != null);
   const span = dates.length >= 2 ? dayDiff(dates[0], dates[dates.length - 1]) : 0;
   return { id, lastDate, firstDate: all[0] || null, days: all.length, span, rate: rr, products, totalMonthRev: known.reduce((a, p) => a + p.estMonthRev, 0), totalMonthQty: known.reduce((a, p) => a + p.estMonthQty, 0), measured: known.length,
-    ready: span >= 3, reliable: span >= 7 };
+    ready: span >= 1, reliable: span >= 7 };
 }

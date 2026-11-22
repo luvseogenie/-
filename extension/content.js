@@ -335,7 +335,7 @@
     let pages = 1; const notes = []; let nextHref = null; const startPage = Number(new URL(location.href).searchParams.get('page')) || 1;
     for (let pg = startPage; pg < startPage + maxPages; pg++) {
       add();
-      for (let k = 0, idle = 0; k < 15 && idle < 2; k++) { const before = all.size; window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll')); await wait(1200); add(); idle = all.size > before ? 0 : idle + 1; }
+      for (let k = 0, idle = 0; k < 60 && idle < 2; k++) { const before = all.size; window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll')); await wait(1200); add(); idle = all.size > before ? 0 : idle + 1; }
       const np = numberedPager(); const nb = np?.items.find((b) => clean(b.innerText) === String(pg + 1));
       const next = nb || [...deepAll('a, button')].find((b) => visible(b) && !b.disabled && /^(다음|다음\s*페이지|next|›|>)$/i.test(clean(b.innerText) || b.getAttribute('aria-label') || ''));
       if (!next) break;

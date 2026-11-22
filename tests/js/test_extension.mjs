@@ -1429,3 +1429,17 @@ console.log('extension logic: all checks passed');
   C.removeCompetitor(d, a.id); assert.ok(!d.compSnaps[a.id]); assert.equal(d.competitors.length, 1);
   console.log('competitor revenue estimate: all checks passed');
 }
+
+// 경쟁사: 엑셀(CSV) 받기, 하루만 읽었으면 추정 없음
+{
+  const C = await import('../../extension/lib/competitor.js');
+  const d = {}; const c = C.addCompetitor(d, 'https://shop.coupang.com/A00777777', 'B사');
+  C.setCompetitorSnapshot(d, c.id, '2026-11-22', [{ pid: '1', name: '담요, "특대"', price: 19900, reviews: 120, rating: 4.5, sold: '1천명 이상 구매' }]);
+  const e = C.estimateCompetitor(d, c.id, '2026-11-22'); assert.equal(e.ready, false); assert.equal(e.products.length, 1); assert.equal(e.products[0].estMonthRev, null);
+  const csv = C.competitorCsv(d, c.id, '2026-11-22'); const lines = csv.trim().split('\r\n');
+  assert.ok(csv.startsWith('﻿상품ID,상품명,가격')); assert.equal(lines.length, 2);
+  assert.equal(lines[1], '1,"담요, ""특대""",19900,120,4.5,1천명 이상 구매,,,,,https://www.coupang.com/vp/products/1,2026-11-22');
+  C.setCompetitorSnapshot(d, c.id, '2026-11-23', [{ pid: '1', name: '담요', price: 19900, reviews: 122 }]);
+  assert.equal(C.estimateCompetitor(d, c.id, '2026-11-23').ready, true);   // 다른 날 한 번 더 읽으면 추정
+  console.log('competitor CSV and on-demand estimate: all checks passed');
+}

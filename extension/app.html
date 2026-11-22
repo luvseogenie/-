@@ -204,9 +204,9 @@
     <section id="page-comp" style="display:none">
       <div class="card">
         <h2 style="margin-top:0">🔍 경쟁사 매출 추정 <span class="sub">리뷰가 늘어나는 속도로 판매량·매출을 가늠합니다 (실제 매출이 아닌 추정치)</span></h2>
-        <div class="row" style="flex-wrap:wrap;gap:6px"><input id="comp-url" placeholder="경쟁사 스토어 주소 (쿠팡에서 판매자 이름을 눌러 나오는 상품 목록 화면의 주소)" style="flex:1;min-width:360px"><input id="comp-name" placeholder="이름 (예: A사)" style="width:140px"><label class="chk"><input type="checkbox" id="comp-mine"> 내 스토어 (리뷰 작성률 계산용)</label><button class="btn primary sm" id="comp-add">추가</button><button class="btn sm" id="comp-now">지금 모두 읽기</button><span id="comp-msg" class="msg"></span></div>
+        <div class="row" style="flex-wrap:wrap;gap:6px"><input id="comp-url" placeholder="경쟁사 스토어 주소 (쿠팡에서 판매자 이름을 눌러 나오는 상품 목록 화면의 주소)" style="flex:1;min-width:360px"><input id="comp-name" placeholder="이름 (예: A사)" style="width:140px"><label class="chk"><input type="checkbox" id="comp-mine"> 내 스토어 (리뷰 작성률 계산용)</label><button class="btn primary sm" id="comp-add">추가</button><button class="btn sm" id="comp-now">모두 지금 읽기</button><span id="comp-msg" class="msg"></span></div>
         <div class="row" style="margin-top:6px;gap:6px"><span class="sub">리뷰 작성률</span><input type="number" id="comp-rate" class="tiny" min="0.3" max="20" step="0.1"><span class="sub">% (판매 100개당 리뷰 수) · 최근</span><input type="number" id="comp-days" class="tiny" min="3" max="60"><span class="sub">일 리뷰 증가로 계산</span><button class="btn sm" id="comp-set-save">저장</button><span class="sub" id="comp-rate-how"></span></div>
-        <p class="sub" style="margin:6px 0 0">추가해 두면 매일(10~21시 중 한 번) 스토어의 상품별 <b>리뷰 수·가격</b>을 기록합니다. <b>한 달 매출 ≈ 하루 늘어난 리뷰 ÷ 리뷰 작성률 × 가격 × 30</b>. 기록이 3일 이상 쌓이면 추정이 나오고, 7일 이상이면 볼 만해집니다. <b>내 스토어</b>도 하나 넣어 두면 내 실제 판매량과 리뷰 증가로 리뷰 작성률을 맞춰 더 정확해집니다. 리뷰를 쓰는 비율은 상품마다 달라 ±50% 정도 차이가 날 수 있습니다.</p>
+        <p class="sub" style="margin:6px 0 0"><b>지금 읽기</b>를 누를 때만 그 스토어의 <b>전체 상품</b>(모든 쪽)의 이름·가격·리뷰 수를 읽어 기록합니다 (자동으로 읽지 않음). <b>엑셀로 받기</b>로 상품 목록을 내려받을 수 있습니다. 매출 추정은 <b>다른 날 한 번 더 읽으면</b> 그 사이 늘어난 리뷰로 나옵니다: <b>한 달 매출 ≈ 하루 늘어난 리뷰 ÷ 리뷰 작성률 × 가격 × 30</b> (두 번 읽은 사이가 7일 이상이면 볼 만함). <b>내 스토어</b>도 하나 넣어 두면 내 실제 판매량과 리뷰 증가로 리뷰 작성률을 맞춰 더 정확해집니다. 리뷰를 쓰는 비율은 상품마다 달라 ±50% 정도 차이가 날 수 있습니다.</p>
       </div>
       <div id="comp-list"></div>
     </section>

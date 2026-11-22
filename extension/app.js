@@ -969,22 +969,27 @@ function renderComp() {
   let h = '';
   for (const c of list) {
     const e = COMP.estimateCompetitor(DATA, c.id, t);
-    const head = !e.lastDate ? '<span class="sub">아직 기록 없음 — 오늘 중 자동으로 읽거나 \'지금 읽기\' 를 누르세요</span>'
-      : !e.ready ? `<span class="sub">기록 ${e.days}일 (${e.firstDate.slice(5)}~${e.lastDate.slice(5)}) · 추정은 기록 3일째부터 나옵니다</span>`
-      : `<b class="num" style="font-size:20px">${wonM(e.totalMonthRev)}</b> <span class="sub">/ 월 추정 · 하루 ${fmtInt(e.totalMonthQty / 30)}개 · 상품 ${e.measured}개 · 기록 ${e.span}일${e.reliable ? '' : ' (7일 전이라 아직 거침)'} · 리뷰 작성률 ${Math.round(e.rate.rate * 1000) / 10}%</span>`;
+    const head = !e.lastDate ? '<span class="sub">아직 읽지 않음 — \'지금 읽기\' 를 누르세요</span>'
+      : !e.ready ? `<span class="sub">상품 ${e.products.length}개 · ${e.lastDate.slice(5).replace('-', '/')} 읽음 · 매출 추정은 다른 날 한 번 더 읽으면 나옵니다</span>`
+      : `<b class="num" style="font-size:20px">${wonM(e.totalMonthRev)}</b> <span class="sub">/ 월 추정 · 하루 ${fmtInt(e.totalMonthQty / 30)}개 · 상품 ${e.measured}개 · ${e.firstDate.slice(5).replace('-', '/')}~${e.lastDate.slice(5).replace('-', '/')} ${e.span}일 사이 리뷰 증가${e.reliable ? '' : ' (7일 안 돼 거침)'} · 리뷰 작성률 ${Math.round(e.rate.rate * 1000) / 10}%</span>`;
     h += `<details class="card" open style="margin-top:12px"><summary><b>${esc(c.name)}</b>${c.mine ? ' <span class="pill">내 스토어</span>' : ''} ${head}</summary>
-      <div class="row" style="margin:6px 0;gap:6px"><a class="sub" href="${esc(c.url)}" target="_blank" rel="noopener">스토어 열기</a><button class="btn sm" data-comp-now="${esc(c.id)}">지금 읽기</button><button class="btn sm" data-comp-del="${esc(c.id)}">빼기</button></div>
+      <div class="row" style="margin:6px 0;gap:6px"><a class="sub" href="${esc(c.url)}" target="_blank" rel="noopener">스토어 열기</a><button class="btn primary sm" data-comp-now="${esc(c.id)}">지금 읽기 (전체 상품)</button><button class="btn sm" data-comp-csv="${esc(c.id)}" ${e.lastDate ? '' : 'disabled'}>엑셀로 받기</button><button class="btn sm" data-comp-del="${esc(c.id)}">빼기</button></div>
       ${e.products.length ? `<div class="tablewrap" style="max-height:420px"><table><thead><tr><th class="l">상품</th><th>가격</th><th>리뷰 수</th><th>하루 리뷰 +</th><th>하루 판매(추정)</th><th>월 판매(추정)</th><th>월 매출(추정)</th></tr></thead><tbody>${e.products.slice(0, 300).map((p) => `<tr><td class="l"><a href="https://www.coupang.com/vp/products/${esc(p.pid)}" target="_blank" rel="noopener">${esc(p.name || p.pid)}</a>${p.sold ? ` <span class="pill gray">${esc(p.sold)}</span>` : ''}</td><td class="num">${p.price ? fmtInt(p.price) : '-'}</td><td class="num">${p.reviews != null ? fmtInt(p.reviews) : '-'}</td><td class="num">${p.reviewsPerDay != null ? (Math.round(p.reviewsPerDay * 10) / 10) : '<span class="sub">기록 중</span>'}</td><td class="num">${p.estQtyDay != null ? fmtInt(p.estQtyDay) : ''}</td><td class="num">${p.estMonthQty != null ? fmtInt(p.estMonthQty) : ''}</td><td class="num"><b>${p.estMonthRev != null ? wonM(p.estMonthRev) : ''}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
     </details>`;
   }
   $('#comp-list').innerHTML = h;
   $$('#comp-list button[data-comp-del]').forEach((b) => b.onclick = async () => { if (!confirm('이 경쟁사와 기록을 지울까요?')) return; const dd = await reload(); COMP.removeCompetitor(dd, b.dataset.compDel); await S.save(dd); await reload(); renderComp(); });
   $$('#comp-list button[data-comp-now]').forEach((b) => b.onclick = () => compNow(b, b.dataset.compNow));
+  $$('#comp-list button[data-comp-csv]').forEach((b) => b.onclick = () => {
+    const c = list.find((x) => x.id === b.dataset.compCsv); const csv = COMP.competitorCsv(DATA, c.id, t);
+    const filename = `경쟁사_${String(c.name).replace(/[\\/:*?"<>|~]/g, '_')}_${t}.csv`;
+    download(filename, csv.replace(/^\ufeff/, ''), 'text/csv;charset=utf-8'); msg('#comp-msg', `받았습니다: ${filename} (다운로드 폴더)`, 'ok');
+  });
 }
 async function compNow(b, id = null) {
-  b.disabled = true; msg('#comp-msg', '스토어 화면을 여는 중… (작은 창이 떴다 닫힙니다)');
+  b.disabled = true; msg('#comp-msg', '스토어 전체 상품을 읽는 중… (작은 창이 떴다 닫힙니다. 상품이 많으면 몇 분 걸립니다)');
   const r = await chrome.runtime.sendMessage({ type: 'competitorNow', id }).catch((e) => ({ ok: false, error: e.message }));
-  b.disabled = false; await reload(); renderComp(); msg('#comp-msg', r?.ok ? `읽었습니다 (${r.done}곳)` : `읽지 못했습니다: ${(r?.error || '').slice(0, 200)}`, r?.ok ? 'ok' : 'err');
+  b.disabled = false; await reload(); renderComp(); msg('#comp-msg', r?.ok ? `읽었습니다 (${r.done}곳${r.saved != null ? `, 상품 ${r.saved}개` : ''})` : `읽지 못했습니다: ${(r?.error || '').slice(0, 200)}`, r?.ok ? 'ok' : 'err');
 }
 $('#comp-add').onclick = async () => {
   try { const dd = await reload(); const c = COMP.addCompetitor(dd, $('#comp-url').value, $('#comp-name').value.trim(), $('#comp-mine').checked); await S.save(dd); await reload(); $('#comp-url').value = ''; $('#comp-name').value = ''; $('#comp-mine').checked = false; renderComp(); msg('#comp-msg', `'${c.name}' 를 넣었습니다. 지금 한 번 읽어 둘게요`, 'ok'); compNow($('#comp-now'), c.id); }
