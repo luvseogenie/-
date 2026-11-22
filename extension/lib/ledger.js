@@ -76,9 +76,24 @@ export function computeLedger(d, start, end) {
   const catchAll = catchAllCampaigns(d);
   // 날짜로 직접 정한 이전 캠페인 (예: 11/18까지는 52번, 그 뒤는 지금 연결된 70번). 어떤 추측보다 먼저 따른다
   const linkHist = d.linkHistory || {};
+  // 캠페인이 생긴 날: 이름 끝 '_YYMMDD'(만든 날) 와 처음 보인 날 중 이른 날
+  const nameDate = (c) => { const m = String(c).match(/_(\d{2})(\d{2})(\d{2})\s*$/); if (!m) return null; const mo = +m[2], dd = +m[3]; return mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31 ? `20${m[1]}-${m[2]}-${m[3]}` : null; };
+  const startOf = (c) => { const a = nameDate(c), b = firstSeen[c]; return a && b ? (a < b ? a : b) : a || b || null; };
+  // 같은 상품의 옵션들 (등록상품ID 또는 상품명이 같음) → 그 옵션들이 연결된 캠페인
+  const prodOf = {}; for (const day of Object.values(d.sales || {})) for (const r of Object.values(day || {})) { if (r.product_id) (prodOf[r.option_id] ||= {}).pid = String(r.product_id); if (r.product_name) (prodOf[r.option_id] ||= {}).pn = String(r.product_name).replace(/\s+/g, ''); }
+  const campsByProd = {}; for (const [oid, c] of Object.entries(campaignOf)) { if (!c) continue; const pr = prodOf[oid]; if (!pr) continue; for (const k of [pr.pid && 'i:' + pr.pid, pr.pn && 'n:' + pr.pn].filter(Boolean)) (campsByProd[k] ||= new Set()).add(c); }
+  // 지금 연결된 캠페인이 아직 없던 날의 판매: 같은 상품의 다른 옵션이 들어 있는 캠페인 중 그날 있던 것 (그날 광고비를 쓴 것 먼저, 없으면 가장 최근에 생긴 것)
+  const siblingFor = (oid, date, linked) => {
+    const pr = prodOf[oid]; if (!pr) return null; const cs = new Set();
+    for (const k of [pr.pid && 'i:' + pr.pid, pr.pn && 'n:' + pr.pn].filter(Boolean)) for (const c of campsByProd[k] || []) cs.add(c);
+    const alive = [...cs].filter((c) => c !== linked && !(catchAll.has(c) && !catchAll.has(linked)) && startOf(c) && startOf(c) <= date);
+    if (!alive.length) return null;
+    return alive.find((c) => spentOn(c, date)) || alive.sort((x, y) => startOf(y).localeCompare(startOf(x)))[0];
+  };
   const campaignFor = (oid, date) => {
     const hist = linkHist[oid]; if (hist) for (const h of hist) if (h.campaign && date <= h.until) return h.campaign;
     const linked = campaignOf[oid]; if (!linked) return null;
+    const born = startOf(linked); if (born && date < born) { const sib = siblingFor(oid, date, linked); if (sib) return sib; }   // 예: 11/19 에 만든 70번 → 그 전 판매는 같은 상품이 있던 52번
     if (handPicked.has(oid)) return linked;
     const skip = (c) => c !== linked && catchAll.has(c) && !catchAll.has(linked);
     const day = d.ads[date]; if (!day || !Object.keys(day).length) return linked;

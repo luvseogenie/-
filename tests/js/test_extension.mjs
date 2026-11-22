@@ -1460,3 +1460,20 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(INV.inventoryForecast(d, T, { showMissing: true }).rows.map((x) => x.option_id).sort(), ['A', 'B', 'S']);
   console.log('inventory shows only Rocket Growth stock by default: all checks passed');
 }
+
+// 캠페인이 생기기 전 판매: 이름 끝 '_YYMMDD'(만든 날) 전에는 같은 상품의 다른 옵션이 있는 캠페인으로 (날짜 설정 없이 자동)
+{
+  const ad = (campaign, spend) => ({ campaign, spend, ad_revenue: spend * 4, impressions: 100, clicks: 10, ad_orders: 1, target_roas: 5, budget: 10000, conversion: 0.1, ctr: 0.1 });
+  const C52 = '52. 똑딱이 담요_300%_260915', C70 = '70. 똑딱이 담요_300%_261119', CX = '80. 새 슬리퍼_300%_261118';
+  const sale = (o, q, pid, pn) => ({ option_id: o, quantity: q, revenue: q * 20000, product_id: pid, product_name: pn, option_name: pn + ', ' + o, sales_type: '로켓그로스' });
+  const days = ['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20'];
+  const d = { legacy: {}, imports: [], expenses: [], traffic: [], adrows: {}, excludes: {}, campaignOptions: {}, ignore: { ids: [], words: [] }, zeroRoas: {}, margins: [],
+    options: [{ option_id: 'K1', product_name: 'DUGN 담요 그레이', campaign: C70, manual: true }, { option_id: 'K2', product_name: 'DUGN 담요 아이보리', campaign: C52 }, { option_id: 'N1', product_name: 'DUGN 슬리퍼', campaign: CX }],
+    ads: Object.fromEntries(days.map((x) => [x, { [C52]: ad(C52, 40000), ...(x >= '2026-11-19' ? { [C70]: ad(C70, 9000) } : {}), ...(x >= '2026-11-18' ? { [CX]: ad(CX, 5000) } : {}) }])),
+    sales: Object.fromEntries(days.map((x) => [x, { K1: sale('K1', 5, '157', 'DUGN 똑딱이 담요'), K2: sale('K2', 2, '157', 'DUGN 똑딱이 담요'), N1: sale('N1', 1, '999', 'DUGN 슬리퍼') }])) };
+  const led = computeLedger(d, '2026-11-15', '2026-11-20'); const row = (n) => led.campaigns.find((c) => c.campaign === n);
+  for (const x of ['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18']) { assert.equal(row(C52).days[x].actual_qty, 7, x); assert.equal(row(C70).days[x]?.actual_qty || 0, 0, x); }   // 70번 만들기 전: K1 도 52번
+  assert.equal(row(C70).days['2026-11-19'].actual_qty, 5); assert.equal(row(C52).days['2026-11-19'].actual_qty, 2);   // 11/19 부터 나뉨
+  assert.equal(row(CX).days['2026-11-16'].actual_qty, 1);   // 같은 상품의 다른 캠페인이 없으면 예전처럼 지금 캠페인 줄 (새 캠페인 만들기 전 판매도 반영)
+  console.log('sales before a campaign was created go to the sibling campaign: all checks passed');
+}
