@@ -895,7 +895,8 @@ async function renderInventory() {
   const f = INV.inventoryForecast(DATA, localIso(today), { showMissing: $('#inv-show-missing').checked }); const st = f.settings;
   for (const [id, k] of [['#inv-lead', 'leadDays'], ['#inv-cover', 'coverDays'], ['#inv-safety', 'safetyDays'], ['#inv-alert', 'alertDays']]) if (document.activeElement !== $(id)) $(id).value = st[k];
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
-  const apiTxt = meta?.api ? (meta.api.items ? ` · 서버 데이터 ${meta.api.items}개${meta.api.total ? ` (서버가 말한 전체 ${meta.api.total}개${meta.api.total > meta.api.items ? ' — 덜 읽음' : ''})` : ''}` : ` · 서버 데이터 못 읽음 (${meta.api.why})`) : '';
+  const a = meta?.api; const notDone = a && a.items && (a.reason || a.err || (a.total && a.total > a.items) || (!a.added && a.requests <= 1 && !a.total));
+  const apiTxt = a ? (a.items ? ` · 서버 데이터 ${a.items}개${a.total ? ` (서버가 말한 전체 ${a.total}개${a.total > a.items ? ' — 덜 읽음' : ''})` : ''}${notDone ? ` · 더 불러오기: ${a.reason || a.err || a.stop || '안 됨'}${a.mode ? ` [${a.mode}]` : ''} (요청 칸: ${(a.keys || '-').slice(0, 120)} / 응답 칸: ${(a.topKeys || '-').slice(0, 80)})` : ''}` : ` · 서버 데이터 못 읽음 (${a.why})`) : '';
   $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
   const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
