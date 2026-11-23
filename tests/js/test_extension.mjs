@@ -1244,7 +1244,8 @@ console.log('extension logic: all checks passed');
   const d = { sales, inventory: { [T]: Object.fromEntries(rows.map((r) => [r.option_id, r])) }, invSettings: { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 } };
   const f = INV.inventoryForecast(d, T); const blue = f.rows.find((x) => x.option_id === '96000000001'), red = f.rows.find((x) => x.option_id === '96000000002'), vest = f.rows.find((x) => x.option_id === '96000000003');
   assert.equal(blue.r7, 4); assert.equal(blue.rate, 4); assert.equal(blue.daysLeft, 10); assert.equal(blue.level, 'danger');   // 40개 ÷ 하루 4개 = 10일 (입고까지 10일 이하 → 위험)
-  assert.equal(blue.stockoutDate, '2026-12-01'); assert.equal(blue.reorder, 4 * 47 - 40);   // 4 × (10+30+7) − 재고 40 (입고 예정 20 은 부정확해서 빼지 않고 참고로만)
+  assert.equal(blue.stockoutDate, '2026-12-01'); assert.equal(blue.reorder, 4 * 47 - 40 - 20);   // 4 × (10+30+7) − 재고 40 − 입고 예정 20
+  assert.equal(INV.inventoryForecast(d, T, { useInbound: false }).rows.find((x) => x.option_id === '96000000001').reorder, 4 * 47 - 40);   // '윙 입고 예정 빼기' 를 끄면 빼지 않음
   assert.equal(red.level, 'out'); assert.equal(vest.level, 'idle'); assert.equal(vest.rate, 0);   // 판매자배송 판매는 창고 재고 속도에 넣지 않음
   assert.deepEqual(f.rows.map((x) => x.level), ['out', 'danger', 'idle']);
   console.log('rocket growth inventory forecast: all checks passed');
@@ -1321,7 +1322,8 @@ console.log('extension logic: all checks passed');
   assert.equal(by('B9').level, 'unknown'); assert.equal(by('B9').missing, true); assert.equal(by('B9').reorder, 0);   // 적게 팔린 옵션은 '재고 미확인' (showMissing 일 때만)
   assert.ok(by('B9')); assert.ok(by('X1'));   // 같은 상품이라 넣음 / 최근 30일 로켓그로스 판매라 넣음
   assert.ok(!by('W1')); assert.ok(!by('Z1'));  // 판매자배송만, 오래전 판매는 넣지 않음
-  assert.equal(by('B1').reorder, 2 * 47 - 50);   // 입고 예정 500 은 빼지 않는다 (참고만)
+  assert.equal(by('B1').reorder, 0);   // 입고 예정 500 이 충분해 추천 없음
+  assert.equal(INV.inventoryForecast(d, T, { showMissing: true, useInbound: false }).rows.find((x) => x.option_id === 'B1').reorder, 2 * 47 - 50);
   const g = INV.groupByProduct(f.rows).find((x) => x.product_ids.includes('15753767118'));
   assert.equal(g.options.length, 4); assert.equal(g.missingCount, 1); assert.equal(g.level, 'out');   // 품절로 본 B8 이 상품 상태에 들어감, 미확인 B9 는 안 넣음
   // 시즌 구분과 일괄 설정
@@ -1329,7 +1331,7 @@ console.log('extension logic: all checks passed');
   assert.equal(S.setInvProducts(d, ['15753767118', ' 777 ', '777'], { seasonEnd: '2026-12-25' }), 2);
   f = INV.inventoryForecast(d, T, { showMissing: true });
   assert.ok(f.rows.filter((x) => x.product_id === '15753767118').every((x) => x.seasonType === 'season' && x.seasonEnd === '2026-12-25'));   // 등록상품의 모든 옵션 (미확인 옵션 포함)
-  assert.equal(f.rows.find((x) => x.option_id === 'B1').reorder, 2 * 34 - 50);   // 시즌 종료까지 34일치
+  assert.equal(INV.inventoryForecast(d, T, { showMissing: true, useInbound: false }).rows.find((x) => x.option_id === 'B1').reorder, 2 * 34 - 50);   // 시즌 종료까지 34일치
   S.setInvProducts(d, ['15753767118'], { leadDays: 35 }); assert.deepEqual(d.invProduct['15753767118'], { leadDays: 35, seasonEnd: '2026-12-25', season: 'season' });   // 다른 칸은 그대로
   S.setInvProducts(d, ['777'], { season: 'year' }); f = INV.inventoryForecast(d, T, { showMissing: true });
   const x1 = f.rows.find((x) => x.option_id === 'X1'); assert.equal(x1.seasonType, 'year'); assert.equal(x1.seasonEnd, '');   // 비시즌이면 시즌 종료일 없음
@@ -1476,4 +1478,19 @@ console.log('extension logic: all checks passed');
   assert.equal(row(C70).days['2026-11-19'].actual_qty, 5); assert.equal(row(C52).days['2026-11-19'].actual_qty, 2);   // 11/19 부터 나뉨
   assert.equal(row(CX).days['2026-11-16'].actual_qty, 1);   // 같은 상품의 다른 캠페인이 없으면 예전처럼 지금 캠페인 줄 (새 캠페인 만들기 전 판매도 반영)
   console.log('sales before a campaign was created go to the sibling campaign: all checks passed');
+}
+
+// 재고: 입고 예정과 '주문해 둔 수량' 빼기 (주문은 넣은 날 + 입고 소요일 + 3일까지만)
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-23'; const sales = {};
+  for (let i = 1; i <= 30; i++) { const x = new Date(2026, 10, 23 - i); const iso = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; sales[iso] = { A: { option_id: 'A', product_id: 'P', product_name: 'DUGN 슬리퍼', option_name: '그레이, 250', quantity: 10, sales_type: '로켓그로스' } }; }
+  const d = { sales, inventory: { [T]: { A: { option_id: 'A', product_id: 'P', product_name: 'DUGN 슬리퍼, 그레이, 250', stock: 100, inbound: 50 } } }, invSettings: { leadDays: 20, coverDays: 30, safetyDays: 7, alertDays: 30 } };
+  const r = () => INV.inventoryForecast(d, T).rows[0];
+  assert.equal(r().reorder, 10 * 57 - 100 - 50);
+  S.setInvOrder(d, 'A', 200, '2026-11-20'); assert.equal(r().ordered, 200); assert.equal(r().reorder, 10 * 57 - 100 - 50 - 200); assert.equal(r().orderEta, '2026-12-10');
+  S.setInvOrder(d, 'A', 200, '2026-10-20'); assert.equal(r().ordered, 0); assert.equal(r().orderExpired, true); assert.equal(r().reorder, 10 * 57 - 150);   // 11/12 도착 예정 + 3일 지남 → 그만 뺌
+  S.setInvOrder(d, 'A', '', T); assert.ok(!d.invOrders.A);
+  S.setInvOrder(d, 'A', 300, T); assert.equal(INV.groupByProduct(INV.inventoryForecast(d, T).rows)[0].ordered, 300);
+  console.log('inventory inbound and ordered quantities: all checks passed');
 }

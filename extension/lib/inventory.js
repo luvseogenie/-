@@ -101,9 +101,9 @@ export const LEVEL_ORDER = { out: 0, danger: 1, warn: 2, unknown: 3, ok: 4, idle
 export function groupByProduct(rows) {
   const order = LEVEL_ORDER; const g = {};
   for (const r of rows) {
-    const x = (g[r.key] ||= { key: r.key, ps: r.ps || {}, product_ids: [], product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
+    const x = (g[r.key] ||= { key: r.key, ps: r.ps || {}, product_ids: [], product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, ordered: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
     if (r.product_id && !x.product_ids.includes(r.product_id)) x.product_ids.push(r.product_id);
-    x.options.push(r); x.stock += r.stock || 0; x.inbound += r.inbound || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
+    x.options.push(r); x.stock += r.stock || 0; x.inbound += r.inbound || 0; x.ordered += r.ordered || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
     if (r.missing) { x.missingCount++; continue; }
     if (r.daysLeft < x.daysLeft) { x.daysLeft = r.daysLeft; x.stockoutDate = r.stockoutDate; }
     if (x.level == null || order[r.level] < order[x.level]) x.level = r.level;
@@ -111,7 +111,7 @@ export function groupByProduct(rows) {
   for (const x of Object.values(g)) { x.level ??= 'unknown'; x.options.sort((a, b) => (order[a.level] - order[b.level]) || String(a.option_name || a.product_name).localeCompare(String(b.option_name || b.product_name))); }
   return Object.values(g).sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
 }
-export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14 };
+export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14, useInbound: true };
 // 시즌 구분: 'season'(시즌 상품) | 'year'(비시즌·연중) | ''(미정). 시즌 종료일만 넣었으면 시즌 상품
 export const seasonTypeOf = (ps = {}) => ps.season || (ps.seasonEnd ? 'season' : '');
 
@@ -178,12 +178,16 @@ export function inventoryForecast(d, today, settings = {}) {
     // 채울 기간 = 입고까지 + 보낼 양 + 안전 재고. 시즌 종료일이 있으면 그 날까지만 (시즌이 끝난 뒤 팔릴 양은 주문하지 않는다)
     let need = lead + st.coverDays + st.safetyDays; const seasonLeft = seasonEnd ? dayDiff(asOf, seasonEnd) : null;
     if (seasonLeft != null) need = Math.min(need, Math.max(0, seasonLeft));
-    const reorder = rate > 0 ? Math.max(0, Math.ceil(rate * need - (x.stock || 0))) : 0;
+    // 이미 오고 있는 것: 윙 입고 예정(설정으로 켜고 끔) + 직접 넣은 '주문해 둔 수량' (넣은 날 + 입고 소요일 + 3일까지만 — 그 뒤엔 쿠팡 재고·입고 예정에 잡혔다고 봄)
+    const ord = (d.invOrders || {})[x.option_id]; const ordEta = ord?.date ? addDays(ord.date, lead) : null;
+    const ordActive = !!(ord && ord.qty > 0 && (!ord.date || today <= addDays(ord.date, lead + 3)));
+    const ordered = ordActive ? Number(ord.qty) : 0; const incoming = (st.useInbound !== false ? (x.inbound || 0) : 0) + ordered;
+    const reorder = rate > 0 ? Math.max(0, Math.ceil(rate * need - (x.stock || 0) - incoming)) : 0;
     const seasonOver = seasonLeft != null && seasonLeft <= 0;
     const level = x.missing ? 'unknown' : rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
     const option_name = x.option_name || (x.missing ? '' : f.option_name && f.option_name !== x.product_name ? f.option_name : '');
     const group_name = baseProductName(x, f.product_name) || f.product_name || x.product_name;
-    return { ...x, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
+    return { ...x, ordered, orderDate: ord?.date || null, orderEta: ordEta, orderExpired: !!(ord && ord.qty > 0 && !ordActive), orderQty: ord?.qty || 0, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));

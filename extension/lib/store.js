@@ -258,6 +258,12 @@ export function setInventory(d, date, rows, { merge = false } = {}) {
   for (const k of Object.keys(d.inventory).sort().slice(0, -60)) delete d.inventory[k];
   return rows.length;
 }
+// 주문해 둔 수량 (공장에 주문했지만 아직 쿠팡에 안 들어온 것): 옵션마다 { qty, date: 넣은 날 }. 0·빈칸이면 지움
+export function setInvOrder(d, optionId, qty, date) {
+  d.invOrders ||= {}; const n = Math.max(0, Math.round(Number(qty) || 0));
+  if (!n) delete d.invOrders[optionId]; else d.invOrders[optionId] = { qty: n, date };
+  return n;
+}
 export function setInvSettings(d, st) { d.invSettings = { ...(d.invSettings || {}), ...st }; }
 // 상품마다: 입고 소요일(비우면 기본값), 시즌 종료일(그 뒤 팔릴 양은 발주 추천에서 뺌). key = 등록상품ID
 // season: 'season'(시즌) | 'year'(비시즌·연중) | ''(미정)
