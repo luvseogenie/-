@@ -41,8 +41,8 @@ export function normalizeInventory(records, { names = [] } = {}) {
     const get = (f) => (idx[f] == null ? null : rec[headers[idx[f]]]);
     let oid = idx.option_id != null ? cleanId(get('option_id')) : '';
     if (!/^\d{5,}$/.test(oid)) { for (const v of Object.values(rec)) { const m = String(v ?? '').match(OID_IN_TEXT); if (m) { oid = m[1]; break; } } }
-    let pid = '', pname = '';
-    if (!/^\d{5,}$/.test(oid) && pidx >= 0) { const txt = String(rec[headers[pidx]] ?? ''); const m = txt.match(ID_TRIPLE); if (m) { pid = m[1]; oid = m[2]; pname = txt.slice(0, m.index).trim(); } }
+    let pid = '', pname = '', sku = '';
+    if (!/^\d{5,}$/.test(oid) && pidx >= 0) { const txt = String(rec[headers[pidx]] ?? ''); const m = txt.match(ID_TRIPLE); if (m) { pid = m[1]; oid = m[2]; sku = m[3]; pname = txt.slice(0, m.index).trim(); } }
     if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.startsWith(x.k)); if (hit) oid = hit.id; }
     if (!/^\d{5,}$/.test(oid) && byName.length && pidx >= 0) { const t = nk(rec[headers[pidx]]); const hit = byName.find((x) => t.includes(x.k)); if (hit) oid = hit.id; }   // 앞에 배지 글자가 붙은 경우
     if (!/^\d{5,}$/.test(oid)) { unmatched.push(String(pidx >= 0 ? rec[headers[pidx]] : Object.values(rec).join(' ')).slice(0, 120)); continue; }
@@ -52,7 +52,7 @@ export function normalizeInventory(records, { names = [] } = {}) {
     if (stock == null) continue;
     if (inbound == null) { const ri = String(get('inbound') ?? ''); inbound = /^[\s\d,.\-]+$/.test(ri) && ri.trim() ? parseNumber(ri) : 0; }
     const row = (out[oid] ||= { option_id: oid, product_name: '', option_name: '', product_id: '', stock: 0, inbound: 0 });
-    row.product_name ||= (pname || String(get('product_name') ?? '').trim()).slice(0, 120); row.product_id ||= pid; row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
+    row.product_name ||= (pname || String(get('product_name') ?? '').trim()).slice(0, 120); row.product_id ||= pid; if (sku) row.sku ||= sku; row.option_name ||= String(get('option_name') ?? '').trim().slice(0, 120); row.product_id ||= cleanId(get('product_id'));
     row.stock += stock ?? 0; row.inbound += inbound ?? 0;   // 같은 옵션이 창고별로 여러 줄이면 더한다
   }
   const res = Object.values(out); res.unmatched = unmatched; return res;
@@ -101,9 +101,9 @@ export const LEVEL_ORDER = { out: 0, danger: 1, warn: 2, unknown: 3, ok: 4, idle
 export function groupByProduct(rows) {
   const order = LEVEL_ORDER; const g = {};
   for (const r of rows) {
-    const x = (g[r.key] ||= { key: r.key, ps: r.ps || {}, product_ids: [], product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, ordered: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
+    const x = (g[r.key] ||= { key: r.key, ps: r.ps || {}, product_ids: [], product_id: r.product_id, product_name: r.group_name || r.product_name, lead: r.lead, seasonType: r.seasonType, seasonEnd: r.seasonEnd, seasonOver: r.seasonOver, stock: 0, inbound: 0, inboundUsed: 0, ordered: 0, rate: 0, r7: 0, r30: 0, reorder: 0, daysLeft: Infinity, stockoutDate: null, level: null, missingCount: 0, options: [] });
     if (r.product_id && !x.product_ids.includes(r.product_id)) x.product_ids.push(r.product_id);
-    x.options.push(r); x.stock += r.stock || 0; x.inbound += r.inbound || 0; x.ordered += r.ordered || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
+    x.options.push(r); x.stock += r.stock || 0; x.inbound += r.inbound || 0; x.inboundUsed += r.inboundUsed || 0; x.ordered += r.ordered || 0; x.rate += r.rate; x.r7 += r.r7; x.r30 += r.r30; x.reorder += r.reorder;
     if (r.missing) { x.missingCount++; continue; }
     if (r.daysLeft < x.daysLeft) { x.daysLeft = r.daysLeft; x.stockoutDate = r.stockoutDate; }
     if (x.level == null || order[r.level] < order[x.level]) x.level = r.level;
@@ -111,7 +111,7 @@ export function groupByProduct(rows) {
   for (const x of Object.values(g)) { x.level ??= 'unknown'; x.options.sort((a, b) => (order[a.level] - order[b.level]) || String(a.option_name || a.product_name).localeCompare(String(b.option_name || b.product_name))); }
   return Object.values(g).sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
 }
-export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14, useInbound: true };
+export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14, useInbound: true, inboundKeepDays: 14 };
 // 시즌 구분: 'season'(시즌 상품) | 'year'(비시즌·연중) | ''(미정). 시즌 종료일만 넣었으면 시즌 상품
 export const seasonTypeOf = (ps = {}) => ps.season || (ps.seasonEnd ? 'season' : '');
 
@@ -181,13 +181,17 @@ export function inventoryForecast(d, today, settings = {}) {
     // 이미 오고 있는 것: 윙 입고 예정(설정으로 켜고 끔) + 직접 넣은 '주문해 둔 수량' (넣은 날 + 입고 소요일 + 3일까지만 — 그 뒤엔 쿠팡 재고·입고 예정에 잡혔다고 봄)
     const ord = (d.invOrders || {})[x.option_id]; const ordEta = ord?.date ? addDays(ord.date, lead) : null;
     const ordActive = !!(ord && ord.qty > 0 && (!ord.date || today <= addDays(ord.date, lead + 3)));
-    const ordered = ordActive ? Number(ord.qty) : 0; const incoming = (st.useInbound !== false ? (x.inbound || 0) : 0) + ordered;
+    const ordered = ordActive ? Number(ord.qty) : 0;
+    // 입고 예정: 내가 넣은 값(직접 적기·출고리스트)이 있으면 그것 (넣은 날 + 유지 기간까지), 없으면 윙 값('윙 입고 예정 빼기' 를 켰을 때)
+    const mi = (d.invInbound || {})[x.option_id]; const miActive = !!(mi && mi.qty > 0 && (!mi.date || today <= addDays(mi.date, Number(st.inboundKeepDays) || 14)));
+    const inboundUsed = miActive ? Number(mi.qty) : (st.useInbound !== false ? (x.inbound || 0) : 0);
+    const incoming = inboundUsed + ordered;
     const reorder = rate > 0 ? Math.max(0, Math.ceil(rate * need - (x.stock || 0) - incoming)) : 0;
     const seasonOver = seasonLeft != null && seasonLeft <= 0;
     const level = x.missing ? 'unknown' : rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
     const option_name = x.option_name || (x.missing ? '' : f.option_name && f.option_name !== x.product_name ? f.option_name : '');
     const group_name = baseProductName(x, f.product_name) || f.product_name || x.product_name;
-    return { ...x, ordered, orderDate: ord?.date || null, orderEta: ordEta, orderExpired: !!(ord && ord.qty > 0 && !ordActive), orderQty: ord?.qty || 0, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
+    return { ...x, inboundUsed, inboundMine: miActive ? Number(mi.qty) : 0, inboundMineDate: mi?.date || null, inboundMineSrc: mi?.src || '', inboundMineExpired: !!(mi && mi.qty > 0 && !miActive), inboundMineQty: mi?.qty || 0, ordered, orderDate: ord?.date || null, orderEta: ordEta, orderExpired: !!(ord && ord.qty > 0 && !ordActive), orderQty: ord?.qty || 0, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
@@ -225,7 +229,47 @@ export function apiInventoryRows(items, screenRows = []) {
     const st = num(it[stock.key]); if (st == null) continue;
     rows.push({ option_id: oid, product_id: strKey(it, /^(sellerProductId|registeredProductId|productId)$/i).replace(/\.0$/, ''),
       product_name: strKey(it, /^(sellerProductName|registeredProductName|productName|displayProductName)$/i),
-      option_name: strKey(it, /^(vendorItemName|itemName|optionName|optionValue)$/i), stock: st, inbound: inbound ? num(it[inbound.key]) || 0 : 0, src: 'api' });
+      option_name: strKey(it, /^(vendorItemName|itemName|optionName|optionValue)$/i), sku: strKey(it, /^(skuId|sku_id|sku)$/i).replace(/\.0$/, ''), barcode: strKey(it, /^(barcode|barCode|bar_code)$/i), stock: st, inbound: inbound ? num(it[inbound.key]) || 0 : 0, src: 'api' });
   }
   return { rows, stockKey: stock.key, stockHow: stock.how, inboundKey: inbound?.key || '' };
+}
+
+// 출고리스트(쿠팡 창고로 보낸 목록, 엑셀·CSV) → 옵션별 입고 예정 수량.
+// 옵션ID 칸 → SKU ID 칸 → 바코드 칸 → 상품명+옵션명 순서로 재고 목록의 옵션을 찾고, 같은 옵션은 수량을 더한다
+export function parseShipment(records, invRows = []) {
+  if (!records?.length) return { rows: [], unmatched: [], how: {} };
+  const headers = Object.keys(records[0]); const nh = headers.map((h) => String(h).replace(/\s+/g, '').toLowerCase());
+  const col = (re, ex = null) => { const i = nh.findIndex((h) => re.test(h) && !(ex && ex.test(h))); return i < 0 ? null : headers[i]; };
+  const cOid = col(/^(노출)?옵션id$|옵션아이디|vendoritemid|^옵션번호$/, /등록/);
+  const cSku = col(/sku/);
+  const cBar = col(/바코드|barcode/);
+  const cQty = col(/(출고|발송|입고|납품|확정|보낸|반입|요청).*수량|수량.*(출고|발송|입고|확정)/, /재고|판매|가능/) || col(/^(수량|qty|quantity|개수|입고예정수량)$/) || col(/수량|qty|quantity/, /재고|판매|가능|박스|팔레트/);
+  const cPname = col(/^(등록|노출)?상품명$|^상품$|^품목명?$|^제품명$/);
+  const cOname = col(/^옵션명?$|^옵션값$|^옵션정보$/);
+  const nk2 = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
+  const clean = (v) => { let t = String(v ?? '').trim().replace(/,/g, ''); if (t.endsWith('.0')) t = t.slice(0, -2); return t; };
+  const byOid = new Map(invRows.map((r) => [String(r.option_id), r]));
+  const bySku = new Map(invRows.filter((r) => r.sku).map((r) => [String(r.sku), r]));
+  const byBar = new Map(invRows.filter((r) => r.barcode).map((r) => [String(r.barcode), r]));
+  const byName = new Map(); for (const r of invRows) for (const k of [nk2(`${r.group_name || ''}${r.label || ''}`), nk2(r.product_name), nk2(`${r.product_name || ''}${r.option_name || ''}`)]) if (k.length >= 4 && !byName.has(k)) byName.set(k, r);
+  const out = {}; const unmatched = [];
+  if (!cQty) return { rows: [], unmatched: [], how: { error: `수량 칸을 찾지 못했습니다 (칸 이름: ${headers.slice(0, 15).join(' | ')})` } };
+  for (const rec of records) {
+    const q = Math.round(Number(clean(rec[cQty])) || 0); if (q <= 0) continue;
+    let hit = null; const oid = cOid ? clean(rec[cOid]) : '';
+    if (oid && byOid.has(oid)) hit = byOid.get(oid); else if (/^\d{5,}$/.test(oid)) hit = { option_id: oid };
+    if (!hit && cSku) hit = bySku.get(clean(rec[cSku])) || null;
+    if (!hit && cBar) hit = byBar.get(clean(rec[cBar])) || null;
+    if (!hit && (cPname || cOname)) { const nm = nk2(`${cPname ? rec[cPname] : ''}${cOname ? rec[cOname] : ''}`); hit = byName.get(nm) || null; }
+    if (!hit) { unmatched.push(String([cPname && rec[cPname], cOname && rec[cOname], cSku && rec[cSku], cBar && rec[cBar]].filter(Boolean).join(' ') || Object.values(rec).slice(0, 3).join(' ')).slice(0, 60)); continue; }
+    const k = String(hit.option_id); out[k] = (out[k] || 0) + q;
+  }
+  return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty })), unmatched, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
+}
+// 입고 예정 목록 (파일로 받기용 CSV — 다시 올리면 그대로 읽힘)
+export function inboundCsv(rows) {
+  const q = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const head = ['옵션ID', '상품명', '옵션명', '입고 예정 수량', '넣은 날', '출처'];
+  const body = rows.filter((r) => r.inboundMineQty > 0).map((r) => [r.option_id, r.group_name || r.product_name || '', r.label || '', r.inboundMineQty, r.inboundMineDate || '', r.inboundMineSrc || '']);
+  return [head, ...body].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
 }

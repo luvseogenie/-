@@ -1507,3 +1507,39 @@ console.log('extension logic: all checks passed');
   assert.equal(RT.recomputeDay(d, [snap])[0].camps[C].target_roas, 4.8);
   console.log('realtime keeps the live target ROAS: all checks passed');
 }
+
+// 재고: 입고 예정 직접 적기·출고리스트 올리기 (옵션ID·SKU·상품명+옵션명으로 찾기), 유지 기간, 목록 받기 → 다시 올리기
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const T = '2026-11-23'; const sales = {};
+  for (let i = 1; i <= 30; i++) { const x = new Date(2026, 10, 23 - i); const iso = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; sales[iso] = { A: { option_id: 'A1', product_id: 'P', product_name: 'DUGN 양털 슬리퍼', option_name: 'DUGN 양털 슬리퍼, 그레이, 250', quantity: 10, sales_type: '로켓그로스' } }; }
+  const d = { sales, inventory: { [T]: {
+    A1: { option_id: 'A1', product_id: 'P', product_name: 'DUGN 양털 슬리퍼, 그레이, 250', stock: 100, inbound: 50, sku: '70001' },
+    A2: { option_id: 'A2', product_id: 'P', product_name: 'DUGN 양털 슬리퍼, 그레이, 260', stock: 80, inbound: 0, sku: '70002' },
+    A3: { option_id: 'A3', product_id: 'P', product_name: 'DUGN 양털 슬리퍼, 핑크, 240', stock: 10, inbound: 0, sku: '70003' } } },
+    invSettings: { leadDays: 20, coverDays: 30, safetyDays: 7, alertDays: 30 } };
+  const rows = () => INV.inventoryForecast(d, T).rows; const by = (id) => rows().find((x) => x.option_id === id);
+  assert.equal(by('A1').inboundUsed, 50); assert.equal(by('A1').reorder, 570 - 100 - 50);   // 넣은 값 없으면 윙 값
+  S.setInvInbound(d, 'A1', 200, T, '직접'); assert.equal(by('A1').inboundUsed, 200); assert.equal(by('A1').reorder, 570 - 100 - 200);   // 직접 적은 값이 윙 값 대신
+  // 출고리스트: 옵션ID 줄, SKU 줄, 상품명+옵션명 줄, 같은 옵션 두 줄은 더함, 못 찾는 줄
+  const recs = [
+    { '옵션ID': 'A2', '상품명': '', '옵션명': '', 'SKU ID': '', '출고수량': '30', '재고': '999' },
+    { '옵션ID': '', '상품명': '', '옵션명': '', 'SKU ID': '70003', '출고수량': '12', '재고': '' },
+    { '옵션ID': '', '상품명': 'DUGN 양털 슬리퍼', '옵션명': '그레이, 250', 'SKU ID': '', '출고수량': '40', '재고': '' },
+    { '옵션ID': '', '상품명': 'DUGN 양털 슬리퍼', '옵션명': '그레이, 250', 'SKU ID': '', '출고수량': '10', '재고': '' },
+    { '옵션ID': '', '상품명': '없는 상품', '옵션명': '블루', 'SKU ID': '', '출고수량': '5', '재고': '' } ];
+  const r = INV.parseShipment(recs, INV.inventoryForecast(d, T, { showMissing: true }).rows);
+  assert.equal(r.how.qty, '출고수량'); assert.deepEqual(Object.fromEntries(r.rows.map((x) => [x.option_id, x.qty])), { A2: 30, A3: 12, A1: 50 }); assert.equal(r.unmatched.length, 1);
+  for (const x of r.rows) S.setInvInbound(d, x.option_id, x.qty, T, '출고.xlsx');
+  assert.equal(by('A1').inboundMine, 50); assert.equal(by('A3').inboundUsed, 12); assert.equal(by('A3').inboundMineSrc, '출고.xlsx');
+  assert.equal(INV.groupByProduct(rows())[0].inboundUsed, 92);
+  // 목록 받기 → 다시 올리면 같은 값
+  const csv = INV.inboundCsv(rows()); const lines = csv.trim().split('\r\n'); assert.equal(lines.length, 4); assert.ok(lines[0].startsWith('옵션ID,상품명,옵션명,입고 예정 수량'));
+  const back = lines.slice(1).map((l) => { const c = l.split(','); return { '옵션ID': c[0], '입고 예정 수량': c[c.length - 3] }; });
+  assert.deepEqual(INV.parseShipment(back, rows()).rows.map((x) => x.qty).sort((a, b) => a - b), [12, 30, 50]);
+  // 유지 기간(기본 14일)이 지나면 그만 뺌 → 윙 값으로
+  S.setInvInbound(d, 'A1', 200, '2026-11-01', '직접'); assert.equal(by('A1').inboundMineExpired, true); assert.equal(by('A1').inboundUsed, 50);
+  assert.equal(S.clearInvInbound(d), 3); assert.equal(by('A3').inboundUsed, 0);
+  assert.ok(INV.parseShipment([{ '상품명': 'x' }], []).how.error);   // 수량 칸 없으면 알려 줌
+  console.log('inventory inbound typed or from a shipment list: all checks passed');
+}

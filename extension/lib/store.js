@@ -254,11 +254,19 @@ export function cleanCampaignNames(d) {
 // 로켓그로스 재고: d.inventory = { 'YYYY-MM-DD': { option_id: { option_id, product_name, option_name, product_id, stock, inbound } } } — 최근 60일만
 // merge: 같은 날 앞서 읽은 재고에 더한다 (화면 여러 쪽 + 엑셀처럼 나눠 읽어도 빠지지 않게, 새 값이 이김)
 export function setInventory(d, date, rows, { merge = false } = {}) {
-  d.inventory ||= {}; d.inventory[date] = { ...(merge ? d.inventory[date] || {} : {}), ...Object.fromEntries(rows.map((r) => [r.option_id, r])) };
+  d.inventory ||= {}; const prev = merge ? d.inventory[date] || {} : {};
+  d.inventory[date] = { ...prev, ...Object.fromEntries(rows.map((r) => [r.option_id, { ...(prev[r.option_id] || {}), ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) }])) };   // 칸마다: 새 값이 있으면 새 값, 없으면(예: 엑셀엔 SKU 없음) 앞서 읽은 값
   for (const k of Object.keys(d.inventory).sort().slice(0, -60)) delete d.inventory[k];
   return rows.length;
 }
 // 주문해 둔 수량 (공장에 주문했지만 아직 쿠팡에 안 들어온 것): 옵션마다 { qty, date: 넣은 날 }. 0·빈칸이면 지움
+// 입고 예정 (직접 적기·출고리스트): 옵션마다 { qty, date: 넣은 날, src }. 0·빈칸이면 지움
+export function setInvInbound(d, optionId, qty, date, src = '직접') {
+  d.invInbound ||= {}; const n = Math.max(0, Math.round(Number(qty) || 0));
+  if (!n) delete d.invInbound[optionId]; else d.invInbound[optionId] = { qty: n, date, src };
+  return n;
+}
+export function clearInvInbound(d) { const n = Object.keys(d.invInbound || {}).length; d.invInbound = {}; return n; }
 export function setInvOrder(d, optionId, qty, date) {
   d.invOrders ||= {}; const n = Math.max(0, Math.round(Number(qty) || 0));
   if (!n) delete d.invOrders[optionId]; else d.invOrders[optionId] = { qty: n, date };
