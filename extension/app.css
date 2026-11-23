@@ -232,3 +232,7 @@ details.inline .menu .btn { text-align: left; }
 .rt-camp td.l { white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 .rt-camp .ycmp { display: inline; margin: 0 0 0 6px; }
 .rt-camp td .sub { font-size: 11px; }
+
+/* 실시간 ROAS 색: 400% 이상 / 300% 이하 */
+.roas-hi, .roas-hi b { color: #15803d; }
+.roas-lo, .roas-lo b { color: #dc2626; }
