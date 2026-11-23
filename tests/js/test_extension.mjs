@@ -1494,3 +1494,16 @@ console.log('extension logic: all checks passed');
   S.setInvOrder(d, 'A', 300, T); assert.equal(INV.groupByProduct(INV.inventoryForecast(d, T).rows)[0].ordered, 300);
   console.log('inventory inbound and ordered quantities: all checks passed');
 }
+
+// 실시간: 광고센터 표의 지금 목표효율을 그 시각 기록에 담는다 (매시간 바뀐 값 바로 반영, 다시 계산해도 유지)
+{
+  const RT = await import('../../extension/lib/realtime.js');
+  const C = '68. 헤비웨이트 남자 기모 내복 세트_270%_261024';
+  const ta = RT.todayAdsRows([{ '캠페인 이름': C, '목표효율': '480%', '오늘 누적광고비': '12,000' }], normalizeAds, '2026-11-23', false);
+  assert.equal(ta.rows[0].target_roas, 4.8);
+  const d = { options: [], margins: [], sales: {}, ads: { '2026-11-22': { [C]: { campaign: C, target_roas: 5.2, spend: 1 } } } };
+  const snap = RT.computeSnapshot(d, [], ta.rows, new Date('2026-11-23T14:02:00'));
+  assert.equal(snap.camps[C].target_roas, 4.8);
+  assert.equal(RT.recomputeDay(d, [snap])[0].camps[C].target_roas, 4.8);
+  console.log('realtime keeps the live target ROAS: all checks passed');
+}

@@ -226,3 +226,9 @@ details.inline .menu .btn { text-align: left; }
 /* 실시간 캠페인별: 칸 아래 어제 같은 시각 값 (연한 회색) */
 .ycmp { font-size: 11px; color: #a3a9b4 !important; font-weight: 400; white-space: nowrap; margin-top: 1px; }
 .ycmp .pos { color: #4f9a68 !important; } .ycmp .neg { color: #d26b63 !important; }
+
+/* 실시간 캠페인별 표: 한 줄에 (어제 값은 같은 줄 오른쪽에 연한 글씨), 줄 간격 좁게 → 한 화면에 캠페인을 많이 */
+.rt-camp td, .rt-camp th { padding-top: 4px; padding-bottom: 4px; white-space: nowrap; }
+.rt-camp td.l { white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+.rt-camp .ycmp { display: inline; margin: 0 0 0 6px; }
+.rt-camp td .sub { font-size: 11px; }

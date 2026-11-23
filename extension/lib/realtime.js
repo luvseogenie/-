@@ -19,7 +19,7 @@ export function todayAdsRows(records, normalizeAds, date, periodIsToday) {
   const todayKey = keys.find((k) => /오늘/.test(k) && /광고비|소진|비용/.test(k));
   const campKey = keys.find((k) => /캠페인/.test(k) && !/ID|아이디|유형|타입|상태/.test(k));
   if (todayKey) {
-    const rows = records.map((rec) => { const n = normalizeAds([rec], date)[0]; const campaign = n?.campaign || String(rec[campKey] ?? '').trim(); if (!campaign || /합계|총계/.test(campaign)) return null; return { campaign, spend: num(rec[todayKey]), ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenueKnown: false }; }).filter(Boolean);
+    const rows = records.map((rec) => { const n = normalizeAds([rec], date)[0]; const campaign = n?.campaign || String(rec[campKey] ?? '').trim(); if (!campaign || /합계|총계/.test(campaign)) return null; return { campaign, target_roas: n?.target_roas || null, spend: num(rec[todayKey]), ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenueKnown: false }; }).filter(Boolean);
     return { rows, how: todayKey };
   }
   if (periodIsToday) return { rows: normalizeAds(records, date).map((x) => ({ ...x, revenueKnown: true })), how: 'period' };
@@ -48,6 +48,7 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
     if (!a.campaign) continue;
     const c = (camps[a.campaign] ||= { spend: 0, ad_revenue: 0, ad_orders: 0, clicks: 0, impressions: 0, revenue: 0, qty: 0, margin: 0, noMarginQty: 0, estQty: 0, products: 0 });
     c.spend += a.spend || 0; c.ad_revenue += a.ad_revenue || 0; c.ad_orders += a.ad_orders || 0; c.clicks += a.clicks || 0; c.impressions += a.impressions || 0;
+    if (a.target_roas) c.target_roas = a.target_roas;   // 광고센터 화면의 지금 목표효율 (매시간 바뀐 값 그대로)
   }
   // 판매 한 줄은 캠페인 한 곳에만 넣는다: 옵션이 연결된 캠페인 → 없으면(윙·다른 색상 등) 같은 등록상품 옵션이 연결된 캠페인 중
   // 오늘 광고비를 쓴 곳, 그중 그 상품 옵션이 많이 들어 있는 곳. (한 상품의 옵션을 두 캠페인에 나눠 넣었을 때 매출이 양쪽에 두 번 잡히지 않게)
@@ -74,7 +75,7 @@ export function computeSnapshot(d, salesRows, adsRows, at = new Date()) {
   total.roas = total.spend ? total.revenue / total.spend : 0; total.ad_roas = total.spend ? total.ad_revenue / total.spend : 0; total.profit = total.margin - total.spend * VAT;
   // 받은 원본(옵션별 판매·캠페인별 광고비)도 같이 둔다 → 나중에 마진·옵션 연결을 바꾸면 화면에서 다시 계산 (recomputeDay)
   const raw = { sales: (salesRows || []).filter((r) => (r.quantity || 0) > 0 || (r.revenue || 0) > 0).map((r) => ({ option_id: r.option_id, product_id: r.product_id || '', option_name: r.option_name || '', product_name: r.product_name || '', quantity: r.quantity || 0, revenue: r.revenue || 0 })),
-    ads: (adsRows || []).map((a) => ({ campaign: a.campaign, spend: a.spend || 0, ad_revenue: a.ad_revenue || 0, ad_orders: a.ad_orders || 0, clicks: a.clicks || 0, impressions: a.impressions || 0, revenueKnown: a.revenueKnown })) };
+    ads: (adsRows || []).map((a) => ({ campaign: a.campaign, target_roas: a.target_roas || null, spend: a.spend || 0, ad_revenue: a.ad_revenue || 0, ad_orders: a.ad_orders || 0, clicks: a.clicks || 0, impressions: a.impressions || 0, revenueKnown: a.revenueKnown })) };
   return { at: at.getTime(), hour: at.getHours(), date, total, camps, adRevenueKnown: (adsRows || []).some((a) => a.revenueKnown !== false), raw };
 }
 // 저장된 하루치 기록을 지금의 마진·옵션 연결·캠페인 합치기로 다시 계산 (원본이 있는 기록만. 예전 기록은 그대로)
