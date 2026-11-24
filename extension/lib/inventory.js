@@ -172,7 +172,7 @@ export function inventoryForecast(d, today, settings = {}) {
   const matchName = nameMatcher(candRows); const barMap = d.invBarcodes || {}; const shipPending = {};
   const shipments = (d.invShipments || []).filter((s) => s && s.items && s.date && today <= addDays(s.date, keepDays)).map((s) => {
     if (!s.pending?.length) return s; const items = { ...s.items }, bs = { ...(s.base || {}) }; const left = [];
-    for (const p of s.pending) { const oid = (p.barcode && barMap[p.barcode]) || matchName(p.pname, p.oname)?.option_id; if (oid) { items[oid] = (items[oid] || 0) + p.qty; if (bs[oid] == null) bs[oid] = Number(d.inventory?.[s.baseDate]?.[oid]?.stock) || 0; } else left.push(p); }
+    for (const p of s.pending) { const oid = (p.barcode && barMap[p.barcode]) || (d.invNameLinks || {})[p.label] || matchName(p.pname, p.oname)?.option_id; if (oid) { items[oid] = (items[oid] || 0) + p.qty; if (bs[oid] == null) bs[oid] = Number(d.inventory?.[s.baseDate]?.[oid]?.stock) || 0; } else left.push(p); }
     shipPending[s.id] = left; return { ...s, items, base: bs };
   }).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   const rgSold = (oid, from, to) => { let n = 0; for (const [date, day] of Object.entries(d.sales || {})) { if (date <= from || date > to) continue; const r = Object.values(day).find((y) => y.option_id === oid); if (r && r.quantity > 0 && (!r.sales_type || /그로스/.test(r.sales_type))) n += r.quantity; } return n; };
@@ -259,18 +259,23 @@ export function apiInventoryRows(items, screenRows = []) {
 // 출고리스트(중국에서 쿠팡 창고로 보낸 목록, 엑셀·CSV) → 옵션별 보낸 수량.
 // 옵션 찾기: 옵션ID 칸 → 기억해 둔 바코드 → SKU ID → 재고 목록의 바코드 → 상품명+옵션명(옵션 글자 순서가 달라도: '공용 XL 진베이지' = '진베이지, 공용 XL')
 // barcodeMap: { 바코드: 옵션ID } (전에 맞춘 것). 새로 이름으로 맞춘 바코드는 learned 로 돌려준다
-const tokSet = (v) => String(v ?? '').toLowerCase().replace(/[()\[\]·]/g, ' ').split(/[\s,/]+/).map((t) => t.trim()).filter(Boolean).sort().join('|');
+// 옵션 글자 → 낱말 묶음: '2.0cm'='2cm', '2 cm'='2cm', 쉼표·괄호 무시, 순서 무시
+const normOpt = (v) => String(v ?? '').toLowerCase().replace(/[()\[\]·]/g, ' ').replace(/(\d+)\.0+(?!\d)/g, '$1').replace(/(\d)\s+(cm|mm|m|야드|yd|개|g|kg|ml|매|장|입|p|ea)(?![a-z가-힣])/g, '$1$2');
+const tokSet = (v) => normOpt(v).split(/[\s,/]+/).map((t) => t.trim()).filter(Boolean).sort().join('|');
 const nkName = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
 // 상품명+옵션명으로 재고 목록의 옵션 찾기 (옵션 글자 순서가 달라도, 한쪽에만 '1개' 같은 글자가 있어도). 같은 이름이 여럿이면 윙 재고에 있는 것
 export function nameMatcher(invRows) {
   const opts = invRows.map((r) => ({ r, g: nkName(r.group_name || r.product_name), o: tokSet(r.label || r.option_name || '') }));
+  const pick = (h) => { if (h.length === 1) return h[0].r; const inStock = h.filter((x) => !x.r.missing); return inStock.length === 1 ? inStock[0].r : null; };
   return (pname, oname) => {
     const g = nkName(pname), o = tokSet(oname); if (!o) return null;
     const pool = opts.filter((x) => x.g && g && (x.g === g || x.g.includes(g) || g.includes(x.g)));
-    const one = (h) => { if (h.length === 1) return h[0].r; const inStock = h.filter((x) => !x.r.missing); return inStock.length === 1 ? inStock[0].r : null; };
-    let hit = pool.filter((x) => x.o === o); if (hit.length) return one(hit);
-    const os = new Set(o.split('|')); hit = pool.filter((x) => { const xs = x.o.split('|'); return xs.length && (xs.every((t) => os.has(t)) || [...os].every((t) => xs.includes(t))); });
-    return hit.length ? one(hit) : null;
+    let hit = pool.filter((x) => x.o === o); if (hit.length) return pick(hit);
+    const os = o.split('|'); const oset = new Set(os);
+    // 한쪽 옵션 글자가 다른 쪽을 모두 포함 ('1개' 같은 글자가 한쪽에만 있을 때)
+    hit = pool.filter((x) => { const xs = x.o.split('|'); return xs.length && (xs.every((t) => oset.has(t)) || os.every((t) => xs.includes(t))); });
+    if (hit.length) { const r = pick(hit); if (r) return r; }
+    return null;   // 색처럼 다른 낱말로 바뀐 경우(레드↔버건디)는 붙이지 않는다 → 배송분 목록에서 직접 연결
   };
 }
 export function parseShipment(records, invRows = [], barcodeMap = {}) {

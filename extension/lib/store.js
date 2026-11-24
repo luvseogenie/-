@@ -273,6 +273,12 @@ export function addInvShipment(d, { date, name = '', items = {}, names = {}, bas
   d.invShipments.push({ id, date, name, items, names, base, baseDate: baseDate || date, pending: pending.map(({ label, barcode, pname, oname, qty }) => ({ label, barcode, pname, oname, qty })), at: new Date().toISOString().slice(0, 16) });
   d.invShipments = d.invShipments.slice(-200); return id;
 }
+// 출고리스트 줄 ↔ 옵션 직접 연결: 바코드가 있으면 바코드로, 없으면 줄 이름으로 기억 (다음 출고리스트부터 자동)
+export function linkShipLine(d, { barcode = '', label = '' }, optionId) {
+  if (!optionId) throw new Error('연결할 옵션을 고르세요');
+  if (barcode) d.invBarcodes = { ...(d.invBarcodes || {}), [barcode]: String(optionId) };
+  else d.invNameLinks = { ...(d.invNameLinks || {}), [label]: String(optionId) };
+}
 export function removeInvShipment(d, id) { const n = (d.invShipments || []).length; d.invShipments = (d.invShipments || []).filter((s) => s.id !== id); return n - d.invShipments.length; }
 // 배송분의 기준 재고: 출항일(또는 그 전) 가장 가까운 날의 윙 재고 (그날 없던 옵션은 0 = 품절이던 것)
 export function stockBaseFor(d, date, optionIds) {

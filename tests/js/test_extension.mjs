@@ -1603,3 +1603,21 @@ console.log('extension logic: all checks passed');
   sum = INV.shipmentSummary(d, INV.inventoryForecast(d, '2026-11-26', { showMissing: true }).rows, f.shipPending); assert.equal(sum[0].pending.length, 0); assert.equal(sum[0].left, 200 + 180);
   console.log('shipment lines for options that appear later get linked: all checks passed');
 }
+
+// 출고리스트 이름 맞추기: '2.0cm'='2cm', 글자 조금 달라도 숫자가 같고 많이 겹치면, 헷갈리면 안 붙임 / 직접 연결은 바코드로 기억
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const G = 'DUGN 벨벳 리본'; const row = (id, label) => ({ option_id: id, group_name: G, label });
+  const m = INV.nameMatcher([row('A', '1개 2cm 7야드 플로킹 레드'), row('B', '1개 1cm 7야드 플로킹 레드'), row('C', '1개 2cm 5야드 글리터 레드'), row('D', '1개 2cm 7야드 플로킹 버건디')]);
+  assert.equal(m(G, '플로킹 레드, 2.0cm 7야드, 1개')?.option_id, 'A');
+  assert.equal(m(G, '플로킹 레드, 1.0 cm 7야드, 1개')?.option_id, 'B');
+  assert.equal(m(G, '글리터 레드, 2.0cm 5야드')?.option_id, 'C');
+  assert.equal(m(G, '플로킹 레드, 2.0cm 7야드, 1개 특대')?.option_id, 'A');   // 한쪽에 글자가 더 있어도 나머지가 모두 같으면
+  assert.equal(m(G, '플로킹 핑크, 2.0cm 7야드, 1개'), null);   // 색이 다르면(레드·버건디에 없는 낱말) 붙이지 않음
+  assert.equal(m(G, '레드, 2.0cm'), null);   // 여럿과 똑같이 비슷하면 붙이지 않음
+  assert.equal(m(G, '플로킹 레드, 3.8cm 7야드, 1개'), null);   // 숫자가 다르면 안 붙임
+  assert.equal(m('다른 상품', '플로킹 레드, 2.0cm 7야드, 1개'), null);
+  const d = {}; S.linkShipLine(d, { barcode: '880', label: 'x' }, 'A'); S.linkShipLine(d, { barcode: '', label: '바코드 없는 줄' }, 'B');
+  assert.deepEqual(d.invBarcodes, { 880: 'A' }); assert.deepEqual(d.invNameLinks, { '바코드 없는 줄': 'B' }); assert.throws(() => S.linkShipLine(d, { barcode: '1' }, ''));
+  console.log('shipment name matching tolerates 2.0cm/2cm and extra words: all checks passed');
+}

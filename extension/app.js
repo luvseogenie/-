@@ -938,7 +938,25 @@ async function renderInventory() {
   $('#inv-table tbody').innerHTML = html;
   // 배송분 목록 (출항일마다): 보낸 수량 · 받은 수량(재고 증가 + 그 사이 판매로 추정) · 남은 수량
   { const ff = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }); const list = INV.shipmentSummary(DATA, ff.rows, ff.shipPending);
-    $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}${x.pending?.length ? ` · <span title="${esc(x.pending.map((q) => `${q.label} ${q.qty}개`).join('\n'))}">옵션 연결 대기 ${x.pending.length}줄 ⓘ</span>` : ''}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
+    $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}${x.pending?.length ? ` · <a href="#" data-ship-link="${esc(x.id)}" title="${esc(x.pending.map((q) => `${q.label} ${q.qty}개`).join('\n'))}">옵션 연결 대기 ${x.pending.length}줄 — 직접 연결</a>` : ''}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
+    // 직접 연결: 못 찾은 줄마다 같은 상품의 옵션 중 고르기
+    $$('#inv-ship-list a[data-ship-link]').forEach((a) => a.onclick = (ev) => {
+      ev.preventDefault(); const sh = list.find((y) => y.id === a.dataset.shipLink); if (!sh) return;
+      const nk = (v) => String(v || '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
+      const all = ff.rows.slice().sort((p, q) => INV.nameCompare(`${p.group_name} ${p.label}`, `${q.group_name} ${q.label}`));
+      const box = document.createElement('div'); box.className = 'card'; box.style.margin = '6px 0';
+      box.innerHTML = `<b>옵션 직접 연결</b> <span class="sub">— ${esc(sh.date)} 배송분. 한 번 연결하면 바코드를 기억해 다음 출고리스트부터 자동으로 찾습니다</span>` + sh.pending.map((q, i) => {
+        const same = all.filter((r) => { const g = nk(r.group_name), pg = nk(q.pname); return g && pg && (g.includes(pg) || pg.includes(g)); }); const cands = same.length ? same : all;
+        return `<div class="row" style="margin-top:6px;gap:6px"><span style="min-width:340px">${esc(q.oname || q.label)} <span class="sub">${fmtInt(q.qty)}개${q.barcode ? ' · 바코드 ' + esc(q.barcode) : ''}</span></span><select data-link-i="${i}" style="max-width:420px"><option value="">(옵션 고르기)</option>${cands.map((r) => `<option value="${esc(r.option_id)}">${esc(r.label)} · ${esc(r.option_id)}${same.length ? '' : ' · ' + esc((r.group_name || '').slice(0, 20))}</option>`).join('')}</select></div>`;
+      }).join('') + `<div class="row" style="margin-top:8px"><button class="btn primary sm" data-link-save>연결 저장</button><button class="btn sm" data-link-close>닫기</button></div>`;
+      a.closest('table').after(box);
+      box.querySelector('[data-link-close]').onclick = () => box.remove();
+      box.querySelector('[data-link-save]').onclick = async () => {
+        const dd = await reload(); let n = 0;
+        for (const sel of box.querySelectorAll('select[data-link-i]')) if (sel.value) { S.linkShipLine(dd, sh.pending[Number(sel.dataset.linkI)], sel.value); n++; }
+        await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', n ? `${n}줄을 옵션에 연결했습니다 (다음 출고리스트부터 자동)` : '고른 옵션이 없습니다', n ? 'ok' : 'err');
+      };
+    });
     $$('#inv-ship-list button[data-ship-del]').forEach((b) => b.onclick = async () => { if (!confirm('이 배송분을 지울까요?')) return; const dd = await reload(); S.removeInvShipment(dd, b.dataset.shipDel); await S.save(dd); await reload(); renderInventory(); }); }
   const field = (attr, key) => $(`#inv-table [${attr}="${CSS.escape(key)}"]`);
   $$('#inv-table input[data-inv-in]').forEach((inp) => inp.onchange = async () => { const dd = await reload(); const n = S.setInvInbound(dd, inp.dataset.invIn, inp.value, localIso(today), '직접'); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', n ? `입고 예정 ${n}개를 넣었습니다` : '입고 예정을 지웠습니다 (윙 값 사용)', 'ok'); });
