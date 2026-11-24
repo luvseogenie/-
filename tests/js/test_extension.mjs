@@ -1567,17 +1567,17 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(Object.fromEntries(r.rows.map((x) => [x.option_id, x.qty])), { V0: 100, V1: 30 }); assert.equal(r.unmatched.length, 1); assert.equal(r.unmatched[0].qty, 5);
   assert.deepEqual(r.learned, { 880001: 'V0', 880002: 'V1' });
   assert.equal(INV.parseShipment([{ '바코드': '880001', '총수량': 7 }], rows0, r.learned).rows[0].option_id, 'V0');   // 다음엔 바코드만으로
-  // 배송분 두 개: 11/20 V0 100개·V1 30개, 11/22 V0 80개 → 11/24 재고 V0 100→150 + 그 사이 판매 30(11/21~23) = 받은 양 80 → 11/20 분 80/100, 11/22 분 0/80
+  // 배송분 두 개: 11/20 V0 100개·V1 30개, 11/22 V0 80개 → 11/24 재고 V0 100→150 + 그 사이 판매 40(11/20~23) = 받은 양 90 → 11/20 분 90/100, 11/22 분 0/80
   const b1 = S.stockBaseFor(d, '2026-11-20', ['V0', 'V1']); assert.deepEqual(b1, { baseDate: '2026-11-20', base: { V0: 100, V1: 50 } });
   S.addInvShipment(d, { date: '2026-11-20', name: 'a.xlsx', items: { V0: 100, V1: 30 }, ...b1 });
   S.addInvShipment(d, { date: '2026-11-22', name: 'b.xlsx', items: { V0: 80, N9: 40 }, names: { N9: `${VEST}, 블랙, 공용 XL` }, ...S.stockBaseFor(d, '2026-11-22', ['V0', 'N9']) });
   const f = INV.inventoryForecast(d, T); const by = (id) => f.rows.find((x) => x.option_id === id);
-  assert.equal(by('V0').ship.received, 80); assert.equal(by('V0').ship.shipped, 180); assert.equal(by('V0').inboundUsed, 100); assert.equal(by('V0').inboundSrc, 'ship');
-  assert.deepEqual(by('V0').ship.per.map((p) => [p.date, p.qty, p.got]), [['2026-11-20', 100, 80], ['2026-11-22', 80, 0]]);
+  assert.equal(by('V0').ship.received, 90); assert.equal(by('V0').ship.shipped, 180); assert.equal(by('V0').inboundUsed, 90); assert.equal(by('V0').inboundSrc, 'ship');
+  assert.deepEqual(by('V0').ship.per.map((p) => [p.date, p.qty, p.got]), [['2026-11-20', 100, 90], ['2026-11-22', 80, 0]]);
   assert.equal(by('V1').inboundUsed, 30);   // V1 재고 그대로 → 아직 안 들어옴
   assert.ok(by('N9')); assert.equal(by('N9').inboundUsed, 40); assert.equal(by('N9').shipOnly, true);   // 윙 목록에 아직 없는 옵션도 배송분으로 보임
   const sum = INV.shipmentSummary(d, INV.inventoryForecast(d, T, { showMissing: true }).rows);
-  assert.deepEqual(sum.map((x) => [x.date, x.qty, x.got, x.left]), [['2026-11-22', 120, 0, 120], ['2026-11-20', 130, 80, 50]]);
+  assert.deepEqual(sum.map((x) => [x.date, x.qty, x.got, x.left]), [['2026-11-22', 120, 0, 120], ['2026-11-20', 130, 90, 40]]);
   // 직접 적은 값이 있으면 그것이 먼저, 배송분 지우기, 유지 기간 지나면 안 셈
   S.setInvInbound(d, 'V0', 5, T, '직접'); assert.equal(INV.inventoryForecast(d, T).rows.find((x) => x.option_id === 'V0').inboundUsed, 5); S.setInvInbound(d, 'V0', '', T);
   assert.equal(S.removeInvShipment(d, d.invShipments[1].id), 1); assert.ok(!INV.inventoryForecast(d, T).rows.find((x) => x.option_id === 'N9'));
@@ -1634,4 +1634,21 @@ console.log('extension logic: all checks passed');
   const sh = INV.parseShipment([{ '품명': 'DUGN 리본', '바코드': '8800386691975', '상세옵션': '플로킹 레드, 3.8cm 7야드, 1개', '수량': 500 }], [], r.map);
   assert.deepEqual(sh.rows.map((x) => [x.option_id, x.qty, x.barcode]), [['96256074802', 500, '8800386691975']]);   // 재고 목록에 없어도 바코드로 정확히
   console.log('barcode list from the Wing price/inventory Excel: all checks passed');
+}
+
+// 받은 양: 일부만 읽힌 날(옵션이 빠진 날)은 건너뛰고, 작은 증가(반품 등)는 무시, 출항 직후 증가는 이 배송분 것이 아님
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const row = (stock) => ({ option_id: 'A', product_id: 'P', product_name: 'DUGN 조끼, 블랙, 공용 L', stock });
+  const sales = {}; for (const day of ['2026-11-10', '2026-11-21', '2026-11-22', '2026-11-23']) sales[day] = { A: { option_id: 'A', product_id: 'P', product_name: 'DUGN 조끼', option_name: 'DUGN 조끼, 블랙, 공용 L', quantity: 5, sales_type: '로켓그로스' } };
+  // 11/21 은 일부만 읽혀 A 가 없음, 11/22·23·24 는 있음 (입고 없음: 재고는 판매만큼 줄고 반품 1개)
+  const d = { sales, inventory: { '2026-11-21': { Z: { option_id: 'Z', stock: 1 } }, '2026-11-22': { A: row(300) }, '2026-11-23': { A: row(296) }, '2026-11-24': { A: row(291) } } };
+  S.addInvShipment(d, { date: '2026-11-20', name: 's.xlsx', items: { A: 200 }, ...S.stockBaseFor(d, '2026-11-20', ['A']) });
+  let a = INV.inventoryForecast(d, '2026-11-24').rows.find((x) => x.option_id === 'A');
+  assert.equal(a.ship.received, 0); assert.equal(a.inboundUsed, 200);   // 전엔 11/21 에 없던 A 를 0 으로 보고 300 을 받은 것으로 셌음
+  // 11/25 박스 입고: 291 → 451 (+160, 판매 5) → 165 받음
+  d.inventory['2026-11-25'] = { A: row(451) }; d.sales['2026-11-24'] = { A: { ...sales['2026-11-23'].A } };
+  a = INV.inventoryForecast(d, '2026-11-25').rows.find((x) => x.option_id === 'A');
+  assert.equal(a.ship.received, 165); assert.equal(a.inboundUsed, 35);
+  console.log('receipt estimate ignores partial reads and small bumps: all checks passed');
 }

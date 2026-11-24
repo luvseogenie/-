@@ -176,13 +176,28 @@ export function inventoryForecast(d, today, settings = {}) {
     shipPending[s.id] = left; return { ...s, items, base: bs };
   }).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   const rgSold = (oid, from, to) => { let n = 0; for (const [date, day] of Object.entries(d.sales || {})) { if (date <= from || date > to) continue; const r = Object.values(day).find((y) => y.option_id === oid); if (r && r.quantity > 0 && (!r.sales_type || /그로스/.test(r.sales_type))) n += r.quantity; } return n; };
+  // 받은 양: 그 옵션이 실제로 읽힌 날들의 재고만 이어 보며(일부만 읽힌 날은 건너뜀), 날짜 사이 '재고 증가 + 그 사이 판매' 가
+  // 박스 단위로 크게 뛴 것만 입고로 센다 (반품 1~2개 같은 작은 증가는 무시). 출항 후 MIN_TRANSIT 일 안의 증가는 이 배송분 것이 아님
+  const MIN_TRANSIT = 2; const invDates = Object.keys(d.inventory || {}).sort();
   const shipState = (oid, stockNow) => {
     const list = shipments.filter((s) => s.items[oid] > 0); if (!list.length) return null;
-    const first = list[0]; const base = first.base?.[oid]; const baseDate = first.baseDate || first.date;
-    const received = base == null ? 0 : Math.max(0, stockNow - base + rgSold(oid, baseDate, addDays(asOf, -1)));
+    const shippedAll = list.reduce((a, s) => a + Number(s.items[oid] || 0), 0);
+    const startDate = list[0].date; const d0 = invDates.filter((x) => x <= startDate).pop() || invDates[0];
+    const pts = invDates.filter((x) => x >= d0 && d.inventory[x]?.[oid] && d.inventory[x][oid].stock != null).map((x) => [x, Number(d.inventory[x][oid].stock) || 0]);
+    // 출항일까지 한 번도 안 읽혔고 그 전에 팔린 적도 없는 옵션 = 새 옵션 → 출항일 재고 0 에서 시작 (일부만 읽힌 날 빠진 기존 옵션과 구별)
+    const soldBefore = Object.entries(d.sales || {}).some(([dt, day]) => dt < startDate && Object.values(day).some((y) => y.option_id === oid && y.quantity > 0));
+    if (!pts.some(([x]) => x <= startDate) && !soldBefore) pts.unshift([startDate, 0]);
+    if (pts.length && pts[pts.length - 1][0] !== asOf) pts.push([asOf, stockNow]); else if (pts.length) pts[pts.length - 1][1] = stockNow;
+    const thr = Math.max(5, Math.round(shippedAll * 0.03)); let received = 0; const jumps = [];
+    for (let k = 1; k < pts.length; k++) {
+      const [da, sa] = pts[k - 1], [db, sb] = pts[k];
+      const sold = rgSold(oid, addDays(da, -1), addDays(db, -1));   // 앞 기록 날 ~ 뒤 기록 전날 판매 (기록은 낮에 읽으므로 대략 하루치)
+      const jump = sb - sa + sold;
+      if (jump >= thr && db >= addDays(startDate, MIN_TRANSIT)) { received += jump; jumps.push({ date: db, qty: jump }); }
+    }
     let left = received, remaining = 0, shipped = 0; const per = [];
     for (const s of list) { const q = Number(s.items[oid]); const got = Math.min(q, left); left -= got; shipped += q; remaining += q - got; per.push({ id: s.id, date: s.date, qty: q, got }); }
-    return { remaining, received: Math.min(received, shipped), shipped, per };
+    return { remaining, received: Math.min(received, shipped), shipped, per, jumps };
   };
   const IP = d.invProduct || {}; const keyOf = (x) => groupKeyOf(x, facts[x.option_id]?.product_name);
   const groupPs = {};   // 상품 설정: 이름 열쇠로 저장한 것, 없으면 그 상품 옵션들의 등록상품ID 로 저장한 것
