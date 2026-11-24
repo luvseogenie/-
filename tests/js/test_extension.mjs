@@ -1621,3 +1621,17 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(d.invBarcodes, { 880: 'A' }); assert.deepEqual(d.invNameLinks, { '바코드 없는 줄': 'B' }); assert.throws(() => S.linkShipLine(d, { barcode: '1' }, ''));
   console.log('shipment name matching tolerates 2.0cm/2cm and extra words: all checks passed');
 }
+
+// 윙 '가격/재고 일괄변경' 엑셀 → 바코드 목록 (바코드 없는 줄은 건너뜀), 출고리스트와 구별
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const H = ['업체상품 ID', 'Product ID', '옵션 ID', '상품상태', '바코드', '쿠팡 노출 상품명', '업체 등록 상품명', '등록 옵션명', '판매가격', '잔여수량(재고)', '판매수량', '잔여수량'];
+  assert.equal(INV.isBarcodeList(H), true);
+  assert.equal(INV.isBarcodeList(['출고 방식', '박스남버', '품명', '바코드', '상세옵션', '수량']), false);
+  const rec = (oid, bar, opt) => Object.fromEntries(H.map((h) => [h, h === '옵션 ID' ? oid : h === '바코드' ? bar : h === '등록 옵션명' ? opt : h === '업체 등록 상품명' ? 'DUGN 리본' : '']));
+  const r = INV.parseBarcodeList([rec('96256074760', '', '1개 3.8cm 플로킹 레드'), rec('96256074802', '8800386691975', '1개 3.8cm 플로킹 레드'), rec('96256074784', '8800386691968', '1개 2.5cm 플로킹 레드')]);
+  assert.deepEqual(r.map, { 8800386691975: '96256074802', 8800386691968: '96256074784' }); assert.equal(r.names['96256074802'].option, '1개 3.8cm 플로킹 레드');
+  const sh = INV.parseShipment([{ '품명': 'DUGN 리본', '바코드': '8800386691975', '상세옵션': '플로킹 레드, 3.8cm 7야드, 1개', '수량': 500 }], [], r.map);
+  assert.deepEqual(sh.rows.map((x) => [x.option_id, x.qty, x.barcode]), [['96256074802', 500, '8800386691975']]);   // 재고 목록에 없어도 바코드로 정확히
+  console.log('barcode list from the Wing price/inventory Excel: all checks passed');
+}

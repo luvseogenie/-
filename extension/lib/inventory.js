@@ -293,7 +293,7 @@ export function parseShipment(records, invRows = [], barcodeMap = {}) {
   const bySku = new Map(invRows.filter((r) => r.sku).map((r) => [String(r.sku), r]));
   const byBar = new Map(invRows.filter((r) => r.barcode).map((r) => [String(r.barcode), r]));
   const findByName = nameMatcher(invRows);
-  const out = {}; const names = {}; const unmatched = []; const learned = {};
+  const out = {}; const names = {}; const bars = {}; const unmatched = []; const learned = {};
   if (!cQty) return { rows: [], unmatched: [], learned, how: { error: `수량 칸을 찾지 못했습니다 (칸 이름: ${headers.slice(0, 15).join(' | ')})` } };
   for (const rec of records) {
     const q = Math.round(Number(clean(rec[cQty])) || 0); if (q <= 0) continue;
@@ -304,9 +304,9 @@ export function parseShipment(records, invRows = [], barcodeMap = {}) {
     if (!hit && bar) hit = byBar.get(bar) || null;
     if (!hit && (cPname || cOname)) { hit = findByName(cPname ? rec[cPname] : '', cOname ? rec[cOname] : ''); if (hit && bar) learned[bar] = String(hit.option_id); }
     if (!hit) { const label = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(' / ') || bar || Object.values(rec).slice(0, 3).join(' ')).slice(0, 80); if (!unmatched.some((u) => u.label === label)) unmatched.push({ label, barcode: bar, pname: cPname ? String(rec[cPname] ?? '') : '', oname: cOname ? String(rec[cOname] ?? '') : '', qty: 0 }); unmatched.find((u) => u.label === label).qty += q; continue; }
-    const k = String(hit.option_id); out[k] = (out[k] || 0) + q; if (!names[k]) names[k] = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(', ')).slice(0, 120);
+    const k = String(hit.option_id); out[k] = (out[k] || 0) + q; if (bar) (bars[k] ||= bar); if (!names[k]) names[k] = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(', ')).slice(0, 120);
   }
-  return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty, name: names[option_id] || '' })), unmatched, learned, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
+  return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty, name: names[option_id] || '', barcode: bars[option_id] || '' })), unmatched, learned, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
 }
 // 파일 이름 속 날짜 ('DU 출고리스트 11_22 …', '2026-11-22', '1122') → 출항일. 없으면 null
 export function dateFromShipName(name, today) {
@@ -327,4 +327,20 @@ export function inboundCsv(rows) {
 export function shipmentSummary(d, rows, shipPending = {}) {
   const by = {}; for (const r of rows) for (const p of r.ship?.per || []) { const x = (by[p.id] ||= { qty: 0, got: 0 }); x.qty += p.qty; x.got += p.got; }
   return (d.invShipments || []).slice().sort((a, b) => b.date.localeCompare(a.date)).map((s) => { const x = by[s.id]; const left0 = shipPending[s.id] ?? (s.pending || []); const pendQty = left0.reduce((a, p) => a + (p.qty || 0), 0); const total = Object.values(s.items || {}).reduce((a, n) => a + Number(n || 0), 0) + (s.pending || []).reduce((a, p) => a + (p.qty || 0), 0); return { id: s.id, date: s.date, name: s.name || '', options: Object.keys(s.items || {}).length + (s.pending || []).length - left0.length, qty: total, got: x ? x.got : null, left: x ? x.qty - x.got + pendQty : null, active: !!x || !!left0.length, pending: left0 }; });
+}
+
+// 윙 '가격/재고 일괄변경' 엑셀(옵션 ID · 바코드 · 등록 옵션명 …) → 바코드 목록 { 바코드: 옵션ID } (출고리스트를 바코드로 정확히 찾기)
+const hk = (h) => String(h).replace(/\s+/g, '').toLowerCase();
+export function isBarcodeList(headers) {
+  const n = headers.map(hk);
+  return n.some((h) => /^(노출)?옵션id$/.test(h)) && n.some((h) => /^바코드$|barcode/.test(h)) && n.some((h) => /노출상품명|등록옵션명|판매가격|업체상품id|등록상품명/.test(h)) && !n.some((h) => /박스|출고|발송/.test(h));
+}
+export function parseBarcodeList(records) {
+  if (!records?.length) return { map: {}, names: {}, rows: 0 };
+  const headers = Object.keys(records[0]); const n = headers.map(hk); const col = (re) => { const i = n.findIndex((h) => re.test(h)); return i < 0 ? null : headers[i]; };
+  const cO = col(/^(노출)?옵션id$/), cB = col(/^바코드$|barcode/), cP = col(/^업체등록상품명$|^등록상품명$/) || col(/노출상품명/), cN = col(/^등록옵션명$|^옵션명$/);
+  const clean = (v) => { let t = String(v ?? '').trim(); if (t.endsWith('.0')) t = t.slice(0, -2); return t; };
+  const map = {}, names = {};
+  for (const r of records) { const oid = clean(r[cO]), bar = clean(r[cB]); if (!/^\d{5,}$/.test(oid) || !bar) continue; map[bar] = oid; names[oid] = { product: String(r[cP] ?? '').trim(), option: String(r[cN] ?? '').trim(), barcode: bar }; }
+  return { map, names, rows: records.length };
 }

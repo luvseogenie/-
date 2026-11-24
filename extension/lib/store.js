@@ -268,9 +268,9 @@ export function setInvInbound(d, optionId, qty, date, src = '직접') {
 }
 export function clearInvInbound(d) { const n = Object.keys(d.invInbound || {}).length + (d.invShipments || []).length; d.invInbound = {}; d.invShipments = []; return n; }
 // 배송분(출항할 때 올린 출고리스트 하나): { id, date: 출항일, name: 파일 이름, items: { option_id: 수량 }, base: { option_id: 그때 재고 }, baseDate }
-export function addInvShipment(d, { date, name = '', items = {}, names = {}, base = {}, baseDate = null, pending = [] }) {
+export function addInvShipment(d, { date, name = '', items = {}, names = {}, barcodes = {}, base = {}, baseDate = null, pending = [] }) {
   d.invShipments ||= []; const id = `${date}-${Math.random().toString(36).slice(2, 8)}`;
-  d.invShipments.push({ id, date, name, items, names, base, baseDate: baseDate || date, pending: pending.map(({ label, barcode, pname, oname, qty }) => ({ label, barcode, pname, oname, qty })), at: new Date().toISOString().slice(0, 16) });
+  d.invShipments.push({ id, date, name, items, names, barcodes, base, baseDate: baseDate || date, pending: pending.map(({ label, barcode, pname, oname, qty }) => ({ label, barcode, pname, oname, qty })), at: new Date().toISOString().slice(0, 16) });
   d.invShipments = d.invShipments.slice(-200); return id;
 }
 // 출고리스트 줄 ↔ 옵션 직접 연결: 바코드가 있으면 바코드로, 없으면 줄 이름으로 기억 (다음 출고리스트부터 자동)

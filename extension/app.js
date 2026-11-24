@@ -996,9 +996,22 @@ $('#inv-ship-file').onchange = async (ev) => {
   try {
     const rowsAll = INV.inventoryForecast(DATA, day, { showMissing: true }).rows;
     const dd = await reload(); if ($('#inv-ship-replace').checked) S.clearInvInbound(dd);
-    for (const fl of files) {
+    // 바코드 목록(윙 가격/재고 엑셀)을 먼저 처리해야 같이 고른 출고리스트가 바코드로 맞는다
+    const bufs = await Promise.all(files.map((f) => f.arrayBuffer())); const isBL = await Promise.all(bufs.map((b, i) => fileSheetsRecords(b, files[i].name, ['바코드']).then((sh) => sh.some((x) => INV.isBarcodeList(Object.keys(x.records[0] || {})))).catch(() => false)));
+    const order = files.map((f, i) => i).sort((x, y) => Number(isBL[y]) - Number(isBL[x]));
+    for (const fi of order) {
+      const fl = files[fi];
       try {
-        const sheets = await fileSheetsRecords(await fl.arrayBuffer(), fl.name, ['수량']);
+        const buf = bufs[fi];
+        // 윙 '가격/재고 일괄변경' 엑셀이면: 바코드 목록으로 저장 (출고리스트 바코드 → 옵션ID 를 정확히)
+        const bsheets = await fileSheetsRecords(buf, fl.name, ['바코드']).catch(() => []);
+        const bl = bsheets.find((sh) => INV.isBarcodeList(Object.keys(sh.records[0] || {})));
+        if (bl) {
+          const r0 = INV.parseBarcodeList(bl.records); const n = Object.keys(r0.map).length; if (!n) throw new Error('바코드가 있는 옵션이 없습니다');
+          dd.invBarcodes = { ...(dd.invBarcodes || {}), ...r0.map }; dd.invOptionNames = { ...(dd.invOptionNames || {}), ...r0.names };
+          notes.push(`바코드 목록 '${fl.name}': 옵션 ${fmtInt(n)}개의 바코드를 저장했습니다 (출고리스트를 바코드로 정확히 찾음 · 이미 올린 출고리스트도 다시 올리면 바코드로 다시 맞춤)`); continue;
+        }
+        const sheets = await fileSheetsRecords(buf, fl.name, ['수량']);
         if (!sheets.length) throw new Error('수량 칸이 있는 표가 없습니다');
         // 시트마다 읽어 보고 옵션을 가장 많이 찾은 시트 (출고리스트의 '세부 리스트' 같은 시트)
         const best = sheets.map((sh) => ({ sh, r: INV.parseShipment(sh.records, rowsAll, dd.invBarcodes || {}) })).sort((a, b) => b.r.rows.length - a.r.rows.length || a.r.unmatched.length - b.r.unmatched.length)[0];
@@ -1009,7 +1022,7 @@ $('#inv-ship-file').onchange = async (ev) => {
         const { base, baseDate } = S.stockBaseFor(dd, date, Object.keys(items));
         // 같은 파일을 다시 올리면 바꿔 넣음 (두 번 더해지지 않게)
         dd.invShipments = (dd.invShipments || []).filter((x) => !(x.name === fl.name && x.date === date));
-        S.addInvShipment(dd, { date, name: fl.name, items, names, base, baseDate, pending: r.unmatched });   // 못 찾은 줄도 보관: 쿠팡에 옵션이 생기면 자동 연결
+        S.addInvShipment(dd, { date, name: fl.name, items, names, barcodes: Object.fromEntries(r.rows.filter((x) => x.barcode).map((x) => [x.option_id, x.barcode])), base, baseDate, pending: r.unmatched });   // 못 찾은 줄도 보관: 쿠팡에 옵션이 생기면 자동 연결
         dd.invBarcodes = { ...(dd.invBarcodes || {}), ...r.learned };
         const total = r.rows.reduce((a, x) => a + x.qty, 0);
         notes.push(`${date.slice(5).replace('-', '/')} 출항 '${fl.name}' (${best.sh.name}): 옵션 ${r.rows.length}개 ${fmtInt(total)}개${r.unmatched.length ? ` · 아직 쿠팡 목록에 없는 옵션 ${r.unmatched.length}줄은 보관해 두고 옵션이 생기면 자동 연결 (${r.unmatched.slice(0, 3).map((u) => `${u.label} ${u.qty}개`).join(' / ')})` : ''}`);
