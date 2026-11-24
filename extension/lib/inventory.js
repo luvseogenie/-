@@ -111,7 +111,7 @@ export function groupByProduct(rows) {
   for (const x of Object.values(g)) { x.level ??= 'unknown'; x.options.sort((a, b) => (order[a.level] - order[b.level]) || String(a.option_name || a.product_name).localeCompare(String(b.option_name || b.product_name))); }
   return Object.values(g).sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
 }
-export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14, useInbound: true, inboundKeepDays: 14 };
+export const DEFAULT_INV_SETTINGS = { leadDays: 10, coverDays: 30, safetyDays: 7, alertDays: 14, useInbound: true, inboundKeepDays: 30 };
 // 시즌 구분: 'season'(시즌 상품) | 'year'(비시즌·연중) | ''(미정). 시즌 종료일만 넣었으면 시즌 상품
 export const seasonTypeOf = (ps = {}) => ps.season || (ps.seasonEnd ? 'season' : '');
 
@@ -164,6 +164,19 @@ export function inventoryForecast(d, today, settings = {}) {
     else if (st.showMissing) base.push({ option_id: oid, product_id: f.product_id, product_name: f.product_name, option_name: f.option_name, stock: 0, inbound: 0, missing: true });
   }
   for (let i = base.length - 1; i >= 0; i--) if (used.has(base[i])) base.splice(i, 1);
+  { const have = new Set(base.map((x) => String(x.option_id))); const today0 = today; const keep0 = Number(st.inboundKeepDays) || 30;
+    for (const sh of d.invShipments || []) { if (!sh?.items || !sh.date || today0 > addDays(sh.date, keep0)) continue; for (const [oid, q] of Object.entries(sh.items)) { if (have.has(oid) || !(q > 0)) continue; have.add(oid); const f = facts[oid] || {}; base.push({ option_id: oid, product_id: f.product_id || '', product_name: f.product_name || sh.names?.[oid] || '', option_name: f.option_name || '', stock: 0, inbound: 0, shipOnly: true }); } } }
+  const keepDays = Number(st.inboundKeepDays) || 30;
+  const shipments = (d.invShipments || []).filter((s) => s && s.items && s.date && today <= addDays(s.date, keepDays)).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  const rgSold = (oid, from, to) => { let n = 0; for (const [date, day] of Object.entries(d.sales || {})) { if (date <= from || date > to) continue; const r = Object.values(day).find((y) => y.option_id === oid); if (r && r.quantity > 0 && (!r.sales_type || /그로스/.test(r.sales_type))) n += r.quantity; } return n; };
+  const shipState = (oid, stockNow) => {
+    const list = shipments.filter((s) => s.items[oid] > 0); if (!list.length) return null;
+    const first = list[0]; const base = first.base?.[oid]; const baseDate = first.baseDate || first.date;
+    const received = base == null ? 0 : Math.max(0, stockNow - base + rgSold(oid, baseDate, addDays(asOf, -1)));
+    let left = received, remaining = 0, shipped = 0; const per = [];
+    for (const s of list) { const q = Number(s.items[oid]); const got = Math.min(q, left); left -= got; shipped += q; remaining += q - got; per.push({ id: s.id, date: s.date, qty: q, got }); }
+    return { remaining, received: Math.min(received, shipped), shipped, per };
+  };
   const IP = d.invProduct || {}; const keyOf = (x) => groupKeyOf(x, facts[x.option_id]?.product_name);
   const groupPs = {};   // 상품 설정: 이름 열쇠로 저장한 것, 없으면 그 상품 옵션들의 등록상품ID 로 저장한 것
   for (const x of base) { const k = keyOf(x); if (IP[k]) groupPs[k] = IP[k]; }
@@ -183,15 +196,17 @@ export function inventoryForecast(d, today, settings = {}) {
     const ordActive = !!(ord && ord.qty > 0 && (!ord.date || today <= addDays(ord.date, lead + 3)));
     const ordered = ordActive ? Number(ord.qty) : 0;
     // 입고 예정: 내가 넣은 값(직접 적기·출고리스트)이 있으면 그것 (넣은 날 + 유지 기간까지), 없으면 윙 값('윙 입고 예정 빼기' 를 켰을 때)
-    const mi = (d.invInbound || {})[x.option_id]; const miActive = !!(mi && mi.qty > 0 && (!mi.date || today <= addDays(mi.date, Number(st.inboundKeepDays) || 14)));
-    const inboundUsed = miActive ? Number(mi.qty) : (st.useInbound !== false ? (x.inbound || 0) : 0);
+    const mi = (d.invInbound || {})[x.option_id]; const miActive = !!(mi && mi.qty > 0 && (!mi.date || today <= addDays(mi.date, Number(st.inboundKeepDays) || 30)));
+    // 배송분(출고리스트): 받은 양 ≈ 보낸 날 재고 이후 재고 증가 + 그 사이 로켓그로스 판매 → 오래된 배송분부터 채우고 남은 것만 입고 예정
+    const ship = shipState(x.option_id, x.stock || 0);
+    const inboundUsed = miActive ? Number(mi.qty) : ship ? ship.remaining : (st.useInbound !== false ? (x.inbound || 0) : 0);
     const incoming = inboundUsed + ordered;
     const reorder = rate > 0 ? Math.max(0, Math.ceil(rate * need - (x.stock || 0) - incoming)) : 0;
     const seasonOver = seasonLeft != null && seasonLeft <= 0;
     const level = x.missing ? 'unknown' : rate <= 0 ? 'idle' : x.stock <= 0 ? 'out' : left <= lead ? 'danger' : left <= st.alertDays ? 'warn' : 'ok';
     const option_name = x.option_name || (x.missing ? '' : f.option_name && f.option_name !== x.product_name ? f.option_name : '');
     const group_name = baseProductName(x, f.product_name) || f.product_name || x.product_name;
-    return { ...x, inboundUsed, inboundMine: miActive ? Number(mi.qty) : 0, inboundMineDate: mi?.date || null, inboundMineSrc: mi?.src || '', inboundMineExpired: !!(mi && mi.qty > 0 && !miActive), inboundMineQty: mi?.qty || 0, ordered, orderDate: ord?.date || null, orderEta: ordEta, orderExpired: !!(ord && ord.qty > 0 && !ordActive), orderQty: ord?.qty || 0, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
+    return { ...x, inboundUsed, ship, inboundSrc: miActive ? 'typed' : ship ? 'ship' : (st.useInbound !== false && x.inbound ? 'wing' : ''), inboundMine: miActive ? Number(mi.qty) : 0, inboundMineDate: mi?.date || null, inboundMineSrc: mi?.src || '', inboundMineExpired: !!(mi && mi.qty > 0 && !miActive), inboundMineQty: mi?.qty || 0, ordered, orderDate: ord?.date || null, orderEta: ordEta, orderExpired: !!(ord && ord.qty > 0 && !ordActive), orderQty: ord?.qty || 0, ps, option_name, group_name, label: optionLabel({ ...x, option_name }, group_name), key, lead, seasonType, seasonEnd, seasonOver, r7, r30, rate, daysLeft: x.missing ? Infinity : left, stockoutDate: x.missing ? null : out, reorder: x.missing ? 0 : reorder, reorderIfOut: x.missing ? reorder : 0, level };
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
@@ -234,42 +249,69 @@ export function apiInventoryRows(items, screenRows = []) {
   return { rows, stockKey: stock.key, stockHow: stock.how, inboundKey: inbound?.key || '' };
 }
 
-// 출고리스트(쿠팡 창고로 보낸 목록, 엑셀·CSV) → 옵션별 입고 예정 수량.
-// 옵션ID 칸 → SKU ID 칸 → 바코드 칸 → 상품명+옵션명 순서로 재고 목록의 옵션을 찾고, 같은 옵션은 수량을 더한다
-export function parseShipment(records, invRows = []) {
-  if (!records?.length) return { rows: [], unmatched: [], how: {} };
+// 출고리스트(중국에서 쿠팡 창고로 보낸 목록, 엑셀·CSV) → 옵션별 보낸 수량.
+// 옵션 찾기: 옵션ID 칸 → 기억해 둔 바코드 → SKU ID → 재고 목록의 바코드 → 상품명+옵션명(옵션 글자 순서가 달라도: '공용 XL 진베이지' = '진베이지, 공용 XL')
+// barcodeMap: { 바코드: 옵션ID } (전에 맞춘 것). 새로 이름으로 맞춘 바코드는 learned 로 돌려준다
+const tokSet = (v) => String(v ?? '').toLowerCase().replace(/[()\[\]·]/g, ' ').split(/[\s,/]+/).map((t) => t.trim()).filter(Boolean).sort().join('|');
+const nkName = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
+export function parseShipment(records, invRows = [], barcodeMap = {}) {
+  if (!records?.length) return { rows: [], unmatched: [], how: {}, learned: {} };
   const headers = Object.keys(records[0]); const nh = headers.map((h) => String(h).replace(/\s+/g, '').toLowerCase());
   const col = (re, ex = null) => { const i = nh.findIndex((h) => re.test(h) && !(ex && ex.test(h))); return i < 0 ? null : headers[i]; };
   const cOid = col(/^(노출)?옵션id$|옵션아이디|vendoritemid|^옵션번호$/, /등록/);
   const cSku = col(/sku/);
   const cBar = col(/바코드|barcode/);
-  const cQty = col(/(출고|발송|입고|납품|확정|보낸|반입|요청).*수량|수량.*(출고|발송|입고|확정)/, /재고|판매|가능/) || col(/^(수량|qty|quantity|개수|입고예정수량)$/) || col(/수량|qty|quantity/, /재고|판매|가능|박스|팔레트/);
-  const cPname = col(/^(등록|노출)?상품명$|^상품$|^품목명?$|^제품명$/);
-  const cOname = col(/^옵션명?$|^옵션값$|^옵션정보$/);
-  const nk2 = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
+  const cQty = col(/(출고|발송|입고|납품|확정|보낸|반입|요청).*수량|수량.*(출고|발송|입고|확정)/, /재고|판매|가능/) || col(/^(총수량|수량|qty|quantity|개수|입고예정수량)$/) || col(/수량|qty|quantity/, /재고|판매|가능|박스|팔레트|box/);
+  const cPname = col(/^(노출|등록)?상품명$/) || col(/^제품명$|^상품$|^품목명?$/) || col(/^품명$/);
+  const cOname = col(/^(한국)?옵션명?$|^옵션값$|^옵션정보$|^상세옵션$|옵션/, /id|번호/);
   const clean = (v) => { let t = String(v ?? '').trim().replace(/,/g, ''); if (t.endsWith('.0')) t = t.slice(0, -2); return t; };
   const byOid = new Map(invRows.map((r) => [String(r.option_id), r]));
   const bySku = new Map(invRows.filter((r) => r.sku).map((r) => [String(r.sku), r]));
   const byBar = new Map(invRows.filter((r) => r.barcode).map((r) => [String(r.barcode), r]));
-  const byName = new Map(); for (const r of invRows) for (const k of [nk2(`${r.group_name || ''}${r.label || ''}`), nk2(r.product_name), nk2(`${r.product_name || ''}${r.option_name || ''}`)]) if (k.length >= 4 && !byName.has(k)) byName.set(k, r);
-  const out = {}; const unmatched = [];
-  if (!cQty) return { rows: [], unmatched: [], how: { error: `수량 칸을 찾지 못했습니다 (칸 이름: ${headers.slice(0, 15).join(' | ')})` } };
+  // 상품 → 옵션 이름표(토큰 묶음)
+  const opts = invRows.map((r) => ({ r, g: nkName(r.group_name || r.product_name), o: tokSet(r.label || r.option_name || ''), full: tokSet(`${r.label || ''}`) }));
+  const findByName = (pname, oname) => {
+    const g = nkName(pname), o = tokSet(oname); if (!o) return null;
+    const sameProd = opts.filter((x) => x.g && g && (x.g === g || x.g.includes(g) || g.includes(x.g)));
+    const pool = sameProd.length ? sameProd : [];
+    const one = (h) => { if (h.length === 1) return h[0].r; const inStock = h.filter((x) => !x.r.missing); return inStock.length === 1 ? inStock[0].r : null; };   // 같은 이름이 여럿이면(묶음 옵션 등) 윙 재고에 있는 것
+    let hit = pool.filter((x) => x.o === o); if (hit.length) return one(hit);
+    // 한쪽 옵션 글자가 다른 쪽을 모두 포함 ('1개' 같은 글자가 한쪽에만 있을 때)
+    const os = new Set(o.split('|')); hit = pool.filter((x) => { const xs = x.o.split('|'); return xs.length && (xs.every((t) => os.has(t)) || [...os].every((t) => xs.includes(t))); });
+    return hit.length ? one(hit) : null;
+  };
+  const out = {}; const names = {}; const unmatched = []; const learned = {};
+  if (!cQty) return { rows: [], unmatched: [], learned, how: { error: `수량 칸을 찾지 못했습니다 (칸 이름: ${headers.slice(0, 15).join(' | ')})` } };
   for (const rec of records) {
     const q = Math.round(Number(clean(rec[cQty])) || 0); if (q <= 0) continue;
-    let hit = null; const oid = cOid ? clean(rec[cOid]) : '';
+    let hit = null; const oid = cOid ? clean(rec[cOid]) : ''; const bar = cBar ? clean(rec[cBar]) : '';
     if (oid && byOid.has(oid)) hit = byOid.get(oid); else if (/^\d{5,}$/.test(oid)) hit = { option_id: oid };
+    if (!hit && bar && barcodeMap[bar]) hit = byOid.get(String(barcodeMap[bar])) || { option_id: String(barcodeMap[bar]) };
     if (!hit && cSku) hit = bySku.get(clean(rec[cSku])) || null;
-    if (!hit && cBar) hit = byBar.get(clean(rec[cBar])) || null;
-    if (!hit && (cPname || cOname)) { const nm = nk2(`${cPname ? rec[cPname] : ''}${cOname ? rec[cOname] : ''}`); hit = byName.get(nm) || null; }
-    if (!hit) { unmatched.push(String([cPname && rec[cPname], cOname && rec[cOname], cSku && rec[cSku], cBar && rec[cBar]].filter(Boolean).join(' ') || Object.values(rec).slice(0, 3).join(' ')).slice(0, 60)); continue; }
-    const k = String(hit.option_id); out[k] = (out[k] || 0) + q;
+    if (!hit && bar) hit = byBar.get(bar) || null;
+    if (!hit && (cPname || cOname)) { hit = findByName(cPname ? rec[cPname] : '', cOname ? rec[cOname] : ''); if (hit && bar) learned[bar] = String(hit.option_id); }
+    if (!hit) { const label = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(' / ') || bar || Object.values(rec).slice(0, 3).join(' ')).slice(0, 80); if (!unmatched.some((u) => u.label === label)) unmatched.push({ label, barcode: bar, qty: 0 }); unmatched.find((u) => u.label === label).qty += q; continue; }
+    const k = String(hit.option_id); out[k] = (out[k] || 0) + q; if (!names[k]) names[k] = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(', ')).slice(0, 120);
   }
-  return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty })), unmatched, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
+  return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty, name: names[option_id] || '' })), unmatched, learned, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
 }
-// 입고 예정 목록 (파일로 받기용 CSV — 다시 올리면 그대로 읽힘)
+// 파일 이름 속 날짜 ('DU 출고리스트 11_22 …', '2026-11-22', '1122') → 출항일. 없으면 null
+export function dateFromShipName(name, today) {
+  const n = String(name || ''); let m = n.match(/(20\d{2})[._\-년\s]*(\d{1,2})[._\-월\s]*(\d{1,2})/);
+  let y, mo, dd; if (m) { y = +m[1]; mo = +m[2]; dd = +m[3]; } else { m = n.match(/(?:^|[^\d])(\d{1,2})[._\-월\s]+(\d{1,2})(?:[^\d]|$)/); if (!m) return null; mo = +m[1]; dd = +m[2]; y = +today.slice(0, 4); }
+  if (!(mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31)) return null;
+  let iso = `${y}-${String(mo).padStart(2, '0')}-${String(dd).padStart(2, '0')}`; if (!m[0].startsWith('20') && iso > today) iso = `${y - 1}${iso.slice(4)}`;   // 연도 없이 미래 날짜면 작년
+  return iso;
+}
+// 입고 예정 목록 (파일로 받기용 CSV): 옵션마다 남은 입고 예정 · 보낸 수량 · 받은 수량(추정) · 배송분 날짜
 export function inboundCsv(rows) {
   const q = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-  const head = ['옵션ID', '상품명', '옵션명', '입고 예정 수량', '넣은 날', '출처'];
-  const body = rows.filter((r) => r.inboundMineQty > 0).map((r) => [r.option_id, r.group_name || r.product_name || '', r.label || '', r.inboundMineQty, r.inboundMineDate || '', r.inboundMineSrc || '']);
+  const head = ['옵션ID', '상품명', '옵션명', '입고 예정 수량', '보낸 수량', '받은 수량(추정)', '출항일', '직접 적은 값'];
+  const body = rows.filter((r) => r.ship || r.inboundMineQty > 0).map((r) => [r.option_id, r.group_name || r.product_name || '', r.label || '', r.inboundUsed || 0, r.ship?.shipped ?? '', r.ship?.received ?? '', (r.ship?.per || []).map((p) => p.date).join(' '), r.inboundMine || '']);
   return [head, ...body].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
+}
+// 배송분 목록 요약: 배송분마다 옵션 수 · 보낸 수량 · 받은 수량(추정) · 남은 수량
+export function shipmentSummary(d, rows) {
+  const by = {}; for (const r of rows) for (const p of r.ship?.per || []) { const x = (by[p.id] ||= { qty: 0, got: 0 }); x.qty += p.qty; x.got += p.got; }
+  return (d.invShipments || []).slice().sort((a, b) => b.date.localeCompare(a.date)).map((s) => { const x = by[s.id]; const total = Object.values(s.items || {}).reduce((a, n) => a + Number(n || 0), 0); return { id: s.id, date: s.date, name: s.name || '', options: Object.keys(s.items || {}).length, qty: total, got: x ? x.got : null, left: x ? x.qty - x.got : null, active: !!x }; });
 }

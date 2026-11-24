@@ -9,7 +9,7 @@ import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib
 import * as AR from './lib/adreport.js';
 import { importAdReportFile, importInventoryFile } from './lib/importer.js';
 import * as INV from './lib/inventory.js';
-import { fileToRecords } from './lib/xlsx.js';
+import { fileToRecords, fileSheetsRecords } from './lib/xlsx.js';
 import * as COMP from './lib/competitor.js';
 import { fixDay as fixRtDay, recomputeDay as recomputeRtDay, computeSnapshot as computeRtSnapshot } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
@@ -924,7 +924,7 @@ async function renderInventory() {
   const one = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1));
   const pill = (lv) => { const [t, c] = LV[lv]; return `<span class="pill ${c === 'pos' ? '' : 'gray'}" style="${c === 'neg' ? 'background:#fde2e1;color:#b42318' : c === 'warn' ? 'background:#fff3c4;color:#6b4a00' : ''}">${t}</span>`; };
   const seasonBadge = (x) => x.seasonType === 'season' ? `<span class="pill" style="background:#fde8f1;color:#a3195b">시즌${x.seasonEnd ? ` ~${x.seasonEnd.slice(5).replace('-', '/')}` : ''}</span>` : x.seasonType === 'year' ? '<span class="pill" style="background:#e6f4ea;color:#1e6b34">비시즌</span>' : '<span class="pill gray">구분 없음</span>';
-  const cells = (x) => `<td class="num">${x.missing ? '<span class="sub" title="윙 재고 화면에서 이 옵션을 못 읽었습니다 (품절이라 목록에 없거나 다음 쪽)">?</span>' : `<b>${fmtInt(x.stock)}</b>`}</td><td class="num">${x.options ? (x.inboundUsed ? fmtInt(x.inboundUsed) : '') : `<input type="number" class="tiny" min="0" data-inv-in="${esc(x.option_id)}" value="${x.inboundMine || ''}" placeholder="${x.inbound ? fmtInt(x.inbound) : '0'}" title="입고 예정 수량 (비우면 윙 값${x.inbound ? ' ' + fmtInt(x.inbound) + '개' : ''} 사용)">${x.inboundMine ? `<div class="sub" style="font-size:11px">${x.inboundMineDate ? x.inboundMineDate.slice(5).replace('-', '/') : ''} ${esc(x.inboundMineSrc === '직접' ? '입력' : '출고리스트')}${x.inbound ? ` · 윙 ${fmtInt(x.inbound)}` : ''}</div>` : x.inboundMineExpired ? `<div class="sub" style="font-size:11px" title="유지 기간이 지나 빼지 않습니다">${x.inboundMineQty}개 · 기간 지남</div>` : x.inbound ? `<div class="sub" style="font-size:11px">윙 값${st.useInbound !== false ? '' : ' (빼지 않음)'}</div>` : ''}`}</td><td class="num">${x.options ? (x.ordered ? fmtInt(x.ordered) : '') : `<input type="number" class="tiny" min="0" data-inv-ord="${esc(x.option_id)}" value="${x.ordered || ''}" placeholder="0" title="공장에 주문해 둔 수량 (넣은 날부터 입고 소요일 + 3일까지 발주 추천에서 뺌)">${x.ordered && x.orderEta ? `<div class="sub" style="font-size:11px">${x.orderDate.slice(5).replace('-', '/')} 주문 · ${x.orderEta.slice(5).replace('-', '/')} 도착 예정</div>` : x.orderExpired ? `<div class="sub" style="font-size:11px" title="도착 예정일이 지나 빼지 않습니다. 아직 안 왔으면 다시 넣으세요">${x.orderQty}개 · ${x.orderEta.slice(5).replace('-', '/')} 지남</div>` : ''}`}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${['out', 'danger'].includes(x.level) ? 'neg' : ''}">${x.missing ? '' : x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.seasonOver ? '<span class="sub">시즌 끝</span>' : x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}${x.reorderIfOut ? `<div class="sub" style="font-size:11px">품절이면 ${fmtInt(x.reorderIfOut)}개</div>` : ''}</td>`;
+  const cells = (x) => `<td class="num">${x.missing ? '<span class="sub" title="윙 재고 화면에서 이 옵션을 못 읽었습니다 (품절이라 목록에 없거나 다음 쪽)">?</span>' : `<b>${fmtInt(x.stock)}</b>`}</td><td class="num">${x.options ? (x.inboundUsed ? fmtInt(x.inboundUsed) : '') : `<input type="number" class="tiny" min="0" data-inv-in="${esc(x.option_id)}" value="${x.inboundMine || ''}" placeholder="${x.inboundSrc === 'ship' ? fmtInt(x.inboundUsed) : x.inbound ? fmtInt(x.inbound) : '0'}" title="입고 예정 수량 (비우면 윙 값${x.inbound ? ' ' + fmtInt(x.inbound) + '개' : ''} 사용)">${x.inboundSrc === 'ship' && !x.inboundMine ? `<div class="sub" style="font-size:11px" title="${esc((x.ship.per || []).map((q) => `${q.date} 출항 ${q.qty}개 중 ${q.got}개 받음`).join(' / '))} (받은 수량 = 재고 증가 + 그 사이 판매로 추정)">배송분 ${(x.ship.per || []).map((q) => q.date.slice(5).replace('-', '/')).join('·')} · 보냄 ${fmtInt(x.ship.shipped)} · 받음 ~${fmtInt(x.ship.received)}</div>` : ''}${x.inboundMine ? `<div class="sub" style="font-size:11px">${x.inboundMineDate ? x.inboundMineDate.slice(5).replace('-', '/') : ''} ${esc(x.inboundMineSrc === '직접' ? '입력' : '출고리스트')}${x.inbound ? ` · 윙 ${fmtInt(x.inbound)}` : ''}</div>` : x.inboundMineExpired ? `<div class="sub" style="font-size:11px" title="유지 기간이 지나 빼지 않습니다">${x.inboundMineQty}개 · 기간 지남</div>` : x.inbound ? `<div class="sub" style="font-size:11px">윙 값${st.useInbound !== false ? '' : ' (빼지 않음)'}</div>` : ''}`}</td><td class="num">${x.options ? (x.ordered ? fmtInt(x.ordered) : '') : `<input type="number" class="tiny" min="0" data-inv-ord="${esc(x.option_id)}" value="${x.ordered || ''}" placeholder="0" title="공장에 주문해 둔 수량 (넣은 날부터 입고 소요일 + 3일까지 발주 추천에서 뺌)">${x.ordered && x.orderEta ? `<div class="sub" style="font-size:11px">${x.orderDate.slice(5).replace('-', '/')} 주문 · ${x.orderEta.slice(5).replace('-', '/')} 도착 예정</div>` : x.orderExpired ? `<div class="sub" style="font-size:11px" title="도착 예정일이 지나 빼지 않습니다. 아직 안 왔으면 다시 넣으세요">${x.orderQty}개 · ${x.orderEta.slice(5).replace('-', '/')} 지남</div>` : ''}`}</td><td class="num">${x.rate ? `${one(x.r7)} / ${one(x.r30)}` : '-'}</td><td class="num ${['out', 'danger'].includes(x.level) ? 'neg' : ''}">${x.missing ? '' : x.rate ? (x.stock <= 0 ? '0' : Math.floor(x.daysLeft) + '일') : '-'}</td><td class="num">${x.stockoutDate ? x.stockoutDate.slice(5).replace('-', '/') : ''}</td><td class="num">${x.seasonOver ? '<span class="sub">시즌 끝</span>' : x.reorder ? `<b>${fmtInt(x.reorder)}개</b>` : ''}${x.reorderIfOut ? `<div class="sub" style="font-size:11px">품절이면 ${fmtInt(x.reorderIfOut)}개</div>` : ''}</td>`;
   const optRow = (x, sub) => `<tr${sub ? ' class="inv-opt"' : ''}><td class="l">${pill(x.level)}</td><td class="l num">${esc(x.option_id)}</td><td class="l">${sub ? `<span class="sub">${esc(x.label)}</span>${x.outGuess ? ' <span class="sub" style="font-size:11px" title="최근 로켓그로스로 하루 1개 이상 팔렸는데 윙 재고 목록에 없어 품절로 봅니다 (윙은 품절 옵션을 목록에서 뺌)">· 윙 목록에 없음(품절로 봄)</span>' : ''}${x.inv_option_id ? ` <span class="sub" style="font-size:11px" title="윙 재고 화면에는 다른 옵션ID(${esc(x.inv_option_id)})로 나와 이름으로 맞춤">≈</span>` : ''}` : `${esc(x.group_name || x.product_name)} ${seasonBadge(x)}<div class="sub">${esc(x.label)}</div>`}</td>${cells(x)}</tr>`;
   let html = '';
   if ($('#inv-group').checked) {
@@ -936,6 +936,10 @@ async function renderInventory() {
     }
   } else html = INV.sortInventory(rows, sortBy, (x) => `${x.group_name || x.product_name} ${x.label}`).slice(0, 600).map((x) => optRow(x, false)).join('');
   $('#inv-table tbody').innerHTML = html;
+  // 배송분 목록 (출항일마다): 보낸 수량 · 받은 수량(재고 증가 + 그 사이 판매로 추정) · 남은 수량
+  { const fr = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }).rows; const list = INV.shipmentSummary(DATA, fr);
+    $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
+    $$('#inv-ship-list button[data-ship-del]').forEach((b) => b.onclick = async () => { if (!confirm('이 배송분을 지울까요?')) return; const dd = await reload(); S.removeInvShipment(dd, b.dataset.shipDel); await S.save(dd); await reload(); renderInventory(); }); }
   const field = (attr, key) => $(`#inv-table [${attr}="${CSS.escape(key)}"]`);
   $$('#inv-table input[data-inv-in]').forEach((inp) => inp.onchange = async () => { const dd = await reload(); const n = S.setInvInbound(dd, inp.dataset.invIn, inp.value, localIso(today), '직접'); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', n ? `입고 예정 ${n}개를 넣었습니다` : '입고 예정을 지웠습니다 (윙 값 사용)', 'ok'); });
   $$('#inv-table input[data-inv-ord]').forEach((inp) => inp.onchange = async () => { const dd = await reload(); const n = S.setInvOrder(dd, inp.dataset.invOrd, inp.value, localIso(today)); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', n ? `주문해 둔 수량 ${n}개를 넣었습니다 (발주 추천에서 뺌)` : '주문해 둔 수량을 지웠습니다', 'ok'); });
@@ -969,17 +973,33 @@ $('#inv-bulk-go').onclick = async () => {
 $('#inv-season-filter').onchange = () => renderInventory();
 // 입고 예정: 출고리스트 올리기 / 목록 받기 / 모두 지우기 / 유지 기간
 $('#inv-ship-file').onchange = async (ev) => {
-  const fl = ev.target.files[0]; if (!fl) return; ev.target.value = '';
+  const files = [...ev.target.files]; ev.target.value = ''; if (!files.length) return;
+  const day = localIso(today); const notes = []; let anyErr = false;
   try {
-    const recs = await fileToRecords(await fl.arrayBuffer(), fl.name, ['수량']);
-    if (!recs.length) throw new Error('파일에서 수량 칸이 있는 표를 찾지 못했습니다');
-    const rows = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }).rows;
-    const r = INV.parseShipment(recs, rows); if (r.how.error) throw new Error(r.how.error);
-    if (!r.rows.length) throw new Error(`옵션을 하나도 찾지 못했습니다 (찾은 칸: ${Object.entries(r.how).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ') || '없음'})${r.unmatched.length ? ` — 예: ${r.unmatched.slice(0, 3).join(' / ')}` : ''}`);
+    const rowsAll = INV.inventoryForecast(DATA, day, { showMissing: true }).rows;
     const dd = await reload(); if ($('#inv-ship-replace').checked) S.clearInvInbound(dd);
-    const day = localIso(today); let total = 0; for (const x of r.rows) total += S.setInvInbound(dd, x.option_id, x.qty, day, fl.name);   // 같은 옵션은 파일의 수량으로 바꿔 넣음 (같은 파일을 두 번 올려도 두 배가 되지 않게)
+    for (const fl of files) {
+      try {
+        const sheets = await fileSheetsRecords(await fl.arrayBuffer(), fl.name, ['수량']);
+        if (!sheets.length) throw new Error('수량 칸이 있는 표가 없습니다');
+        // 시트마다 읽어 보고 옵션을 가장 많이 찾은 시트 (출고리스트의 '세부 리스트' 같은 시트)
+        const best = sheets.map((sh) => ({ sh, r: INV.parseShipment(sh.records, rowsAll, dd.invBarcodes || {}) })).sort((a, b) => b.r.rows.length - a.r.rows.length || a.r.unmatched.length - b.r.unmatched.length)[0];
+        const r = best.r; if (r.how.error) throw new Error(r.how.error);
+        if (!r.rows.length) throw new Error(`옵션을 하나도 찾지 못했습니다${r.unmatched.length ? ` — 예: ${r.unmatched.slice(0, 3).map((u) => u.label).join(' / ')}` : ''}`);
+        const date = INV.dateFromShipName(fl.name, day) || $('#inv-ship-date').value || day;
+        const items = Object.fromEntries(r.rows.map((x) => [x.option_id, x.qty])); const names = Object.fromEntries(r.rows.map((x) => [x.option_id, x.name]));
+        const { base, baseDate } = S.stockBaseFor(dd, date, Object.keys(items));
+        // 같은 파일을 다시 올리면 바꿔 넣음 (두 번 더해지지 않게)
+        dd.invShipments = (dd.invShipments || []).filter((x) => !(x.name === fl.name && x.date === date));
+        S.addInvShipment(dd, { date, name: fl.name, items, names, base, baseDate });
+        dd.invBarcodes = { ...(dd.invBarcodes || {}), ...r.learned };
+        const total = r.rows.reduce((a, x) => a + x.qty, 0);
+        notes.push(`${date.slice(5).replace('-', '/')} 출항 '${fl.name}' (${best.sh.name}): 옵션 ${r.rows.length}개 ${fmtInt(total)}개${r.unmatched.length ? ` · 못 찾음 ${r.unmatched.length}줄(${r.unmatched.slice(0, 3).map((u) => `${u.label} ${u.qty}개`).join(' / ')})` : ''}`);
+        if (r.unmatched.length) anyErr = true;
+      } catch (e) { anyErr = true; notes.push(`'${fl.name}': ${e.message}`); }
+    }
     await S.save(dd); await reload(); renderInventory();
-    msg('#inv-msg', `출고리스트에서 옵션 ${r.rows.length}개, 입고 예정 ${fmtInt(total)}개를 넣었습니다 (찾은 칸: ${[r.how.oid && '옵션ID', r.how.sku && 'SKU', r.how.barcode && '바코드', r.how.name && '상품명'].filter(Boolean).join('·')} / 수량 '${r.how.qty}')${r.unmatched.length ? ` · 못 찾은 줄 ${r.unmatched.length}개: ${r.unmatched.slice(0, 3).join(' / ')}` : ''}`, r.unmatched.length ? 'err' : 'ok');
+    msg('#inv-msg', notes.join(' ;; '), anyErr ? 'err' : 'ok');
   } catch (e) { msg('#inv-msg', e.message, 'err'); }
 };
 $('#inv-ship-dl').onclick = () => { const rows = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }).rows; const csv = INV.inboundCsv(rows); const n = csv.trim().split('\r\n').length - 1; if (!n) { msg('#inv-msg', '넣어 둔 입고 예정이 없습니다', 'err'); return; } download(`입고예정_${localIso(today)}.csv`, csv, 'text/csv;charset=utf-8'); msg('#inv-msg', `입고 예정 ${n}개 옵션을 파일로 받았습니다`, 'ok'); };

@@ -136,3 +136,12 @@ export async function fileToRecords(buf, filename, mustHave) {
   if (/�/.test(text)) text = new TextDecoder('euc-kr').decode(buf);
   return rowsToRecords(parseCsv(text.replace(/^﻿/, '')), mustHave);
 }
+
+// 시트마다 표를 읽어 [{ name, records }] 로 (출고리스트처럼 요약 시트와 세부 시트가 따로 있는 파일용)
+export async function fileSheetsRecords(buf, filename, mustHave) {
+  const name = (filename || '').toLowerCase(); const u8 = new Uint8Array(buf);
+  if (!name.endsWith('.csv') && !name.endsWith('.txt') && u8[0] === 0x50 && u8[1] === 0x4b) {
+    const sheets = await parseXlsx(buf); return sheets.map((sh) => ({ name: sh.name, records: rowsToRecords(sh.rows, mustHave) })).filter((x) => x.records.length);
+  }
+  return [{ name: filename, records: await fileToRecords(buf, filename, mustHave) }];
+}

@@ -1535,11 +1535,52 @@ console.log('extension logic: all checks passed');
   assert.equal(INV.groupByProduct(rows())[0].inboundUsed, 92);
   // 목록 받기 → 다시 올리면 같은 값
   const csv = INV.inboundCsv(rows()); const lines = csv.trim().split('\r\n'); assert.equal(lines.length, 4); assert.ok(lines[0].startsWith('옵션ID,상품명,옵션명,입고 예정 수량'));
-  const back = lines.slice(1).map((l) => { const c = l.split(','); return { '옵션ID': c[0], '입고 예정 수량': c[c.length - 3] }; });
+  const back = lines.slice(1).map((l) => { const c = l.split(','); return { '옵션ID': c[0], '입고 예정 수량': c[c.length - 5] }; });
   assert.deepEqual(INV.parseShipment(back, rows()).rows.map((x) => x.qty).sort((a, b) => a - b), [12, 30, 50]);
-  // 유지 기간(기본 14일)이 지나면 그만 뺌 → 윙 값으로
-  S.setInvInbound(d, 'A1', 200, '2026-11-01', '직접'); assert.equal(by('A1').inboundMineExpired, true); assert.equal(by('A1').inboundUsed, 50);
+  // 유지 기간(기본 30일)이 지나면 그만 뺌 → 윙 값으로
+  S.setInvInbound(d, 'A1', 200, '2026-10-01', '직접'); assert.equal(by('A1').inboundMineExpired, true); assert.equal(by('A1').inboundUsed, 50);
   assert.equal(S.clearInvInbound(d), 3); assert.equal(by('A3').inboundUsed, 0);
   assert.ok(INV.parseShipment([{ '상품명': 'x' }], []).how.error);   // 수량 칸 없으면 알려 줌
   console.log('inventory inbound typed or from a shipment list: all checks passed');
+}
+
+// 출고리스트 배송분: 세부 리스트 모양(박스 줄·바코드·상세옵션 순서 다름) 읽기, 출항일은 파일 이름에서, 받은 양 = 재고 증가 + 그 사이 판매로 오래된 배송분부터 채움
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  assert.equal(INV.dateFromShipName('DU 출고리스트 11_22 3PL.xlsx', '2026-11-24'), '2026-11-22');
+  assert.equal(INV.dateFromShipName('출고 2026-11-20.xlsx', '2026-11-24'), '2026-11-20');
+  assert.equal(INV.dateFromShipName('DU 12_30.xlsx', '2026-01-05'), '2025-12-30');   // 연도 없이 미래면 작년
+  assert.equal(INV.dateFromShipName('목록.xlsx', '2026-11-24'), null);
+  const VEST = 'DUGN 패딩 조끼';
+  const inv = (n) => ({ option_id: 'V' + n, product_id: 'P', product_name: `${VEST}, 블랙, 공용 ${['S', 'M', 'L'][n]}` });
+  const sales = {}; for (const day of ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23']) sales[day] = { V0: { option_id: 'V0', product_id: 'P', product_name: VEST, option_name: `${VEST}, 블랙, 공용 S`, quantity: 10, sales_type: '로켓그로스' } };
+  const d = { sales, inventory: { '2026-11-20': { V0: { ...inv(0), stock: 100 }, V1: { ...inv(1), stock: 50 } }, '2026-11-24': { V0: { ...inv(0), stock: 150 }, V1: { ...inv(1), stock: 50 } } } };
+  const T = '2026-11-24'; const rows0 = INV.inventoryForecast(d, T, { showMissing: true }).rows;
+  // 세부 리스트: 박스마다 한 줄, 옵션 글자 순서가 쿠팡과 다름 ('공용 S 블랙' ↔ '블랙, 공용 S')
+  const recs = [
+    { '출고 방식': '일반택배', '박스남버': 'DU20-1', '품명': VEST, '바코드': '880001', '상세옵션': '공용 S 블랙', '총수량': 50, '재품': '조끼' },
+    { '출고 방식': '일반택배', '박스남버': 'DU20-2', '품명': VEST, '바코드': '880001', '상세옵션': '공용 S 블랙', '총수량': 50, '재품': '조끼' },
+    { '출고 방식': '일반택배', '박스남버': 'DU20-3', '품명': VEST, '바코드': '880002', '상세옵션': '공용 M 블랙', '총수량': 30, '재품': '조끼' },
+    { '출고 방식': '일반택배', '박스남버': 'DU20-4', '품명': VEST, '바코드': '880009', '상세옵션': '공용 XXL 블랙', '총수량': 5, '재품': '조끼' } ];
+  const r = INV.parseShipment(recs, rows0, {});
+  assert.equal(r.how.qty, '총수량'); assert.equal(r.how.name, '품명+상세옵션');
+  assert.deepEqual(Object.fromEntries(r.rows.map((x) => [x.option_id, x.qty])), { V0: 100, V1: 30 }); assert.equal(r.unmatched.length, 1); assert.equal(r.unmatched[0].qty, 5);
+  assert.deepEqual(r.learned, { 880001: 'V0', 880002: 'V1' });
+  assert.equal(INV.parseShipment([{ '바코드': '880001', '총수량': 7 }], rows0, r.learned).rows[0].option_id, 'V0');   // 다음엔 바코드만으로
+  // 배송분 두 개: 11/20 V0 100개·V1 30개, 11/22 V0 80개 → 11/24 재고 V0 100→150 + 그 사이 판매 30(11/21~23) = 받은 양 80 → 11/20 분 80/100, 11/22 분 0/80
+  const b1 = S.stockBaseFor(d, '2026-11-20', ['V0', 'V1']); assert.deepEqual(b1, { baseDate: '2026-11-20', base: { V0: 100, V1: 50 } });
+  S.addInvShipment(d, { date: '2026-11-20', name: 'a.xlsx', items: { V0: 100, V1: 30 }, ...b1 });
+  S.addInvShipment(d, { date: '2026-11-22', name: 'b.xlsx', items: { V0: 80, N9: 40 }, names: { N9: `${VEST}, 블랙, 공용 XL` }, ...S.stockBaseFor(d, '2026-11-22', ['V0', 'N9']) });
+  const f = INV.inventoryForecast(d, T); const by = (id) => f.rows.find((x) => x.option_id === id);
+  assert.equal(by('V0').ship.received, 80); assert.equal(by('V0').ship.shipped, 180); assert.equal(by('V0').inboundUsed, 100); assert.equal(by('V0').inboundSrc, 'ship');
+  assert.deepEqual(by('V0').ship.per.map((p) => [p.date, p.qty, p.got]), [['2026-11-20', 100, 80], ['2026-11-22', 80, 0]]);
+  assert.equal(by('V1').inboundUsed, 30);   // V1 재고 그대로 → 아직 안 들어옴
+  assert.ok(by('N9')); assert.equal(by('N9').inboundUsed, 40); assert.equal(by('N9').shipOnly, true);   // 윙 목록에 아직 없는 옵션도 배송분으로 보임
+  const sum = INV.shipmentSummary(d, INV.inventoryForecast(d, T, { showMissing: true }).rows);
+  assert.deepEqual(sum.map((x) => [x.date, x.qty, x.got, x.left]), [['2026-11-22', 120, 0, 120], ['2026-11-20', 130, 80, 50]]);
+  // 직접 적은 값이 있으면 그것이 먼저, 배송분 지우기, 유지 기간 지나면 안 셈
+  S.setInvInbound(d, 'V0', 5, T, '직접'); assert.equal(INV.inventoryForecast(d, T).rows.find((x) => x.option_id === 'V0').inboundUsed, 5); S.setInvInbound(d, 'V0', '', T);
+  assert.equal(S.removeInvShipment(d, d.invShipments[1].id), 1); assert.ok(!INV.inventoryForecast(d, T).rows.find((x) => x.option_id === 'N9'));
+  assert.equal(INV.inventoryForecast(d, '2027-01-30').rows.find((x) => x.option_id === 'V1').inboundUsed, 0);
+  console.log('shipment lists as inbound with automatic receipt estimate: all checks passed');
 }

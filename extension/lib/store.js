@@ -266,7 +266,19 @@ export function setInvInbound(d, optionId, qty, date, src = '직접') {
   if (!n) delete d.invInbound[optionId]; else d.invInbound[optionId] = { qty: n, date, src };
   return n;
 }
-export function clearInvInbound(d) { const n = Object.keys(d.invInbound || {}).length; d.invInbound = {}; return n; }
+export function clearInvInbound(d) { const n = Object.keys(d.invInbound || {}).length + (d.invShipments || []).length; d.invInbound = {}; d.invShipments = []; return n; }
+// 배송분(출항할 때 올린 출고리스트 하나): { id, date: 출항일, name: 파일 이름, items: { option_id: 수량 }, base: { option_id: 그때 재고 }, baseDate }
+export function addInvShipment(d, { date, name = '', items = {}, names = {}, base = {}, baseDate = null }) {
+  d.invShipments ||= []; const id = `${date}-${Math.random().toString(36).slice(2, 8)}`;
+  d.invShipments.push({ id, date, name, items, names, base, baseDate: baseDate || date, at: new Date().toISOString().slice(0, 16) });
+  d.invShipments = d.invShipments.slice(-200); return id;
+}
+export function removeInvShipment(d, id) { const n = (d.invShipments || []).length; d.invShipments = (d.invShipments || []).filter((s) => s.id !== id); return n - d.invShipments.length; }
+// 배송분의 기준 재고: 출항일(또는 그 전) 가장 가까운 날의 윙 재고 (그날 없던 옵션은 0 = 품절이던 것)
+export function stockBaseFor(d, date, optionIds) {
+  const days = Object.keys(d.inventory || {}).filter((x) => x <= date).sort(); const bd = days[days.length - 1] || Object.keys(d.inventory || {}).sort()[0] || null;
+  const inv = bd ? d.inventory[bd] : {}; return { baseDate: bd, base: Object.fromEntries(optionIds.map((o) => [o, Number(inv?.[o]?.stock) || 0])) };
+}
 export function setInvOrder(d, optionId, qty, date) {
   d.invOrders ||= {}; const n = Math.max(0, Math.round(Number(qty) || 0));
   if (!n) delete d.invOrders[optionId]; else d.invOrders[optionId] = { qty: n, date };
