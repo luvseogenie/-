@@ -909,7 +909,7 @@ async function renderInventory() {
   $('#inv-use-inbound').checked = st.useInbound !== false; $('#inv-th-inbound').innerHTML = st.useInbound !== false ? '입고 예정' : '입고 예정<br><span class="sub">(빼지 않음)</span>';
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
   const a = meta?.api; const notDone = a && a.items && (a.reason || a.err || (a.total && a.total > a.items) || (!a.added && a.requests <= 1 && !a.total));
-  const apiTxt = a ? (a.items ? ` · 서버 데이터 ${a.items}개${a.total ? ` (서버가 말한 전체 ${a.total}개${a.total > a.items ? ' — 덜 읽음' : ''})` : ''}${notDone ? ` · 더 불러오기: ${a.reason || a.err || a.stop || '안 됨'}${a.mode ? ` [${a.mode}]` : ''} (요청 칸: ${(a.keys || '-').slice(0, 120)} / 응답 칸: ${(a.topKeys || '-').slice(0, 80)})` : ''}` : ` · 서버 데이터 못 읽음 (${a.why})`) : '';
+  const apiTxt = a ? (a.items ? ` · 서버 데이터 ${a.items}개${a.mode ? ` [${a.mode} ${a.requests}번${a.stop ? ' · ' + a.stop : ''}]` : ''}${a.total ? ` (서버가 말한 전체 ${a.total}개${a.total > a.items ? ' — 덜 읽음' : ''})` : ''}${notDone ? ` · 더 불러오기: ${a.reason || a.err || a.stop || '안 됨'}${a.mode ? ` [${a.mode}]` : ''} (요청 칸: ${(a.keys || '-').slice(0, 120)} / 응답 칸: ${(a.topKeys || '-').slice(0, 80)})` : ''}` : ` · 서버 데이터 못 읽음 (${a.why})`) : '';
   $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
   const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
@@ -937,8 +937,8 @@ async function renderInventory() {
   } else html = INV.sortInventory(rows, sortBy, (x) => `${x.group_name || x.product_name} ${x.label}`).slice(0, 600).map((x) => optRow(x, false)).join('');
   $('#inv-table tbody').innerHTML = html;
   // 배송분 목록 (출항일마다): 보낸 수량 · 받은 수량(재고 증가 + 그 사이 판매로 추정) · 남은 수량
-  { const fr = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }).rows; const list = INV.shipmentSummary(DATA, fr);
-    $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
+  { const ff = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }); const list = INV.shipmentSummary(DATA, ff.rows, ff.shipPending);
+    $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}${x.pending?.length ? ` · <span title="${esc(x.pending.map((q) => `${q.label} ${q.qty}개`).join('\n'))}">옵션 연결 대기 ${x.pending.length}줄 ⓘ</span>` : ''}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';
     $$('#inv-ship-list button[data-ship-del]').forEach((b) => b.onclick = async () => { if (!confirm('이 배송분을 지울까요?')) return; const dd = await reload(); S.removeInvShipment(dd, b.dataset.shipDel); await S.save(dd); await reload(); renderInventory(); }); }
   const field = (attr, key) => $(`#inv-table [${attr}="${CSS.escape(key)}"]`);
   $$('#inv-table input[data-inv-in]').forEach((inp) => inp.onchange = async () => { const dd = await reload(); const n = S.setInvInbound(dd, inp.dataset.invIn, inp.value, localIso(today), '직접'); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', n ? `입고 예정 ${n}개를 넣었습니다` : '입고 예정을 지웠습니다 (윙 값 사용)', 'ok'); });
@@ -991,11 +991,10 @@ $('#inv-ship-file').onchange = async (ev) => {
         const { base, baseDate } = S.stockBaseFor(dd, date, Object.keys(items));
         // 같은 파일을 다시 올리면 바꿔 넣음 (두 번 더해지지 않게)
         dd.invShipments = (dd.invShipments || []).filter((x) => !(x.name === fl.name && x.date === date));
-        S.addInvShipment(dd, { date, name: fl.name, items, names, base, baseDate });
+        S.addInvShipment(dd, { date, name: fl.name, items, names, base, baseDate, pending: r.unmatched });   // 못 찾은 줄도 보관: 쿠팡에 옵션이 생기면 자동 연결
         dd.invBarcodes = { ...(dd.invBarcodes || {}), ...r.learned };
         const total = r.rows.reduce((a, x) => a + x.qty, 0);
-        notes.push(`${date.slice(5).replace('-', '/')} 출항 '${fl.name}' (${best.sh.name}): 옵션 ${r.rows.length}개 ${fmtInt(total)}개${r.unmatched.length ? ` · 못 찾음 ${r.unmatched.length}줄(${r.unmatched.slice(0, 3).map((u) => `${u.label} ${u.qty}개`).join(' / ')})` : ''}`);
-        if (r.unmatched.length) anyErr = true;
+        notes.push(`${date.slice(5).replace('-', '/')} 출항 '${fl.name}' (${best.sh.name}): 옵션 ${r.rows.length}개 ${fmtInt(total)}개${r.unmatched.length ? ` · 아직 쿠팡 목록에 없는 옵션 ${r.unmatched.length}줄은 보관해 두고 옵션이 생기면 자동 연결 (${r.unmatched.slice(0, 3).map((u) => `${u.label} ${u.qty}개`).join(' / ')})` : ''}`);
       } catch (e) { anyErr = true; notes.push(`'${fl.name}': ${e.message}`); }
     }
     await S.save(dd); await reload(); renderInventory();

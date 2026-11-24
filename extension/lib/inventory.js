@@ -167,7 +167,14 @@ export function inventoryForecast(d, today, settings = {}) {
   { const have = new Set(base.map((x) => String(x.option_id))); const today0 = today; const keep0 = Number(st.inboundKeepDays) || 30;
     for (const sh of d.invShipments || []) { if (!sh?.items || !sh.date || today0 > addDays(sh.date, keep0)) continue; for (const [oid, q] of Object.entries(sh.items)) { if (have.has(oid) || !(q > 0)) continue; have.add(oid); const f = facts[oid] || {}; base.push({ option_id: oid, product_id: f.product_id || '', product_name: f.product_name || sh.names?.[oid] || '', option_name: f.option_name || '', stock: 0, inbound: 0, shipOnly: true }); } } }
   const keepDays = Number(st.inboundKeepDays) || 30;
-  const shipments = (d.invShipments || []).filter((s) => s && s.items && s.date && today <= addDays(s.date, keepDays)).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  // 출고리스트에서 못 찾았던 줄(그때 쿠팡에 없던 옵션): 지금 목록에서 바코드·이름으로 다시 찾아 그 배송분에 넣는다
+  const candRows = base.map((x) => { const f = facts[x.option_id] || {}; const g = baseProductName(x, f.product_name) || f.product_name || x.product_name; return { option_id: x.option_id, missing: !!x.missing, group_name: g, label: optionLabel({ ...x, option_name: x.option_name || (f.option_name && f.option_name !== x.product_name ? f.option_name : '') }, g) }; });
+  const matchName = nameMatcher(candRows); const barMap = d.invBarcodes || {}; const shipPending = {};
+  const shipments = (d.invShipments || []).filter((s) => s && s.items && s.date && today <= addDays(s.date, keepDays)).map((s) => {
+    if (!s.pending?.length) return s; const items = { ...s.items }, bs = { ...(s.base || {}) }; const left = [];
+    for (const p of s.pending) { const oid = (p.barcode && barMap[p.barcode]) || matchName(p.pname, p.oname)?.option_id; if (oid) { items[oid] = (items[oid] || 0) + p.qty; if (bs[oid] == null) bs[oid] = Number(d.inventory?.[s.baseDate]?.[oid]?.stock) || 0; } else left.push(p); }
+    shipPending[s.id] = left; return { ...s, items, base: bs };
+  }).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   const rgSold = (oid, from, to) => { let n = 0; for (const [date, day] of Object.entries(d.sales || {})) { if (date <= from || date > to) continue; const r = Object.values(day).find((y) => y.option_id === oid); if (r && r.quantity > 0 && (!r.sales_type || /그로스/.test(r.sales_type))) n += r.quantity; } return n; };
   const shipState = (oid, stockNow) => {
     const list = shipments.filter((s) => s.items[oid] > 0); if (!list.length) return null;
@@ -210,7 +217,7 @@ export function inventoryForecast(d, today, settings = {}) {
   });
   const order = LEVEL_ORDER;
   rows.sort((a, b) => (order[a.level] - order[b.level]) || (a.daysLeft - b.daysLeft) || (b.rate - a.rate));
-  return { asOf, rows, settings: st };
+  return { asOf, rows, settings: st, shipPending };
 }
 
 // 윙 화면이 서버에서 받은 재고 데이터(줄마다 평평하게 편 객체) → 재고 줄.
@@ -254,6 +261,18 @@ export function apiInventoryRows(items, screenRows = []) {
 // barcodeMap: { 바코드: 옵션ID } (전에 맞춘 것). 새로 이름으로 맞춘 바코드는 learned 로 돌려준다
 const tokSet = (v) => String(v ?? '').toLowerCase().replace(/[()\[\]·]/g, ' ').split(/[\s,/]+/).map((t) => t.trim()).filter(Boolean).sort().join('|');
 const nkName = (v) => String(v ?? '').replace(/[\s,·_()\[\]\-/]/g, '').toLowerCase();
+// 상품명+옵션명으로 재고 목록의 옵션 찾기 (옵션 글자 순서가 달라도, 한쪽에만 '1개' 같은 글자가 있어도). 같은 이름이 여럿이면 윙 재고에 있는 것
+export function nameMatcher(invRows) {
+  const opts = invRows.map((r) => ({ r, g: nkName(r.group_name || r.product_name), o: tokSet(r.label || r.option_name || '') }));
+  return (pname, oname) => {
+    const g = nkName(pname), o = tokSet(oname); if (!o) return null;
+    const pool = opts.filter((x) => x.g && g && (x.g === g || x.g.includes(g) || g.includes(x.g)));
+    const one = (h) => { if (h.length === 1) return h[0].r; const inStock = h.filter((x) => !x.r.missing); return inStock.length === 1 ? inStock[0].r : null; };
+    let hit = pool.filter((x) => x.o === o); if (hit.length) return one(hit);
+    const os = new Set(o.split('|')); hit = pool.filter((x) => { const xs = x.o.split('|'); return xs.length && (xs.every((t) => os.has(t)) || [...os].every((t) => xs.includes(t))); });
+    return hit.length ? one(hit) : null;
+  };
+}
 export function parseShipment(records, invRows = [], barcodeMap = {}) {
   if (!records?.length) return { rows: [], unmatched: [], how: {}, learned: {} };
   const headers = Object.keys(records[0]); const nh = headers.map((h) => String(h).replace(/\s+/g, '').toLowerCase());
@@ -268,18 +287,7 @@ export function parseShipment(records, invRows = [], barcodeMap = {}) {
   const byOid = new Map(invRows.map((r) => [String(r.option_id), r]));
   const bySku = new Map(invRows.filter((r) => r.sku).map((r) => [String(r.sku), r]));
   const byBar = new Map(invRows.filter((r) => r.barcode).map((r) => [String(r.barcode), r]));
-  // 상품 → 옵션 이름표(토큰 묶음)
-  const opts = invRows.map((r) => ({ r, g: nkName(r.group_name || r.product_name), o: tokSet(r.label || r.option_name || ''), full: tokSet(`${r.label || ''}`) }));
-  const findByName = (pname, oname) => {
-    const g = nkName(pname), o = tokSet(oname); if (!o) return null;
-    const sameProd = opts.filter((x) => x.g && g && (x.g === g || x.g.includes(g) || g.includes(x.g)));
-    const pool = sameProd.length ? sameProd : [];
-    const one = (h) => { if (h.length === 1) return h[0].r; const inStock = h.filter((x) => !x.r.missing); return inStock.length === 1 ? inStock[0].r : null; };   // 같은 이름이 여럿이면(묶음 옵션 등) 윙 재고에 있는 것
-    let hit = pool.filter((x) => x.o === o); if (hit.length) return one(hit);
-    // 한쪽 옵션 글자가 다른 쪽을 모두 포함 ('1개' 같은 글자가 한쪽에만 있을 때)
-    const os = new Set(o.split('|')); hit = pool.filter((x) => { const xs = x.o.split('|'); return xs.length && (xs.every((t) => os.has(t)) || [...os].every((t) => xs.includes(t))); });
-    return hit.length ? one(hit) : null;
-  };
+  const findByName = nameMatcher(invRows);
   const out = {}; const names = {}; const unmatched = []; const learned = {};
   if (!cQty) return { rows: [], unmatched: [], learned, how: { error: `수량 칸을 찾지 못했습니다 (칸 이름: ${headers.slice(0, 15).join(' | ')})` } };
   for (const rec of records) {
@@ -290,7 +298,7 @@ export function parseShipment(records, invRows = [], barcodeMap = {}) {
     if (!hit && cSku) hit = bySku.get(clean(rec[cSku])) || null;
     if (!hit && bar) hit = byBar.get(bar) || null;
     if (!hit && (cPname || cOname)) { hit = findByName(cPname ? rec[cPname] : '', cOname ? rec[cOname] : ''); if (hit && bar) learned[bar] = String(hit.option_id); }
-    if (!hit) { const label = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(' / ') || bar || Object.values(rec).slice(0, 3).join(' ')).slice(0, 80); if (!unmatched.some((u) => u.label === label)) unmatched.push({ label, barcode: bar, qty: 0 }); unmatched.find((u) => u.label === label).qty += q; continue; }
+    if (!hit) { const label = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(' / ') || bar || Object.values(rec).slice(0, 3).join(' ')).slice(0, 80); if (!unmatched.some((u) => u.label === label)) unmatched.push({ label, barcode: bar, pname: cPname ? String(rec[cPname] ?? '') : '', oname: cOname ? String(rec[cOname] ?? '') : '', qty: 0 }); unmatched.find((u) => u.label === label).qty += q; continue; }
     const k = String(hit.option_id); out[k] = (out[k] || 0) + q; if (!names[k]) names[k] = String([cPname && rec[cPname], cOname && rec[cOname]].filter(Boolean).join(', ')).slice(0, 120);
   }
   return { rows: Object.entries(out).map(([option_id, qty]) => ({ option_id, qty, name: names[option_id] || '' })), unmatched, learned, how: { oid: cOid, sku: cSku, barcode: cBar, qty: cQty, name: [cPname, cOname].filter(Boolean).join('+') } };
@@ -311,7 +319,7 @@ export function inboundCsv(rows) {
   return [head, ...body].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 // 배송분 목록 요약: 배송분마다 옵션 수 · 보낸 수량 · 받은 수량(추정) · 남은 수량
-export function shipmentSummary(d, rows) {
+export function shipmentSummary(d, rows, shipPending = {}) {
   const by = {}; for (const r of rows) for (const p of r.ship?.per || []) { const x = (by[p.id] ||= { qty: 0, got: 0 }); x.qty += p.qty; x.got += p.got; }
-  return (d.invShipments || []).slice().sort((a, b) => b.date.localeCompare(a.date)).map((s) => { const x = by[s.id]; const total = Object.values(s.items || {}).reduce((a, n) => a + Number(n || 0), 0); return { id: s.id, date: s.date, name: s.name || '', options: Object.keys(s.items || {}).length, qty: total, got: x ? x.got : null, left: x ? x.qty - x.got : null, active: !!x }; });
+  return (d.invShipments || []).slice().sort((a, b) => b.date.localeCompare(a.date)).map((s) => { const x = by[s.id]; const left0 = shipPending[s.id] ?? (s.pending || []); const pendQty = left0.reduce((a, p) => a + (p.qty || 0), 0); const total = Object.values(s.items || {}).reduce((a, n) => a + Number(n || 0), 0) + (s.pending || []).reduce((a, p) => a + (p.qty || 0), 0); return { id: s.id, date: s.date, name: s.name || '', options: Object.keys(s.items || {}).length + (s.pending || []).length - left0.length, qty: total, got: x ? x.got : null, left: x ? x.qty - x.got + pendQty : null, active: !!x || !!left0.length, pending: left0 }; });
 }

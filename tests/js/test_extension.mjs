@@ -1584,3 +1584,22 @@ console.log('extension logic: all checks passed');
   assert.equal(INV.inventoryForecast(d, '2027-01-30').rows.find((x) => x.option_id === 'V1').inboundUsed, 0);
   console.log('shipment lists as inbound with automatic receipt estimate: all checks passed');
 }
+
+// 출고리스트에서 못 찾은 줄(그때 쿠팡에 없던 새 옵션)은 배송분에 보관 → 나중에 옵션이 생기면 자동 연결
+{
+  const INV = await import('../../extension/lib/inventory.js');
+  const RIB = 'DUGN 벨벳 리본';
+  const d = { sales: {}, inventory: { '2026-11-24': { R1: { option_id: 'R1', product_id: 'P', product_name: `${RIB}, 1개 2.5cm 글리터 레드`, stock: 10 } } } };
+  const rows0 = INV.inventoryForecast(d, '2026-11-24', { showMissing: true }).rows;
+  const r = INV.parseShipment([{ '품명': RIB, '바코드': 'B1', '상세옵션': '글리터 레드, 2.5cm 5야드, 1개', '수량': 200 }, { '품명': RIB, '바코드': 'B2', '상세옵션': '플로킹 레드, 2.0cm 7야드, 1개', '수량': 300 }], rows0, {});
+  assert.equal(r.rows.length, 1); assert.equal(r.unmatched.length, 1); assert.equal(r.unmatched[0].oname, '플로킹 레드, 2.0cm 7야드, 1개');
+  S.addInvShipment(d, { date: '2026-11-24', name: 'rib.xlsx', items: Object.fromEntries(r.rows.map((x) => [x.option_id, x.qty])), ...S.stockBaseFor(d, '2026-11-24', ['R1']), pending: r.unmatched });
+  let f = INV.inventoryForecast(d, '2026-11-24'); let sum = INV.shipmentSummary(d, INV.inventoryForecast(d, '2026-11-24', { showMissing: true }).rows, f.shipPending);
+  assert.equal(sum[0].qty, 500); assert.equal(sum[0].left, 500); assert.equal(sum[0].pending.length, 1);   // 아직 연결 대기
+  // 이틀 뒤 윙 목록에 새 옵션이 생겨 재고 120 (=120개 받음)
+  d.inventory['2026-11-26'] = { R1: { option_id: 'R1', product_id: 'P', product_name: `${RIB}, 1개 2.5cm 글리터 레드`, stock: 10 }, R2: { option_id: 'R2', product_id: 'P', product_name: `${RIB}, 1개 2.0cm 7야드 플로킹 레드`, stock: 120 } };
+  f = INV.inventoryForecast(d, '2026-11-26'); const r2 = f.rows.find((x) => x.option_id === 'R2');
+  assert.equal(r2.ship.shipped, 300); assert.equal(r2.ship.received, 120); assert.equal(r2.inboundUsed, 180);
+  sum = INV.shipmentSummary(d, INV.inventoryForecast(d, '2026-11-26', { showMissing: true }).rows, f.shipPending); assert.equal(sum[0].pending.length, 0); assert.equal(sum[0].left, 200 + 180);
+  console.log('shipment lines for options that appear later get linked: all checks passed');
+}
