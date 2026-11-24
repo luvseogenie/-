@@ -121,6 +121,14 @@
     for (const c of rowCalls) {
       const a = c === D ? aD : analyze(c); if (!a.page && !a.off && !a.cur) continue;
       const r = await walkPages(c, a, async (text) => { const n0 = Object.keys(items).length; const got = take(c, text, false); return { got, fresh: Object.keys(items).length - n0 }; }, maxReq);
+      // 쪽 번호를 바꿔도 같은 내용이면(서버가 쪽 칸을 무시) 한 번에 받는 개수를 크게 해서 처음부터 한 번 더 (1000 → 2000 → 5000)
+      if (a.size && (r.stopWhy === '같은 내용 반복' || r.stopWhy === '빈 응답') && r.per && r.per >= Number(a.size.get() || 0)) {
+        for (const big of [1000, 2000, 5000]) {
+          a.size.set(big); if (a.page) a.page.set(Number(a.page.get()) === 0 ? 0 : 1); if (a.off) a.off.set(0);
+          const n0 = Object.keys(items).length; let got = 0; try { got = take(c, await a.send(), false); } catch (e) { r.error = String(e && e.message || e); break; }
+          r.requests++; r.stopWhy += ` → 한 번에 ${big}개로 ${got}줄`; if (got < big || Object.keys(items).length === n0) break;
+        }
+      }
       return { ok: true, ...r, added: Object.keys(items).length - before, total: Object.keys(items).length, ...info(c, a, a.page ? 'page' : a.off ? 'offset' : 'cursor') };
     }
     if (aD.ids) {
