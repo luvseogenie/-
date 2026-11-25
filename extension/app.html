@@ -207,7 +207,7 @@
         <h2 style="margin-top:0">🧮 소싱 계산기 <span class="sub" id="src-count"></span></h2>
         <div class="row" style="flex-wrap:wrap;gap:6px">
           <label class="btn primary sm">엑셀에서 가져오기 <input type="file" id="src-file" accept=".xlsx" style="display:none"></label>
-          <button class="btn sm" id="src-add">+ 상품 추가</button><button class="btn sm" id="src-csv">엑셀(CSV)로 받기</button>
+          <label class="btn sm" title="윙 정산 '주문내역, 판매수수료' 엑셀(CATEGORY_TR), 가격/재고 일괄변경 엑셀(노출상품ID ↔ 등록상품ID), 상품별 사이즈 리포트 — 여러 개 한 번에">윙 파일 올리기 (정산·가격/재고·사이즈) <input type="file" id="src-wing" accept=".xlsx" multiple style="display:none"></label><button class="btn sm" id="src-add">+ 상품 추가</button><button class="btn sm" id="src-csv">엑셀(CSV)로 받기</button>
           <span class="sub">· 해외 원가 환율 CN×</span><input type="number" id="src-fx" class="tiny" min="100" max="1000" step="10">
           <span class="sub">· 적정원가 목표 마진율</span><input type="number" id="src-target" class="tiny" min="0" max="90" step="5"><span class="sub">%</span><button class="btn sm" id="src-set-save">저장</button>
           <a class="btn sm" href="https://wing.coupang.com/tenants/rfm/settlements/fee-information" target="_blank" rel="noopener">윙 수수료 안내 열기</a>

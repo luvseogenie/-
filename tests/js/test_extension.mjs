@@ -1674,3 +1674,23 @@ console.log('extension logic: all checks passed');
   const csv = SRC.sourcingCsv(r, { fx: 350, target: 0.4 }); assert.ok(csv.split('\r\n')[1].startsWith('1,비치타올,시즌,7900,0.108,2800,400,'));
   console.log('sourcing calculator matches the Excel formulas: all checks passed');
 }
+
+// 소싱 계산기: 윙 정산(판매수수료)·가격/재고(노출상품ID ↔ 등록상품ID)·사이즈 리포트로 F·카테고리·사이즈 채우기
+{
+  const SRC = await import('../../extension/lib/sourcing.js');
+  const facts = { bySeller: {}, exposeMap: {} };
+  const H = ['정산유형', '정산주기(종료일)', '거래유형', '카테고리ID', '카테고리명', '등록상품 ID', '옵션ID', '개별포장 상품 사이즈', '등록상품명', '판매수수료율(%,VAT별도)', '할인적용 판매수수료율(%,VAT별도)'];
+  const tr = [H, ['주정산', '2026-11-08', '주문 정산', '1562', '다운/패딩점퍼', '16409082912', '961', '극소형', 'DUGN 조끼', 10.5, 0], ['주정산', '2026-11-22', '주문 정산', '1562', '다운/패딩점퍼', '16409082912', '962', '극소형', 'DUGN 조끼', 10.8, 9.8], ['주정산', '2026-11-22', '주문 정산취소', '1937', '기타가정용품', '15753767118', '93', '소형', 'DUGN 담요', 10.8, 0]];
+  assert.equal(SRC.parseSettlementFees(tr, facts).n, 3);
+  assert.equal(facts.bySeller['16409082912'].feeRate, 0.098); assert.equal(facts.bySeller['16409082912'].category, '다운/패딩점퍼'); assert.equal(facts.bySeller['15753767118'].orders, 0);   // 최근 정산, 할인 적용 수수료율 / 취소는 주문 수에 안 셈
+  const pi = [['안내'], ['업체상품 ID', 'Product ID', '옵션 ID', '바코드'], ['16409082912', '9000000001', '961', ''], ['15753767118', '9000000002', '93', '880']];
+  assert.equal(SRC.parseExposeMap(pi, facts).n, 2); assert.equal(facts.exposeMap['9000000002'], '15753767118');
+  const sz = [['안내'], ['등록상품 ID', '옵션ID', 'SKU ID', '등록상품명', '옵션명', '상품 사이즈', null], [null, null, null, null, null, '[2025-01-05 까지]', '[2025-01-06 부터]'], ['15753767118', '93', '1', 'DUGN 담요', '1개', 'Small', '소형']];
+  assert.equal(SRC.parseSizeReport(sz, facts).n, 1); assert.equal(facts.bySeller['15753767118'].sizeNow, '소형');
+  const rows = [{ productId: '9000000001', fee: 0.108 }, { productId: '9000000003(화이트), 9000000002(우드)', fee: 0.108 }, { productId: '', fee: 0.108 }, { productId: '9999999999', fee: 0.108 }];
+  assert.equal(SRC.applyWingFacts(rows, facts), 2);
+  assert.deepEqual([rows[0].fee, rows[0].feeSrc, rows[0].category, rows[0].size], [0.098, '정산', '다운/패딩점퍼', '극소형']);
+  assert.deepEqual([rows[1].fee, rows[1].feeSrc, rows[1].size, rows[1].sellerId], [0.108, '정산', '소형', '15753767118']);   // 노출상품ID 여러 개 중 연결되는 것 (취소 줄의 수수료율도 실제 값)
+  assert.equal(rows[3].feeSrc, undefined);
+  console.log('sourcing fees and sizes from Wing settlement files: all checks passed');
+}

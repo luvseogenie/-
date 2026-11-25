@@ -64,3 +64,52 @@ export function sourcingCsv(rows, st) {
   const body = rows.map((r) => { const c = computeRow(r, st); return [r.no, r.keyword, r.season, r.price, r.fee, r.logi, c.fair, r.linkKr, r.costKr, r2(c.krFinal), r2(c.krMargin), r2(c.krRate), r2(c.krZero), r.linkCn, r.costCn, r2(c.cnKr), r2(c.cnFinal), r2(c.cnMargin), r2(c.cnRate), r2(c.cnZero), r.productId, r.category, r.progress, r.todo, ...STEPS.map(([k]) => (r.steps?.[k] ? '완료' : '미완료'))]; });
   return [head, ...body].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
+
+// ---- 윙 파일로 판매수수료(F)·사이즈 자동 채우기 ----
+// facts = { bySeller: { 등록상품ID: { name, category, categoryId, feeRate, sizes: { 극소형: n }, orders } }, exposeMap: { 노출상품ID: 등록상품ID } }
+const hn = (h) => String(h ?? '').replace(/\s+/g, '').toLowerCase();
+export const isSettlementFee = (headers) => { const n = headers.map(hn); return n.some((h) => h.startsWith('판매수수료율')) && n.includes('등록상품id') && n.includes('카테고리명'); };
+export const isPriceInventory = (headers) => { const n = headers.map(hn); return n.includes('productid') && n.some((h) => h === '업체상품id' || h === '등록상품id'); };
+// 정산 '주문내역, 판매수수료' 엑셀 → 등록상품마다 카테고리·실제 판매수수료율·사이즈 유형
+export function parseSettlementFees(rows, facts = { bySeller: {}, exposeMap: {} }) {
+  const hi = rows.findIndex((r) => r && isSettlementFee(r.map((c) => String(c ?? '')))); if (hi < 0) return { facts, n: 0 };
+  const h = rows[hi].map(hn); const ix = (k) => h.findIndex((x) => x === k || x.startsWith(k));
+  const cP = ix('등록상품id'), cN = ix('등록상품명'), cCat = ix('카테고리명'), cCid = ix('카테고리id'), cRate = ix('판매수수료율'), cDisc = ix('할인적용판매수수료율'), cSize = ix('개별포장상품사이즈'), cType = ix('거래유형'), cEnd = ix('정산주기');
+  let n = 0;
+  for (const r of rows.slice(hi + 1)) {
+    if (!r || !r[cP]) continue; const pid = String(r[cP]).replace(/\.0$/, ''); const rate = Number(r[cRate]); const disc = Number(r[cDisc]);
+    const x = (facts.bySeller[pid] ||= { name: '', category: '', categoryId: '', feeRate: null, sizes: {}, orders: 0, period: '' });
+    x.name ||= String(r[cN] ?? ''); if (r[cCat]) x.category = String(r[cCat]); if (r[cCid]) x.categoryId = String(r[cCid]);
+    const end = String(r[cEnd] ?? ''); if (Number.isFinite(rate) && rate > 0 && end >= (x.period || '')) { x.feeRate = Math.round((disc > 0 ? disc : rate) * 1e4) / 1e6; x.period = end; }   // 가장 최근 정산의 수수료율 (할인 적용이 있으면 그것)
+    if (r[cSize]) x.sizes[String(r[cSize])] = (x.sizes[String(r[cSize])] || 0) + 1;
+    if (!/취소/.test(String(r[cType] ?? ''))) x.orders++; n++;
+  }
+  return { facts, n };
+}
+// 윙 가격/재고 엑셀 → 노출상품ID(Product ID) ↔ 등록상품ID(업체상품 ID)
+export function parseExposeMap(rows, facts = { bySeller: {}, exposeMap: {} }) {
+  const hi = rows.findIndex((r) => r && isPriceInventory(r.map((c) => String(c ?? '')))); if (hi < 0) return { facts, n: 0 };
+  const h = rows[hi].map(hn); const cE = h.indexOf('productid'), cS = h.findIndex((x) => x === '업체상품id' || x === '등록상품id'); let n = 0;
+  for (const r of rows.slice(hi + 1)) { const e = String(r?.[cE] ?? '').replace(/\.0$/, ''), s = String(r?.[cS] ?? '').replace(/\.0$/, ''); if (/^\d{6,}$/.test(e) && /^\d{6,}$/.test(s)) { if (!facts.exposeMap[e]) n++; facts.exposeMap[e] = s; } }
+  return { facts, n };
+}
+// 상품별 사이즈 리포트(PRODUCT_SIZE_COMPARISON) → 등록상품마다 지금 사이즈 유형 (2025-01-06 부터 기준 칸)
+export function parseSizeReport(rows, facts = { bySeller: {}, exposeMap: {} }) {
+  const hi = rows.findIndex((r) => r && r.some((c) => hn(c) === '등록상품id') && r.some((c) => hn(c) === '상품사이즈')); if (hi < 0) return { facts, n: 0 };
+  const h = rows[hi].map(hn); const cP = h.indexOf('등록상품id'), cS = h.indexOf('상품사이즈'); const sub = rows[hi + 1] || [];
+  const cNew = sub.findIndex((c, i) => i >= cS && /부터/.test(String(c ?? ''))); const col = cNew >= 0 ? cNew : cS; let n = 0;
+  for (const r of rows.slice(hi + 1)) { if (!r || !/^\d{6,}$/.test(String(r[cP] ?? ''))) continue; const v = String(r[col] ?? '').trim(); if (!v || /까지|부터/.test(v)) continue; const x = (facts.bySeller[String(r[cP])] ||= { name: '', category: '', categoryId: '', feeRate: null, sizes: {}, orders: 0, period: '' }); x.sizeNow = v; n++; }
+  return { facts, n };
+}
+// 노출상품ID 칸에 '8882580425(화이트), 8882578716(우드)' 처럼 여러 개면 모두
+export const exposeIds = (v) => (String(v ?? '').match(/\d{8,12}/g) || []);
+// 소싱 줄에 채우기: 판매수수료(F) = 실제 정산 수수료율, 카테고리, 사이즈 유형. 고친 줄 수를 돌려준다
+export function applyWingFacts(rows, facts) {
+  let n = 0;
+  for (const r of rows) {
+    const sel = exposeIds(r.productId).map((e) => facts.exposeMap?.[e]).find((s) => s && facts.bySeller?.[s]); if (!sel) continue;
+    const x = facts.bySeller[sel]; const size = x.sizeNow || Object.entries(x.sizes || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    if (x.feeRate != null) { r.fee = x.feeRate; r.feeSrc = '정산'; } if (x.category) r.category = x.category; if (size) r.size = size; r.sellerId = sel; n++;
+  }
+  return n;
+}

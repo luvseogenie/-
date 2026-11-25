@@ -1057,7 +1057,7 @@ function srcRowHtml(r) {
   const SHORT = { sourced: '소싱', listed: '등록', shipped: '출고', received: '입고', conv: '전환', ads: '광고' };
   const steps = SRC.STEPS.map(([k, l]) => `<span class="src-step ${r.steps?.[k] ? 'on' : ''}" data-src-step="${k}" title="${l} (누르면 완료/미완료)">${SHORT[k]}</span>`).join('');
   return `<tr data-src-id="${esc(r.id)}"><td class="num sub">${esc(r.no || '')}</td><td class="l">${i('keyword', 130)}</td><td><select data-src-k="season">${['시즌', '비시즌', ''].map((s) => `<option value="${s}" ${(r.season || '') === s ? 'selected' : ''}>${s || '-'}</option>`).join('')}</select></td>
-    <td>${i('price', 70, '판매가')}</td><td class="l"><input list="src-cats" data-src-k="category" value="${esc(r.category || '')}" placeholder="카테고리 고르기" style="width:150px"> ${i('fee', 48, '0.108')}</td><td>${i('logi', 58, '물류비')}</td><td class="num"><b data-src-c="fair">${c.fair}</b></td>
+    <td>${i('price', 70, '판매가')}</td><td class="l"><input list="src-cats" data-src-k="category" value="${esc(r.category || '')}" placeholder="카테고리 고르기" style="width:150px"> ${i('fee', 48, '0.108')}${r.feeSrc === '정산' ? ' <span class="pill" title="윙 정산 엑셀의 실제 판매수수료율" style="font-size:10.5px">정산</span>' : ''}</td><td>${i('logi', 58, '물류비')}${r.size ? `<div class="sub" style="font-size:11px" title="쿠팡 물류센터가 잰 사이즈 유형">${esc(r.size)}</div>` : ''}</td><td class="num"><b data-src-c="fair">${c.fair}</b></td>
     <td class="l">${link(r.linkKr, '국내')}</td><td>${i('costKr', 62, '원가')}</td><td class="num ${c.krMarginCls}" data-src-c="krMargin">${c.krMargin}</td><td class="num ${c.krRateCls}" data-src-c="krRate">${c.krRate}</td><td class="num sub" data-src-c="krZero">${c.krZero}</td>
     <td>${i('costCn', 52, 'CN')}</td><td class="num sub" data-src-c="cnKr">${c.cnKr}</td><td class="num ${c.cnMarginCls}" data-src-c="cnMargin"><b>${c.cnMargin}</b></td><td class="num ${c.cnRateCls}" data-src-c="cnRate"><b>${c.cnRate}</b></td><td class="num sub" data-src-c="cnZero">${c.cnZero}</td><td class="l">${link(r.linkCn, '해외')}</td>
     <td>${i('productId', 92, '노출상품ID')}</td><td class="l">${i('todo', 120, 'TO DO')}<div class="src-steps">${steps}</div></td><td><button class="btn sm" data-src-del title="이 줄 지우기">✕</button></td></tr>`;
@@ -1082,7 +1082,7 @@ $('#src-table').addEventListener('change', async (ev) => {
   const el = ev.target; const tr = el.closest('tr[data-src-id]'); if (!tr || !el.dataset.srcK) return;
   const k = el.dataset.srcK; const raw = el.value.trim(); const numK = ['price', 'logi', 'costKr', 'costCn'].includes(k); const patch = { [k]: numK && raw !== '' && Number.isFinite(Number(raw.replace(/,/g, ''))) ? Number(raw.replace(/,/g, '')) : raw };
   if (k === 'category') { const f = (DATA.feeTable || []).find((x) => SRC.feeLabel(x) === el.value); if (f) { patch.fee = f.rate; const fi = tr.querySelector('input[data-src-k="fee"]'); if (fi) fi.value = f.rate; } }
-  if (k === 'fee') patch.fee = SRC.feeRate(el.value) ?? '';
+  if (k === 'fee') { patch.fee = SRC.feeRate(el.value) ?? ''; patch.feeSrc = ''; }
   const r = await srcSave(tr.dataset.srcId, patch); if (r) srcRefreshRow(tr, r);
 });
 $('#src-table').addEventListener('click', async (ev) => {
@@ -1090,6 +1090,27 @@ $('#src-table').addEventListener('click', async (ev) => {
   const sp = ev.target.closest('[data-src-step]'); if (sp) { const cur = (DATA.sourcing?.rows || []).find((x) => x.id === tr.dataset.srcId); const steps = { ...(cur?.steps || {}), [sp.dataset.srcStep]: !cur?.steps?.[sp.dataset.srcStep] }; await srcSave(tr.dataset.srcId, { steps }); sp.classList.toggle('on', steps[sp.dataset.srcStep]); return; }
   if (ev.target.closest('[data-src-del]')) { if (!confirm('이 상품 줄을 지울까요?')) return; const dd = await reload(); dd.sourcing.rows = dd.sourcing.rows.filter((x) => x.id !== tr.dataset.srcId); await S.save(dd); await reload(); renderSourcing(); }
 });
+$('#src-wing').onchange = async (ev) => {
+  const files = [...ev.target.files]; ev.target.value = ''; if (!files.length) return;
+  try {
+    const dd = await reload(); const facts = dd.wingFacts || { bySeller: {}, exposeMap: {} }; const notes = [];
+    for (const fl of files) {
+      const sheets = await parseXlsx(await fl.arrayBuffer()); let used = false;
+      for (const sh of sheets) {
+        let r = SRC.parseSettlementFees(sh.rows, facts); if (r.n) { notes.push(`정산 '${fl.name}': ${fmtInt(r.n)}줄`); used = true; continue; }
+        r = SRC.parseExposeMap(sh.rows, facts); if (r.n || sh.rows.some((x) => x && SRC.isPriceInventory(x.map((c) => String(c ?? ''))))) { notes.push(`가격/재고 '${fl.name}': 노출상품ID ${fmtInt(r.n)}개 연결`); used = true; continue; }
+        r = SRC.parseSizeReport(sh.rows, facts); if (r.n) { notes.push(`사이즈 '${fl.name}': ${fmtInt(r.n)}줄`); used = true; }
+      }
+      if (!used) notes.push(`'${fl.name}': 알아보지 못한 파일`);
+    }
+    dd.wingFacts = { ...facts, updated: new Date().toISOString().slice(0, 16) };
+    const rows = dd.sourcing?.rows || []; const n = SRC.applyWingFacts(rows, dd.wingFacts);
+    const withPid = rows.filter((r) => SRC.exposeIds(r.productId).length).length; const noMap = rows.filter((r) => SRC.exposeIds(r.productId).length && !SRC.exposeIds(r.productId).some((e) => dd.wingFacts.exposeMap[e])).length;
+    await S.save(dd); await reload(); renderSourcing();
+    const feeN = rows.filter((r) => r.feeSrc === '정산').length;
+    msg('#src-msg', `${notes.join(' · ')} → 노출상품ID 있는 ${withPid}개 중 ${n}개 연결: 실제 판매수수료 ${feeN}개 (나머지는 이 기간에 판매가 없어 사이즈·카테고리만)${noMap ? ` (노출상품ID 를 등록상품ID 로 못 바꾼 ${noMap}개 — 윙 가격/재고 엑셀을 같이 올리면 연결)` : ''}`, n ? 'ok' : 'err');
+  } catch (e) { msg('#src-msg', e.message, 'err'); }
+};
 $('#src-add').onclick = async () => { const dd = await reload(); dd.sourcing ||= { rows: [] }; const r = SRC.newRow(); r.no = String((dd.sourcing.rows.reduce((m, x) => Math.max(m, Number(x.no) || 0), 0)) + 1); dd.sourcing.rows.unshift(r); await S.save(dd); await reload(); $('#src-sort').value = 'no'; renderSourcing(); };
 $('#src-set-save').onclick = async () => { const dd = await reload(); dd.sourcing ||= { rows: [] }; dd.sourcing.fx = Math.max(1, Number($('#src-fx').value) || SRC.DEFAULT_SOURCING.fx); dd.sourcing.target = Math.max(0, Math.min(0.9, (Number($('#src-target').value) || 40) / 100)); await S.save(dd); await reload(); renderSourcing(); msg('#src-msg', '저장했습니다 (모든 줄 다시 계산)', 'ok'); };
 $('#src-csv').onclick = () => { const rows = DATA.sourcing?.rows || []; if (!rows.length) { msg('#src-msg', '상품이 없습니다', 'err'); return; } download(`소싱계산기_${localIso(today)}.csv`, SRC.sourcingCsv(rows, srcSettings()), 'text/csv;charset=utf-8'); };
@@ -1102,6 +1123,7 @@ $('#src-file').onchange = async (ev) => {
     const dd = await reload(); const had = (dd.sourcing?.rows || []).length;
     if (had && !confirm(`지금 목록(${had}개)을 '${sheetName}' 시트의 ${rows.length}개로 바꿀까요?`)) return;
     dd.sourcing = { ...(dd.sourcing || {}), rows }; if (fees.length) dd.feeTable = fees;
+    if (dd.wingFacts) SRC.applyWingFacts(rows, dd.wingFacts);   // 전에 올린 윙 정산·가격/재고 파일로 실제 수수료 다시 채움
     await S.save(dd); await reload(); renderSourcing(); msg('#src-msg', `'${sheetName}' 에서 상품 ${rows.length}개${fees.length ? `, 카테고리 수수료 ${fees.length}개` : ''}를 가져왔습니다`, 'ok');
   } catch (e) { msg('#src-msg', e.message, 'err'); }
 };
