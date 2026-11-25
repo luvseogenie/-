@@ -9,8 +9,9 @@ import { dataCheck, lastDataDate as lastDataOf, endRef as endRefOf } from './lib
 import * as AR from './lib/adreport.js';
 import { importAdReportFile, importInventoryFile } from './lib/importer.js';
 import * as INV from './lib/inventory.js';
-import { fileToRecords, fileSheetsRecords } from './lib/xlsx.js';
+import { fileToRecords, fileSheetsRecords, parseXlsx } from './lib/xlsx.js';
 import * as COMP from './lib/competitor.js';
+import * as SRC from './lib/sourcing.js';
 import { fixDay as fixRtDay, recomputeDay as recomputeRtDay, computeSnapshot as computeRtSnapshot } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
@@ -65,7 +66,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { comp: '경쟁사', inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { sourcing: '소싱 계산기', comp: '경쟁사', inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -89,7 +90,7 @@ function resetPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { resetPage(b.dataset.page); if (location.hash.slice(1) === b.dataset.page) showPage(b.dataset.page); else location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'comp') renderComp(); else if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'sourcing') renderSourcing(); else if (page === 'comp') renderComp(); else if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); try { renderAdrowsBanner(); } catch { /* 무시 */ } }
 // 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
@@ -1042,6 +1043,69 @@ $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim();
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14, useInbound: $('#inv-use-inbound').checked }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
 $('#inv-now').onclick = async () => { const b = $('#inv-now'); b.disabled = true; msg('#inv-msg', '윙 재고 화면을 여는 중… (작은 창이 떴다 닫힙니다, 1분쯤)'); const r = await chrome.runtime.sendMessage({ type: 'inventoryNow' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderInventory(); msg('#inv-msg', r?.ok ? '재고를 읽었습니다' : `읽지 못했습니다: ${(r?.error || '').slice(0, 300)}`, r?.ok ? 'ok' : 'err'); };
 $('#inv-file').onchange = async (ev) => { const fl = ev.target.files[0]; if (!fl) return; try { const r = await importInventoryFile(await fl.arrayBuffer(), fl.name); await reload(); renderInventory(); msg('#inv-msg', `재고 ${r.saved}개 옵션을 저장했습니다`, 'ok'); } catch (e) { msg('#inv-msg', e.message, 'err'); } ev.target.value = ''; };
+
+/* ===== 소싱 계산기 ===== */
+const srcSettings = () => ({ ...SRC.DEFAULT_SOURCING, ...((DATA.sourcing || {}).fx != null ? { fx: DATA.sourcing.fx } : {}), ...((DATA.sourcing || {}).target != null ? { target: DATA.sourcing.target } : {}) });
+function srcCalcCells(r) {
+  const c = SRC.computeRow(r, srcSettings()); const w = (v) => (v == null ? '' : fmtWon(Math.round(v))); const p = (v) => (v == null ? '' : `${(v * 100).toFixed(1)}%`); const z = (v) => (v == null || !isFinite(v) ? '-' : v < 0 ? '적자' : v.toFixed(2));
+  const cls = (v) => (v == null ? '' : v < 0 ? 'neg' : v >= 0.3 ? 'pos' : '');
+  return { fair: c.fair == null ? '' : fmtWon(c.fair), krMargin: w(c.krMargin), krRate: p(c.krRate), krRateCls: cls(c.krRate), krZero: z(c.krZero), cnKr: w(c.cnKr), cnMargin: w(c.cnMargin), cnRate: p(c.cnRate), cnRateCls: cls(c.cnRate), cnZero: z(c.cnZero), krMarginCls: c.krMargin < 0 ? 'neg' : '', cnMarginCls: c.cnMargin < 0 ? 'neg' : '' };
+}
+function srcRowHtml(r) {
+  const c = srcCalcCells(r); const i = (k, w, ph = '', type = 'text') => `<input type="${type}" data-src-k="${k}" value="${esc(r[k] ?? '')}" placeholder="${esc(ph)}" style="width:${w}px">`;
+  const link = (u, t) => (u && /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${t}↗</a>` : '');
+  const SHORT = { sourced: '소싱', listed: '등록', shipped: '출고', received: '입고', conv: '전환', ads: '광고' };
+  const steps = SRC.STEPS.map(([k, l]) => `<span class="src-step ${r.steps?.[k] ? 'on' : ''}" data-src-step="${k}" title="${l} (누르면 완료/미완료)">${SHORT[k]}</span>`).join('');
+  return `<tr data-src-id="${esc(r.id)}"><td class="num sub">${esc(r.no || '')}</td><td class="l">${i('keyword', 130)}</td><td><select data-src-k="season">${['시즌', '비시즌', ''].map((s) => `<option value="${s}" ${(r.season || '') === s ? 'selected' : ''}>${s || '-'}</option>`).join('')}</select></td>
+    <td>${i('price', 70, '판매가')}</td><td class="l"><input list="src-cats" data-src-k="category" value="${esc(r.category || '')}" placeholder="카테고리 고르기" style="width:150px"> ${i('fee', 48, '0.108')}</td><td>${i('logi', 58, '물류비')}</td><td class="num"><b data-src-c="fair">${c.fair}</b></td>
+    <td class="l">${link(r.linkKr, '국내')}</td><td>${i('costKr', 62, '원가')}</td><td class="num ${c.krMarginCls}" data-src-c="krMargin">${c.krMargin}</td><td class="num ${c.krRateCls}" data-src-c="krRate">${c.krRate}</td><td class="num sub" data-src-c="krZero">${c.krZero}</td>
+    <td>${i('costCn', 52, 'CN')}</td><td class="num sub" data-src-c="cnKr">${c.cnKr}</td><td class="num ${c.cnMarginCls}" data-src-c="cnMargin"><b>${c.cnMargin}</b></td><td class="num ${c.cnRateCls}" data-src-c="cnRate"><b>${c.cnRate}</b></td><td class="num sub" data-src-c="cnZero">${c.cnZero}</td><td class="l">${link(r.linkCn, '해외')}</td>
+    <td>${i('productId', 92, '노출상품ID')}</td><td class="l">${i('todo', 120, 'TO DO')}<div class="src-steps">${steps}</div></td><td><button class="btn sm" data-src-del title="이 줄 지우기">✕</button></td></tr>`;
+}
+async function renderSourcing() {
+  const st = srcSettings(); if (document.activeElement !== $('#src-fx')) $('#src-fx').value = st.fx; if (document.activeElement !== $('#src-target')) $('#src-target').value = Math.round(st.target * 100);
+  $('#src-cats').innerHTML = (DATA.feeTable || []).map((f) => `<option value="${esc(SRC.feeLabel(f))}">`).join('');
+  const all = (DATA.sourcing?.rows || []); const q = ($('#src-search').value || '').trim().toLowerCase(); const sea = $('#src-season').value; const onlyPid = $('#src-only-pid').checked;
+  let rows = all.filter((r) => (!q || `${r.keyword} ${r.productId} ${r.todo}`.toLowerCase().includes(q)) && (!sea || r.season === sea) && (!onlyPid || r.productId));
+  const sort = $('#src-sort').value; const key = (r) => SRC.computeRow(r, st);
+  if (sort === 'cnRate-desc') rows = rows.slice().sort((a, b) => (key(b).cnRate ?? -9) - (key(a).cnRate ?? -9)); else if (sort === 'cnRate-asc') rows = rows.slice().sort((a, b) => (key(a).cnRate ?? 9) - (key(b).cnRate ?? 9)); else if (sort === 'price-desc') rows = rows.slice().sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  $('#src-count').textContent = all.length ? `상품 ${all.length}개${rows.length !== all.length ? ` · 보이는 ${rows.length}개` : ''} · 환율 CN×${st.fx}` : '아직 상품이 없습니다 — 엑셀에서 가져오거나 상품을 추가하세요';
+  $('#src-table tbody').innerHTML = rows.map(srcRowHtml).join('');
+}
+// 한 칸 고치면: 그 줄만 다시 계산·저장 (표를 다시 그리지 않아 입력 중인 칸이 그대로)
+async function srcSave(id, patch) {
+  const dd = await reload(); dd.sourcing ||= { rows: [] }; const r = dd.sourcing.rows.find((x) => x.id === id); if (!r) return null;
+  Object.assign(r, patch); await S.save(dd); await reload(); return (DATA.sourcing?.rows || []).find((x) => x.id === id);
+}
+function srcRefreshRow(tr, r) { const c = srcCalcCells(r); for (const el of tr.querySelectorAll('[data-src-c]')) { const k = el.dataset.srcC; el.textContent = c[k]; if (k === 'cnRate' || k === 'krRate') el.className = `num ${c[k + 'Cls']}`; if (k === 'cnMargin' || k === 'krMargin') el.className = `num ${c[k + 'Cls']}`; } }
+$('#src-table').addEventListener('change', async (ev) => {
+  const el = ev.target; const tr = el.closest('tr[data-src-id]'); if (!tr || !el.dataset.srcK) return;
+  const k = el.dataset.srcK; const raw = el.value.trim(); const numK = ['price', 'logi', 'costKr', 'costCn'].includes(k); const patch = { [k]: numK && raw !== '' && Number.isFinite(Number(raw.replace(/,/g, ''))) ? Number(raw.replace(/,/g, '')) : raw };
+  if (k === 'category') { const f = (DATA.feeTable || []).find((x) => SRC.feeLabel(x) === el.value); if (f) { patch.fee = f.rate; const fi = tr.querySelector('input[data-src-k="fee"]'); if (fi) fi.value = f.rate; } }
+  if (k === 'fee') patch.fee = SRC.feeRate(el.value) ?? '';
+  const r = await srcSave(tr.dataset.srcId, patch); if (r) srcRefreshRow(tr, r);
+});
+$('#src-table').addEventListener('click', async (ev) => {
+  const tr = ev.target.closest('tr[data-src-id]'); if (!tr) return;
+  const sp = ev.target.closest('[data-src-step]'); if (sp) { const cur = (DATA.sourcing?.rows || []).find((x) => x.id === tr.dataset.srcId); const steps = { ...(cur?.steps || {}), [sp.dataset.srcStep]: !cur?.steps?.[sp.dataset.srcStep] }; await srcSave(tr.dataset.srcId, { steps }); sp.classList.toggle('on', steps[sp.dataset.srcStep]); return; }
+  if (ev.target.closest('[data-src-del]')) { if (!confirm('이 상품 줄을 지울까요?')) return; const dd = await reload(); dd.sourcing.rows = dd.sourcing.rows.filter((x) => x.id !== tr.dataset.srcId); await S.save(dd); await reload(); renderSourcing(); }
+});
+$('#src-add').onclick = async () => { const dd = await reload(); dd.sourcing ||= { rows: [] }; const r = SRC.newRow(); r.no = String((dd.sourcing.rows.reduce((m, x) => Math.max(m, Number(x.no) || 0), 0)) + 1); dd.sourcing.rows.unshift(r); await S.save(dd); await reload(); $('#src-sort').value = 'no'; renderSourcing(); };
+$('#src-set-save').onclick = async () => { const dd = await reload(); dd.sourcing ||= { rows: [] }; dd.sourcing.fx = Math.max(1, Number($('#src-fx').value) || SRC.DEFAULT_SOURCING.fx); dd.sourcing.target = Math.max(0, Math.min(0.9, (Number($('#src-target').value) || 40) / 100)); await S.save(dd); await reload(); renderSourcing(); msg('#src-msg', '저장했습니다 (모든 줄 다시 계산)', 'ok'); };
+$('#src-csv').onclick = () => { const rows = DATA.sourcing?.rows || []; if (!rows.length) { msg('#src-msg', '상품이 없습니다', 'err'); return; } download(`소싱계산기_${localIso(today)}.csv`, SRC.sourcingCsv(rows, srcSettings()), 'text/csv;charset=utf-8'); };
+$('#src-file').onchange = async (ev) => {
+  const fl = ev.target.files[0]; ev.target.value = ''; if (!fl) return;
+  try {
+    const sheets = await parseXlsx(await fl.arrayBuffer()); let rows = null, sheetName = ''; let fees = [];
+    for (const sh of sheets) { const r = SRC.importSourcingSheet(sh.rows); if (r && (!rows || /사뚜|소싱계산기/.test(sh.name))) { rows = r; sheetName = sh.name; } const f = SRC.importFeeTable(sh.rows); if (f.length > fees.length) fees = f; }
+    if (!rows) throw new Error("'판매가격'·'원가(CN)' 칸이 있는 시트를 찾지 못했습니다");
+    const dd = await reload(); const had = (dd.sourcing?.rows || []).length;
+    if (had && !confirm(`지금 목록(${had}개)을 '${sheetName}' 시트의 ${rows.length}개로 바꿀까요?`)) return;
+    dd.sourcing = { ...(dd.sourcing || {}), rows }; if (fees.length) dd.feeTable = fees;
+    await S.save(dd); await reload(); renderSourcing(); msg('#src-msg', `'${sheetName}' 에서 상품 ${rows.length}개${fees.length ? `, 카테고리 수수료 ${fees.length}개` : ''}를 가져왔습니다`, 'ok');
+  } catch (e) { msg('#src-msg', e.message, 'err'); }
+};
+for (const id of ['#src-search', '#src-season', '#src-sort', '#src-only-pid']) $(id).addEventListener(id === '#src-search' ? 'input' : 'change', () => renderSourcing());
 
 /* ===== 경쟁사 매출 추정 ===== */
 function renderComp() {

@@ -1652,3 +1652,25 @@ console.log('extension logic: all checks passed');
   assert.equal(a.ship.received, 165); assert.equal(a.inboundUsed, 35);
   console.log('receipt estimate ignores partial reads and small bumps: all checks passed');
 }
+
+// 소싱 계산기: 엑셀 '소싱계산기(사뚜)' 수식과 같은 값, 시트 읽기(두 줄 제목, 같은 이름 칸은 국내→해외 순), 카테고리 수수료표(빈 칸은 위 값)
+{
+  const SRC = await import('../../extension/lib/sourcing.js');
+  // 엑셀 4행: 판매가 7900, 수수료 10.8%, 물류 2800, 국내 원가 3400, CN 6.3 (×300)
+  const c = SRC.computeRow({ price: 7900, fee: 0.108, logi: 2800, costKr: 3400, costCn: 6.3 }, { fx: 300, target: 0.4 });
+  assert.equal(c.fair, 400); assert.equal(Math.round(c.krFinal), 6480); assert.equal(Math.round(c.krMargin * 100) / 100, 481.48); assert.equal(Math.round(c.cnKr), 1890); assert.equal(Math.round(c.cnMargin * 100) / 100, 1991.48);
+  assert.equal(Math.round(c.cnRate * 1e4) / 1e4, 0.2521); assert.equal(Math.round(c.cnZero * 100) / 100, 4.36);
+  assert.equal(SRC.computeRow({ price: 9900, fee: '10.8', logi: 2400, costCn: 4.5 }, { fx: 350 }).cnKr, 1575);   // 10.8(%) 도 받음, 기본 환율 350
+  assert.equal(SRC.computeRow({ price: 1000, fee: 0.108, logi: 2800 }, {}).fair, -2600);   // 엑셀 ROUNDDOWN 처럼 0 쪽으로
+  const rows = [[null, 'No.', '소싱 상품 메인 키워드', '시즌', '적정원가 계산', null, null, null, '국내사입', null, null, null, null, null, '해외사입', null, null, null, null, null, null, '노출상품 ID', null, '진행현황'],
+    [null, null, null, null, '판매가격 (시장평균가)', '쿠팡 판매수수료', '물류수수료 (입출고+배송)', '적정원가', '상품 링크', '원가', '국내 최종원가', '마진', '마진율', '제로 ROAS', '상품 링크', '원가(CN)', '원가(KR)', '해외 최종원가', '마진', '마진율', '제로 ROAS', null, null, '진행', 'TO DO', '상품소싱', '상품등록', '출고', '입고', '전환세팅', '광고세팅'],
+    [null, 1, '비치타올', '시즌', 7900, 0.108, 2800, 400, 'https://kr', 3400, 0, 0, 0, 0, 'https://cn', 6.3, 1890, 0, 0, 0, 0, 8790262924, null, 'Y', '썸네일', '완료', '완료', '미완료', '미완료', '미완료', '미완료'],
+    [null, 238, null, null, null, 0.108, null, 0], [null, 2, '약파우치', '비시즌 ', 13800, 0.105, 2800]];
+  const r = SRC.importSourcingSheet(rows);
+  assert.equal(r.length, 2); assert.deepEqual([r[0].keyword, r[0].season, r[0].price, r[0].linkKr, r[0].costKr, r[0].linkCn, r[0].costCn, r[0].productId, r[0].todo], ['비치타올', '시즌', 7900, 'https://kr', 3400, 'https://cn', 6.3, '8790262924', '썸네일']);
+  assert.deepEqual(r[0].steps, { sourced: true, listed: true, shipped: false, received: false, conv: false, ads: false }); assert.equal(r[1].season, '비시즌');
+  const ft = SRC.importFeeTable([[null, '대분류', '중분류', '소분류', '기준 수수료'], [null, '가전디지털', '기본 수수료', '-', 0.078], [null, null, '게임', 'PC게임', 0.068], [null, null, null, 'TV/비디오게임', '6.8%']]);
+  assert.deepEqual(ft.map(SRC.feeLabel), ['가전디지털 > 기본 수수료 (7.8%)', '가전디지털 > 게임 > PC게임 (6.8%)', '가전디지털 > 게임 > TV/비디오게임 (6.8%)']);
+  const csv = SRC.sourcingCsv(r, { fx: 350, target: 0.4 }); assert.ok(csv.split('\r\n')[1].startsWith('1,비치타올,시즌,7900,0.108,2800,400,'));
+  console.log('sourcing calculator matches the Excel formulas: all checks passed');
+}

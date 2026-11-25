@@ -18,6 +18,7 @@
       <button data-page="options"><span class="ico">◎</span>캠페인 · 옵션</button>
       <button data-page="inventory"><span class="ico">📦</span>재고</button>
       <button data-page="comp"><span class="ico">🔍</span>경쟁사</button>
+      <button data-page="sourcing"><span class="ico">🧮</span>소싱 계산기</button>
       <button data-page="ads"><span class="ico">✎</span>광고 입력</button>
       <button data-page="expense"><span class="ico">－</span>광고 외 지출</button>
       <button data-page="traffic"><span class="ico">🚦</span>트래픽 효과</button>
@@ -201,6 +202,27 @@
     </section>
 
     <!-- ===== 트래픽 효과 ===== -->
+    <section id="page-sourcing" style="display:none">
+      <div class="card">
+        <h2 style="margin-top:0">🧮 소싱 계산기 <span class="sub" id="src-count"></span></h2>
+        <div class="row" style="flex-wrap:wrap;gap:6px">
+          <label class="btn primary sm">엑셀에서 가져오기 <input type="file" id="src-file" accept=".xlsx" style="display:none"></label>
+          <button class="btn sm" id="src-add">+ 상품 추가</button><button class="btn sm" id="src-csv">엑셀(CSV)로 받기</button>
+          <span class="sub">· 해외 원가 환율 CN×</span><input type="number" id="src-fx" class="tiny" min="100" max="1000" step="10">
+          <span class="sub">· 적정원가 목표 마진율</span><input type="number" id="src-target" class="tiny" min="0" max="90" step="5"><span class="sub">%</span><button class="btn sm" id="src-set-save">저장</button>
+          <a class="btn sm" href="https://wing.coupang.com/tenants/rfm/settlements/fee-information" target="_blank" rel="noopener">윙 수수료 안내 열기</a>
+          <span id="src-msg" class="msg"></span>
+        </div>
+        <div class="row" style="margin-top:6px;gap:6px"><input id="src-search" placeholder="키워드·노출상품ID 검색" style="width:220px"><select id="src-season"><option value="">시즌·비시즌 모두</option><option value="시즌">시즌</option><option value="비시즌">비시즌</option></select><select id="src-sort"><option value="no">번호순</option><option value="cnRate-desc">해외 마진율 높은 순</option><option value="cnRate-asc">해외 마진율 낮은 순</option><option value="price-desc">판매가 높은 순</option></select><label class="chk"><input type="checkbox" id="src-only-pid"> 노출상품ID 있는 것만</label></div>
+        <p class="sub" style="margin:6px 0 0"><b>적정원가</b> = (판매가 − (판매가×판매수수료 + 물류수수료 + 판매가×목표 마진율)×1.1) 100원 단위 내림 · <b>마진</b> = 판매가 − (판매가×판매수수료 + 물류수수료)×1.1 − 원가 · <b>제로 ROAS</b> = 판매가 ÷ 마진 × 1.1 · <b>원가(KR)</b> = 원가(CN) × 환율. <b>카테고리</b> 칸에서 고르면 판매수수료가 자동으로 들어갑니다(엑셀의 수수료표). 칸을 고치면 바로 계산·저장됩니다.</p>
+        <datalist id="src-cats"></datalist>
+      </div>
+      <div class="card" style="margin-top:12px;padding:0"><div class="tablewrap src-wrap" style="max-height:calc(100vh - 260px)"><table id="src-table"><thead>
+        <tr><th rowspan="2">No.</th><th rowspan="2" class="l">키워드</th><th rowspan="2">시즌</th><th colspan="5" class="grp">적정원가 계산</th><th colspan="4" class="grp">국내사입</th><th colspan="6" class="grp">해외사입</th><th rowspan="2">노출상품ID</th><th rowspan="2" class="l">TO DO · 진행</th><th rowspan="2"></th></tr>
+        <tr><th>판매가</th><th class="l">카테고리 · 판매수수료</th><th>물류수수료</th><th>적정원가</th><th></th><th>원가</th><th>마진</th><th>마진율</th><th>제로ROAS</th><th>원가(CN)</th><th>원가(KR)</th><th>마진</th><th>마진율</th><th>제로ROAS</th><th></th></tr>
+      </thead><tbody></tbody></table></div></div>
+    </section>
+
     <section id="page-comp" style="display:none">
       <div class="card">
         <h2 style="margin-top:0">🔍 경쟁사 매출 추정 <span class="sub">리뷰가 늘어나는 속도로 판매량·매출을 가늠합니다 (실제 매출이 아닌 추정치)</span></h2>

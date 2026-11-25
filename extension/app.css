@@ -236,3 +236,12 @@ details.inline .menu .btn { text-align: left; }
 /* 실시간 ROAS 색: 400% 이상 / 300% 이하 */
 .roas-hi, .roas-hi b { color: #15803d; }
 .roas-lo, .roas-lo b { color: #dc2626; }
+
+/* 소싱 계산기 */
+.src-wrap table { font-size: 12.5px; }
+.src-wrap th.grp { background: #eef2f8; text-align: center; }
+.src-wrap td, .src-wrap th { padding: 3px 5px; white-space: nowrap; }
+.src-wrap input, .src-wrap select { font-size: 12.5px; padding: 3px 5px; }
+.src-steps { margin-top: 2px; display: flex; gap: 2px; }
+.src-step { font-size: 10.5px; padding: 0 4px; border-radius: 4px; background: #eef0f3; color: #8a94a6; cursor: pointer; user-select: none; }
+.src-step.on { background: #dcfce7; color: #15803d; }
