@@ -78,11 +78,17 @@ export function rgItemsFromProducts(products) {
   return out;
 }
 // 재고 줄을 '내가 등록한 새 상품' 과 '그 밖(반품·중고 재판매 등)' 으로 나눈다. 등록 목록을 못 받았으면 나누지 않음
-export function splitResale(rows, reg) {
+export function splitResale(rows, reg, keepIds = []) {
   if (!reg || !Object.keys(reg).length) return { keep: rows, resale: [] };
-  const keep = [], resale = [];
-  for (const r of rows) { const g = reg[r.option_id]; if (!g) { resale.push(r); continue; } keep.push({ ...r, product_id: r.product_id || g.product_id, product_name: r.product_name || g.product_name, option_name: r.option_name || g.option_name }); }
+  const keep = [], resale = []; const ok = new Set((keepIds || []).map(String));
+  for (const r of rows) { const g = reg[r.option_id]; if (!g) { if (ok.has(r.option_id)) keep.push(r); else resale.push(r); continue; } keep.push({ ...r, product_id: r.product_id || g.product_id, product_name: r.product_name || g.product_name, option_name: r.option_name || g.option_name }); }
   return { keep, resale };
+}
+// 등록한 로켓그로스 옵션인데 창고 재고 목록에 없는 것 (한 번도 입고 안 됨 등) → 재고 0 줄
+export function registeredZeroRows(reg, haveIds) {
+  const have = new Set([...(haveIds || [])].map(String)); const out = [];
+  for (const [oid, g] of Object.entries(reg || {})) { if (have.has(oid) || /삭제|반려/.test(g.status || '')) continue; out.push({ option_id: oid, stock: 0, sales30: null, product_id: g.product_id, product_name: g.product_name, option_name: g.option_name, source: 'api-reg' }); }
+  return out;
 }
 // 로켓그로스 주문 (결제일 기준, 한 번에 최대 30일 → 나눠 부름)
 const ymd = (iso) => iso.replace(/-/g, '');

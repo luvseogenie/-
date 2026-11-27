@@ -917,8 +917,10 @@ async function renderInventory() {
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
   const hidBrand = onlyMine ? f.rows.filter((x) => !mine0(x.option_name, x.product_name, x.group_name)).length : 0;
-  const hidIdle = onlyLow ? f.rows.filter((x) => x.level === 'idle' && !(x.stock > 0)).length : 0;
-  const rows = f.rows.filter((x) => mine(x.option_name, x.product_name, x.group_name) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name} ${x.group_name} ${x.label}`.toLowerCase().includes(q)) && (!onlyLow || x.level !== 'idle' || x.stock > 0) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
+  const deadOpt = (x) => x.level === 'idle' && !(x.stock > 0); const liveKeys = new Set(f.rows.filter((x) => !deadOpt(x)).map((x) => x.key));
+  const hideDead = (x) => onlyLow && !q && deadOpt(x) && !liveKeys.has(x.key);   // 안 팔리고 재고 없는 '상품'만 숨김 — 보이는 상품은 옵션을 모두 (검색하면 숨긴 것도)
+  const hidIdle = f.rows.filter(hideDead).length;
+  const rows = f.rows.filter((x) => (q || mine(x.option_name, x.product_name, x.group_name)) && (!q || `${x.option_id} ${x.product_id} ${x.product_name} ${x.option_name} ${x.group_name} ${x.label}`.toLowerCase().includes(q)) && !hideDead(x) && (!sf || (sf === 'none' ? !x.seasonType : x.seasonType === sf)));
   const LV = { out: ['품절', 'neg'], danger: ['위험', 'neg'], warn: ['주의', 'warn'], unknown: ['재고 미확인', 'gray'], ok: ['여유', 'pos'], idle: ['판매 없음', 'sub'] };
   const nLow = rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level)).length; const nMiss = rows.filter((x) => x.missing).length;
   const nProd = new Set(rows.map((x) => x.key)).size; const inv0 = Object.keys((DATA.inventory || {})[f.asOf] || {}).length;
@@ -938,6 +940,14 @@ async function renderInventory() {
     }
   } else html = INV.sortInventory(rows, sortBy, (x) => `${x.group_name || x.product_name} ${x.label}`).slice(0, 600).map((x) => optRow(x, false)).join('');
   $('#inv-table tbody').innerHTML = html;
+  // Open API 로 읽을 때 뺀 옵션 (등록 상품 목록에 없음 = 반품·중고 재판매 등) — 새 상품이 잘못 빠졌으면 '새 상품임'
+  { const rs = DATA.invResale; const items = rs?.at === f.asOf ? rs.items || [] : [];
+    $('#inv-resale').innerHTML = items.length ? `<details><summary class="sub">재고에서 뺀 옵션 ${items.length}개 (등록 상품 목록에 없음 — 반품·중고 재판매 등, 재고 ${fmtInt(rs.stock || 0)}개). 새 상품이 잘못 빠졌으면 '새 상품임' 을 누르세요</summary><table class="tbl" style="font-size:12.5px;margin-top:4px"><thead><tr><th class="l">옵션ID</th><th class="l">이름 (판매 기록)</th><th>재고</th><th>최근 30일 판매</th><th></th></tr></thead><tbody>${INV.sortInventory(items, 'asc', (x) => `${x.product_name} ${x.option_name}`).map((x) => `<tr><td class="l num">${esc(x.option_id)}</td><td class="l">${esc([x.product_name, x.option_name].filter(Boolean).join(' · ') || '(이름 모름)')}</td><td class="num">${fmtInt(x.stock || 0)}</td><td class="num">${x.sales30 ?? ''}</td><td><button class="btn sm" data-inv-keep="${esc(x.option_id)}">새 상품임</button></td></tr>`).join('')}</tbody></table></details>` : '';
+    $$('#inv-resale [data-inv-keep]').forEach((b) => b.onclick = async () => {
+      const dd = await reload(); const oid = b.dataset.invKeep; dd.invResaleKeep = [...new Set([...(dd.invResaleKeep || []), oid])];
+      const it = (dd.invResale?.items || []).find((x) => x.option_id === oid); if (it && dd.invResale.at) { S.setInventory(dd, dd.invResale.at, [it], { merge: true }); dd.invResale.items = dd.invResale.items.filter((x) => x.option_id !== oid); dd.invResale.ids = (dd.invResale.ids || []).filter((x) => x !== oid); }
+      await S.save(dd); await reload(); renderFoot(); renderInventory(); msg('#inv-msg', `${oid} 은 앞으로 재고에 넣습니다`, 'ok');
+    }); }
   // 배송분 목록 (출항일마다): 보낸 수량 · 받은 수량(재고 증가 + 그 사이 판매로 추정) · 남은 수량
   { const ff = INV.inventoryForecast(DATA, localIso(today), { showMissing: true }); const list = INV.shipmentSummary(DATA, ff.rows, ff.shipPending);
     $('#inv-ship-list').innerHTML = list.length ? `<table class="tbl" style="font-size:12.5px"><thead><tr><th class="l">출항일</th><th class="l">출고리스트</th><th>옵션</th><th>보낸 수량</th><th>받은 수량(추정)</th><th>남은 입고 예정</th><th class="l">상태</th><th></th></tr></thead><tbody>${list.slice(0, 30).map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="l sub">${esc(x.name)}</td><td class="num">${x.options}</td><td class="num">${fmtInt(x.qty)}</td><td class="num">${x.got == null ? '' : fmtInt(x.got)}</td><td class="num"><b>${x.left == null ? '' : fmtInt(x.left)}</b></td><td class="l sub">${!x.active ? '기간 지나 빼지 않음' : x.left <= 0 ? '입고 끝 (추정)' : x.got > 0 ? '일부 입고' : '오는 중'}${x.pending?.length ? ` · <a href="#" data-ship-link="${esc(x.id)}" title="${esc(x.pending.map((q) => `${q.label} ${q.qty}개`).join('\n'))}">옵션 연결 대기 ${x.pending.length}줄 — 직접 연결</a>` : ''}</td><td><button class="btn sm" data-ship-del="${esc(x.id)}">지우기</button></td></tr>`).join('')}</tbody></table>` : '';

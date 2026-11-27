@@ -86,7 +86,23 @@ export function baseProductName(x, salesProductName = '') {
 export const groupKeyOf = (x, salesProductName = '') => { const b = baseProductName(x, salesProductName); return nk(b).length >= 4 ? 'n:' + nk(b) : productKey(x); };
 // 이름 정렬: 숫자는 크기대로 ('2개' < '10개'), 한글 가나다순
 const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
-export const nameCompare = (a, b) => collator.compare(String(a || ''), String(b || ''));
+// 옵션 이름 비교: 낱말마다 — 사이즈는 S < M < L < XL < 2XL … (프리는 맨 뒤), 숫자는 크기 순(44·55·66·77, 230·240), 나머지는 가나다
+const SIZE_RANK = { XXS: 1, '2XS': 1, XS: 2, S: 3, M: 4, L: 5, XL: 6, XXL: 7, '2XL': 7, XXXL: 8, '3XL': 8, XXXXL: 9, '4XL': 9, '5XL': 10, '6XL': 11, FREE: 30, F: 30, ONESIZE: 30, '프리': 30, '원사이즈': 30 };
+const KSIZE_RANK = { 소: 1, 소형: 1, 중: 2, 중형: 2, 대: 3, 대형: 3, 특대: 4, 특대형: 4 };
+export function sizeRank(tok) {
+  const t = String(tok || '').toUpperCase().replace(/\(.*\)$/, '').replace(/사이즈$/, '').trim();
+  return SIZE_RANK[t] ? 100 + SIZE_RANK[t] : KSIZE_RANK[t] ? 200 + KSIZE_RANK[t] : 0;
+}
+const optTokens = (s) => String(s || '').split(/[\s,/·|]+/).filter(Boolean).flatMap((t) => { const m = t.match(/^([가-힣]+)((?:XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL)(?:\(.*\))?)$/i); return m ? [m[1], m[2]] : [t]; });
+export function nameCompare(a, b) {
+  const A = optTokens(a), B = optTokens(b);
+  for (let i = 0; i < Math.min(A.length, B.length); i++) {
+    if (A[i] === B[i]) continue;
+    const ra = sizeRank(A[i]), rb = sizeRank(B[i]); if (ra && rb && ra !== rb) return ra - rb;
+    const c = collator.compare(A[i], B[i]); if (c) return c;
+  }
+  return A.length - B.length || collator.compare(String(a || ''), String(b || ''));
+}
 // sort: 'asc' | 'desc' | 'urgent' — 상품 순서와 그 안 옵션 순서
 export function sortInventory(groupsOrRows, sort = 'asc', nameOf = (x) => x.label || x.product_name) {
   const o = LEVEL_ORDER; const arr = [...groupsOrRows];

@@ -1767,3 +1767,19 @@ console.log('extension logic: all checks passed');
   d.invResale = { ids: ['96288800840'] }; assert.ok(!INV.inventoryForecast(d, '2026-11-28').rows.some((x) => x.option_id === '96288800840'));
   console.log('Open API inventory keeps only registered Rocket Growth options: all checks passed');
 }
+
+// 옵션 정렬: 사이즈 S<M<L<XL<2XL (프리 맨 뒤), 숫자 크기 순, 색상 먼저면 색상 → 사이즈 · 등록 옵션 중 창고에 없는 것은 재고 0 줄
+{
+  const INV = await import('../../extension/lib/inventory.js'); const CP = await import('../../extension/lib/cpapi.js');
+  const lab = (arr, dir = 'asc') => INV.sortInventory(arr.map((label) => ({ label })), dir).map((x) => x.label);
+  assert.deepEqual(lab(['블랙, 공용 XL', '블랙, 공용 S', '블랙, 공용 2XL', '블랙, 공용 M', '블랙, 공용 L', '블랙, 공용 FREE']), ['블랙, 공용 S', '블랙, 공용 M', '블랙, 공용 L', '블랙, 공용 XL', '블랙, 공용 2XL', '블랙, 공용 FREE']);
+  assert.deepEqual(lab(['77', '44', '88', '55', '66']), ['44', '55', '66', '77', '88']);
+  assert.deepEqual(lab(['네이비 L', '블랙 S', '네이비 S', '네이비 XS']), ['네이비 XS', '네이비 S', '네이비 L', '블랙 S']);
+  assert.deepEqual(lab(['공용XL', '공용M', '공용S(90)']), ['공용S(90)', '공용M', '공용XL']);
+  assert.deepEqual(lab(['250mm', '230mm', '240mm']), ['230mm', '240mm', '250mm']);
+  assert.deepEqual(lab(['블랙, 공용 S', '블랙, 공용 XL', '블랙, 공용 M'], 'desc'), ['블랙, 공용 XL', '블랙, 공용 M', '블랙, 공용 S']);
+  const reg = { 1: { product_id: 'P', product_name: '리본', option_name: '레드 2cm', status: '승인완료' }, 2: { product_id: 'P', product_name: '리본', option_name: '그린 2cm', status: '승인완료' }, 3: { product_id: 'Q', product_name: '삭제됨', option_name: 'x', status: '상품삭제' } };
+  assert.deepEqual(CP.registeredZeroRows(reg, ['1']).map((x) => [x.option_id, x.stock, x.option_name]), [['2', 0, '그린 2cm']]);
+  assert.deepEqual(CP.splitResale([{ option_id: '9' }, { option_id: '1' }], reg, ['9']).keep.map((x) => x.option_id), ['9', '1']);   // '새 상품임' 으로 표시한 옵션
+  console.log('size-aware option order and registered zero-stock options: all checks passed');
+}
