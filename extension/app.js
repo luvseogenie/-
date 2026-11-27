@@ -1082,7 +1082,7 @@ function renderIpTemplate(force = true) {
       h += `<div class="row" style="gap:6px;margin-top:6px;align-items:flex-start"><span class="sub" style="width:150px">첨부 서류</span><div><label class="btn sm">파일 추가 <input type="file" id="ip-file" multiple style="display:none"></label> <span class="sub">(상표등록증·저작물 원본·사업자등록증 등 — 한 번 올리면 저장)</span><div>${(t.files || []).map((fl) => `<span class="pill" style="margin:3px 4px 0 0">${esc(fl.name)} <span class="sub">${Math.round(fl.size / 1024)}KB</span> <a href="#" data-ip-fdel="${esc(fl.id)}">✕</a></span>`).join('') || '<span class="sub">없음</span>'}</div></div></div>`;
       continue;
     }
-    const v = t.values?.[f.key] ?? ''; const req = f.required ? ' <b style="color:#dc2626">*</b>' : '';
+    const v = IPR.templateValue(form, t, f.key) ?? ''; const req = f.required ? ' <b style="color:#dc2626">*</b>' : '';
     let ctl;
     if (f.options?.length) ctl = `<select data-ip-k="${esc(f.key)}" style="max-width:520px"><option value="">(고르지 않음)</option>${f.options.map((o) => `<option value="${esc(o.label)}" ${o.label === v || o.value === v ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
     else if (f.type === 'checkbox') ctl = `<label class="chk"><input type="checkbox" data-ip-k="${esc(f.key)}" ${/^(1|true|예|네|체크|동의|yes|on|v|o)$/i.test(String(v)) ? 'checked' : ''}> 체크</label>`;
@@ -1113,6 +1113,20 @@ function renderIpHistory() {
 $('#ip-perm').onclick = async () => { const ok = await chrome.permissions.request({ origins: [IPR.IP_ORIGIN] }).catch(() => false); msg('#ip-msg', ok ? '허용했습니다. 이제 웹폼 칸 읽기를 누르세요' : '허용하지 않았습니다', ok ? 'ok' : 'err'); renderIp(); };
 $('#ip-read').onclick = async () => { const b = $('#ip-read'); b.disabled = true; msg('#ip-msg', '웹폼을 여는 중… (작은 탭이 열렸다 닫힙니다)'); const r = await chrome.runtime.sendMessage({ type: 'ipReadForm' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderIp(); msg('#ip-msg', r?.ok ? `웹폼 칸 ${r.fields}개를 읽었습니다` : r?.error || '읽지 못했습니다', r?.ok ? 'ok' : 'err'); };
 $('#ip-tpl').onchange = () => { if (ipDirty && !confirm('저장하지 않은 템플릿 내용이 있습니다. 버리고 다른 템플릿으로 갈까요?')) { $('#ip-tpl').value = ipCur; return; } ipCur = $('#ip-tpl').value; renderIpTemplate(); };
+$('#ip-pack').onchange = async (ev) => {
+  const fl = ev.target.files[0]; ev.target.value = ''; if (!fl) return;
+  try {
+    const pack = IPR.parseTemplatePack(await fl.text()); if (!pack.length) throw new Error('템플릿이 없습니다');
+    const dd = await reload(); dd.ipTemplates ||= []; const names = [];
+    for (const t of pack) {
+      const files = [];
+      for (const f of t.files) { const id = Math.random().toString(36).slice(2, 10); await chrome.storage.local.set({ ['ipfile:' + id]: { name: f.name, type: f.type || '', dataUrl: f.dataUrl } }); files.push({ id, name: f.name, type: f.type || '', size: Math.round((f.dataUrl.length - f.dataUrl.indexOf(',') - 1) * 0.75) }); }
+      let name = t.name; while (dd.ipTemplates.some((x) => x.name === name)) name += ' (새로 가져옴)';
+      const nt = { id: Math.random().toString(36).slice(2, 10), name, subject: t.subject, body: t.body, values: t.values, files }; dd.ipTemplates.push(nt); names.push(`${name} (첨부 ${files.length}개)`); ipCur = nt.id;
+    }
+    await ipSaved(dd); ipDirty = false; renderIp(); msg('#ip-msg', `템플릿 ${pack.length}개를 가져왔습니다: ${names.join(', ')}`, 'ok');
+  } catch (e) { msg('#ip-msg', e.message, 'err'); }
+};
 $('#ip-tpl-new').onclick = async () => { const name = prompt('템플릿 이름 (예: 상표권 – DUGN 상표 도용)'); if (!name) return; const dd = await reload(); dd.ipTemplates ||= []; const t = { id: Math.random().toString(36).slice(2, 10), name: name.trim(), values: {}, files: [] }; dd.ipTemplates.push(t); await ipSaved(dd); ipCur = t.id; ipDirty = false; renderIp(); };
 $('#ip-tpl-copy').onclick = async () => { const dd = await reload(); const src = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!src) return; const t = { ...JSON.parse(JSON.stringify(src)), id: Math.random().toString(36).slice(2, 10), name: src.name + ' (복사)' }; dd.ipTemplates.push(t); await ipSaved(dd); ipCur = t.id; ipDirty = false; renderIp(); };
 $('#ip-tpl-del').onclick = async () => { const dd = await reload(); const t = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!t || !confirm(`'${t.name}' 템플릿을 지울까요? (첨부 서류도 지워집니다)`)) return; await chrome.storage.local.remove((t.files || []).map((f) => 'ipfile:' + f.id)); dd.ipTemplates = dd.ipTemplates.filter((x) => x.id !== ipCur); await ipSaved(dd); ipCur = null; ipDirty = false; renderIp(); };

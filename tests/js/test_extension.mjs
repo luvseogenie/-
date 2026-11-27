@@ -1783,3 +1783,18 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(CP.splitResale([{ option_id: '9' }, { option_id: '1' }], reg, ['9']).keep.map((x) => x.option_id), ['9', '1']);   // '새 상품임' 으로 표시한 옵션
   console.log('size-aware option order and registered zero-stock options: all checks passed');
 }
+
+// 지재권 템플릿 묶음: 본문·제목이 웹폼의 설명·제목 칸으로
+{
+  const IPR = await import('../../extension/lib/ipreport.js');
+  const form = { fields: [{ key: 'request[subject]', name: 'request[subject]', label: '제목', type: 'text', required: true }, { key: 'request[description]', name: 'request[description]', label: '설명', type: 'textarea', required: true }, { key: 'cf1', name: 'request[custom_fields][1]', label: '신고 유형', type: 'nesty', required: true, options: [{ value: 'tm', label: '상표권' }] }] };
+  assert.deepEqual(IPR.mainFields(form), { desc: 'request[description]', subj: 'request[subject]' });
+  const [t] = IPR.parseTemplatePack(JSON.stringify({ kind: 'cc-ip-templates', templates: [{ name: '상표권 – DUGN', subject: '[상표권] {판매자}', body: '{판매자}가 DUGN 상표를 도용', files: [{ name: 'a.pdf', type: 'application/pdf', dataUrl: 'data:application/pdf;base64,JVBERg==' }, { name: 'bad', dataUrl: 'http://x' }] }] }));
+  assert.equal(t.files.length, 1);
+  assert.deepEqual(IPR.missingRequired(form, t), ['신고 유형']);
+  t.values = { cf1: '상표권' };
+  assert.deepEqual(IPR.formValues(form, t, { url: 'https://www.coupang.com/vp/products/123456', seller: '○○유한회사' }, '2026-11-27').map((v) => v.value), ['[상표권] ○○유한회사', '○○유한회사가 DUGN 상표를 도용', '상표권']);
+  t.values['request[description]'] = '직접 고친 본문'; assert.equal(IPR.formValues(form, t, {}, '2026-11-27')[1].value, '직접 고친 본문');
+  assert.throws(() => IPR.parseTemplatePack('{"a":1}'), /묶음/);
+  console.log('IP report template packs map body and subject: all checks passed');
+}

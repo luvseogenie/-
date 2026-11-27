@@ -24,11 +24,30 @@ export function alreadyReported(history, templateId, target, days = 90) {
   const since = Date.now() - days * 86400000; const pid = target.productId || productIdOf(target.url);
   return (history || []).find((h) => h.templateId === templateId && h.status === 'submitted' && new Date(h.at).getTime() >= since && ((pid && (h.target?.productId || productIdOf(h.target?.url)) === pid) || h.target?.url === target.url)) || null;
 }
+// 웹폼의 '설명' 칸과 '제목' 칸 (템플릿 묶음의 본문·제목이 들어갈 곳)
+export function mainFields(form) {
+  const fs = form?.fields || [];
+  const desc = fs.find((f) => /description/.test(f.name)) || fs.find((f) => f.type === 'textarea' && /설명|내용|상세/.test(f.label)) || fs.find((f) => f.type === 'textarea');
+  const subj = fs.find((f) => /\[subject\]|^subject$/.test(f.name)) || fs.find((f) => /제목/.test(f.label) && f.type !== 'textarea');
+  return { desc: desc?.key || null, subj: subj?.key || null };
+}
+// 칸에 넣을 템플릿 값: 직접 넣은 값 → 없으면 묶음의 본문/제목
+export function templateValue(form, template, key) {
+  const v = template?.values?.[key]; if (v != null && v !== '') return v;
+  const m = mainFields(form); if (key && key === m.desc && template?.body) return template.body; if (key && key === m.subj && template?.subject) return template.subject;
+  return v ?? '';
+}
+// 템플릿 묶음 파일(.json): { kind: 'cc-ip-templates', templates: [{ name, subject, body, files: [{ name, type, dataUrl }] }] }
+export function parseTemplatePack(text) {
+  let j; try { j = JSON.parse(text); } catch { throw new Error('템플릿 묶음 파일이 아닙니다 (JSON 아님)'); }
+  if (j?.kind !== 'cc-ip-templates' || !Array.isArray(j.templates)) throw new Error('템플릿 묶음 파일이 아닙니다');
+  return j.templates.filter((t) => t && t.name).map((t) => ({ name: String(t.name), subject: String(t.subject || ''), body: String(t.body || ''), values: t.values && typeof t.values === 'object' ? t.values : {}, files: (t.files || []).filter((f) => f && f.name && /^data:/.test(f.dataUrl || '')) }));
+}
 // 템플릿 → 웹폼에 넣을 값 목록 (칸 순서대로, 빈 값은 뺌). 고르는 칸은 항목 글자 또는 값
 export function formValues(form, template, target, today) {
   const out = [];
   for (const f of form?.fields || []) {
-    if (f.type === 'file') continue; const raw = template?.values?.[f.key]; if (raw == null || raw === '') continue;
+    if (f.type === 'file') continue; const raw = templateValue(form, template, f.key); if (raw == null || raw === '') continue;
     const val = f.options?.length ? raw : fillText(raw, target, today);
     out.push({ key: f.key, name: f.name, type: f.type, label: f.label, value: val, options: f.options || [] });
   }
@@ -36,5 +55,5 @@ export function formValues(form, template, target, today) {
 }
 // 템플릿에서 아직 안 채운 필수 칸
 export function missingRequired(form, template) {
-  return (form?.fields || []).filter((f) => f.required && f.type !== 'file' && f.type !== 'hidden' && !(template?.values?.[f.key] ?? '').toString().trim()).map((f) => f.label || f.name);
+  return (form?.fields || []).filter((f) => f.required && f.type !== 'file' && f.type !== 'hidden' && !String(templateValue(form, template, f.key) ?? '').trim()).map((f) => f.label || f.name);
 }
