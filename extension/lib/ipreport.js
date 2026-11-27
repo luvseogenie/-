@@ -6,7 +6,7 @@ export const IP_FORM_URL = 'https://sellersupport-help.coupangcorp.com/hc/ko/req
 export const IP_ORIGIN = 'https://sellersupport-help.coupangcorp.com/*';
 export const PLACEHOLDERS = [['상품URL', '침해 상품 주소'], ['상품ID', '주소 속 상품 번호'], ['상품명', '침해 상품 이름'], ['판매자', '침해 판매자 이름'], ['메모', '이번 신고만의 메모'], ['날짜', '오늘 날짜']];
 
-export const productIdOf = (url) => (String(url || '').match(/products\/(\d{5,})/) || String(url || '').match(/^\s*(\d{6,})\s*$/) || [])[1] || '';
+export const productIdOf = (url) => (String(url || '').match(/products\/(\d{5,})/) || String(url || '').match(/^\s*(\d{6,})(?:\s*-\s*\d+)?\s*$/) || [])[1] || '';
 // 템플릿 글의 {상품URL} 같은 빈칸을 이번 신고 내용으로 바꾼다 (모르는 빈칸은 그대로)
 export function fillText(text, target = {}, today = new Date().toISOString().slice(0, 10)) {
   const v = { 상품URL: target.url || '', 상품ID: target.productId || productIdOf(target.url), 상품명: target.product || '', 판매자: target.seller || '', 메모: target.note || '', 날짜: today };
@@ -15,8 +15,9 @@ export function fillText(text, target = {}, today = new Date().toISOString().sli
 // 신고 대상 여러 줄: '주소 [탭/| 판매자 [| 상품명]]' — 한 줄에 하나
 export function parseTargets(text) {
   return String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
-    const [url, seller = '', product = '', note = ''] = l.split(/\t|\s*\|\s*/).map((x) => x.trim());
-    return { url, productId: productIdOf(url), seller, product, note };
+    const [first, seller = '', product = '', note = ''] = l.split(/\t|\s*\|\s*/).map((x) => x.trim()); const pid = productIdOf(first);
+    const url = /^https?:\/\//i.test(first) || !pid ? first : `https://www.coupang.com/vp/products/${pid}`;   // 상품번호만 넣어도 됨
+    return { url, productId: pid, seller, product, note };
   }).filter((t) => t.url);
 }
 // 같은 사유로 같은 상품을 이미 제출했는지 (최근 90일)
@@ -31,17 +32,28 @@ export function mainFields(form) {
   const subj = fs.find((f) => /\[subject\]|^subject$/.test(f.name)) || fs.find((f) => /제목/.test(f.label) && f.type !== 'textarea');
   return { desc: desc?.key || null, subj: subj?.key || null };
 }
-// 칸에 넣을 템플릿 값: 직접 넣은 값 → 없으면 묶음의 본문/제목
+// 칸 이름으로 찾기: '1) 권리자(신고인)명' ↔ '권리자(신고인)명' (번호·띄어쓰기 무시, 가장 길게 맞는 것)
+export const labelKey = (s) => String(s || '').replace(/^\s*(\d+(\s*[-.)]\s*\d*)*\s*[.)]?\s*)+/, '').replace(/\s+/g, '').replace(/\*/g, '').toLowerCase();
+export function byLabelValue(template, label) {
+  const L = labelKey(label); let best = null;
+  for (const [k, v] of Object.entries(template?.byLabel || {})) { const kk = labelKey(k); if (kk && L.includes(kk) && (!best || kk.length > best[0].length)) best = [kk, v]; }
+  return best ? best[1] : null;
+}
+const isOptional = (label) => /선택/.test(String(label || ''));
+// 칸에 넣을 템플릿 값: 직접 넣은 값 → 칸 이름으로 정한 값 → 묶음의 본문/제목 → (체크 칸) '선택' 이 아니면 체크
 export function templateValue(form, template, key) {
-  const v = template?.values?.[key]; if (v != null && v !== '') return v;
+  if (template?.values && key in template.values && template.values[key] != null) return template.values[key];   // 템플릿 저장 때 정한 값 (빈 값·체크 해제 포함)
+  const f = (form?.fields || []).find((x) => x.key === key);
+  if (f) { const bl = byLabelValue(template, f.label); if (bl != null && bl !== '') return bl; }
+  if (f?.type === 'checkbox' && template?.checkRequired) return isOptional(f.label) ? '' : '예';
   const m = mainFields(form); if (key && key === m.desc && template?.body) return template.body; if (key && key === m.subj && template?.subject) return template.subject;
-  return v ?? '';
+  return template?.values?.[key] ?? '';
 }
 // 템플릿 묶음 파일(.json): { kind: 'cc-ip-templates', templates: [{ name, subject, body, files: [{ name, type, dataUrl }] }] }
 export function parseTemplatePack(text) {
   let j; try { j = JSON.parse(text); } catch { throw new Error('템플릿 묶음 파일이 아닙니다 (JSON 아님)'); }
   if (j?.kind !== 'cc-ip-templates' || !Array.isArray(j.templates)) throw new Error('템플릿 묶음 파일이 아닙니다');
-  return j.templates.filter((t) => t && t.name).map((t) => ({ name: String(t.name), subject: String(t.subject || ''), body: String(t.body || ''), values: t.values && typeof t.values === 'object' ? t.values : {}, files: (t.files || []).filter((f) => f && f.name && /^data:/.test(f.dataUrl || '')) }));
+  return j.templates.filter((t) => t && t.name).map((t) => ({ name: String(t.name), subject: String(t.subject || ''), body: String(t.body || ''), values: t.values && typeof t.values === 'object' ? t.values : {}, byLabel: t.byLabel && typeof t.byLabel === 'object' ? t.byLabel : {}, checkRequired: !!t.checkRequired, files: (t.files || []).filter((f) => f && f.name && /^data:/.test(f.dataUrl || '')) }));
 }
 // 템플릿 → 웹폼에 넣을 값 목록 (칸 순서대로, 빈 값은 뺌). 고르는 칸은 항목 글자 또는 값
 export function formValues(form, template, target, today) {

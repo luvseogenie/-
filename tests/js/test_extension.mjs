@@ -1798,3 +1798,20 @@ console.log('extension logic: all checks passed');
   assert.throws(() => IPR.parseTemplatePack('{"a":1}'), /묶음/);
   console.log('IP report template packs map body and subject: all checks passed');
 }
+
+// 지재권 실제 웹폼 모양: 칸 이름으로 값 넣기 · '선택' 아닌 체크 칸은 모두 체크 · 상품번호만 넣어도 됨 · 접수일자
+{
+  const IPR = await import('../../extension/lib/ipreport.js');
+  const F = (key, label, type = 'text', required = false) => ({ key, name: key, label, type, required, options: [] });
+  const form = { fields: [F('e', '이메일 주소', 'email', true), F('c1', '1) 권리자(신고인)명', 'text', true), F('c2', '2) 담당자명'), F('c3', '3) 전화번호'), F('c4', '2 권리자(신고인)의 권리', 'text', true), F('c5', '1) 권리 침해 쿠팡 상품번호', 'text', true), F('c6', '2) 권리 침해 판매자명', 'text', true), F('c7', '4. 신고사유 및 요청사항', 'textarea', true),
+    F('k1', '1) 권리자 신분을 증명할 수 있는 서류 첨부여부', 'checkbox'), F('k2', '2-1) 권리를 증명할 수 있는 서류 첨부여부', 'checkbox'), F('k3', '3) 권리의 침해를 입증할 수 있는 자료 첨부여부 (선택 사항)', 'checkbox'), F('k4', '4) 위임장 및 대리인 신분증명 자료 첨부여부 (선택 사항)', 'checkbox'), F('k5', '위 내용을 동의합니다.', 'checkbox'), F('d', '접수일자', 'text', true), F('k6', '신고서 제출 동의', 'checkbox')] };
+  const t = { body: '{판매자}가 상표(DUGN)을 도용', checkRequired: true, values: {}, byLabel: { '이메일 주소': 'a@b.c', '권리자(신고인)명': '홍길동', '담당자명': '홍길동', '전화번호': '010-0000-0000', '권리자(신고인)의 권리': '상표권', '쿠팡 상품번호': '{상품ID}', '판매자명': '{판매자}', '신고사유 및 요청사항': '{본문}', '접수일자': '{날짜}' } };
+  t.byLabel['신고사유 및 요청사항'] = t.body;
+  const [tg] = IPR.parseTargets('8790262924 - 22489012345 | ○○유한회사');
+  assert.deepEqual([tg.productId, tg.url, tg.seller], ['8790262924', 'https://www.coupang.com/vp/products/8790262924', '○○유한회사']);
+  const vals = Object.fromEntries(IPR.formValues(form, t, tg, '2026-11-28').map((v) => [v.key, v.value]));
+  assert.deepEqual(vals, { e: 'a@b.c', c1: '홍길동', c2: '홍길동', c3: '010-0000-0000', c4: '상표권', c5: '8790262924', c6: '○○유한회사', c7: '○○유한회사가 상표(DUGN)을 도용', k1: '예', k2: '예', k5: '예', d: '2026-11-28', k6: '예' });   // 선택 사항(k3, k4)은 체크 안 함
+  assert.deepEqual(IPR.missingRequired(form, t), []);
+  t.values = { k1: '' }; assert.ok(!('k1' in Object.fromEntries(IPR.formValues(form, t, tg, '2026-11-28').map((v) => [v.key, v.value]))));   // 템플릿에서 끈 체크는 그대로 끔
+  console.log('IP report fills the real form by field labels: all checks passed');
+}

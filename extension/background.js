@@ -1242,7 +1242,8 @@ function ipReadFormInPage() {
     const fields = []; const seen = new Set();
     for (const el of form.querySelectorAll('input, textarea, select')) {
       const name = el.name || ''; if (!name || seen.has(name) || /authenticity_token|^utf8$/.test(name) || /^(submit|button|reset|image|file)$/.test(el.type)) continue;
-      if (el.type === 'hidden' && /ticket_form_id/.test(name)) continue; seen.add(name);
+      if (el.type === 'hidden' && (/ticket_form_id/.test(name) || form.querySelector(`[name="${CSS.escape(name)}"]:not([type="hidden"])`))) continue;   // 체크 칸 옆 같은 이름의 숨은 칸(값 0)은 건너뜀
+      seen.add(name);
       const w = wrapOf(el); let type = el.tagName === 'TEXTAREA' ? 'textarea' : el.tagName === 'SELECT' ? 'select' : (el.type || 'text'); let options = [];
       if (type === 'select') options = [...el.options].filter((o) => o.value).map((o) => ({ value: o.value, label: clean(o.textContent) }));
       if (type === 'hidden') {
@@ -1266,7 +1267,7 @@ function ipFillFormInPage(values, files, submit) {
     const setVal = (el, v) => { const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); for (const t of ['input', 'change', 'blur']) el.dispatchEvent(new Event(t, { bubbles: true })); };
     const done = [], errs = [];
     for (const f of values) {
-      const el = form.querySelector(`[name="${CSS.escape(f.name)}"]`); if (!el) { errs.push(`${f.label}: 칸이 없음`); continue; }
+      const el = (f.type === 'checkbox' && form.querySelector(`input[type="checkbox"][name="${CSS.escape(f.name)}"]`)) || form.querySelector(`[name="${CSS.escape(f.name)}"]:not([type="hidden"])`) || form.querySelector(`[name="${CSS.escape(f.name)}"]`); if (!el) { errs.push(`${f.label}: 칸이 없음`); continue; }
       const w = el.closest('.form-field, [data-garden-id="forms.field"], .field, fieldset');
       const opt = (f.options || []).find((o) => o.label === f.value || o.value === f.value) || (f.options || []).find((o) => o.label.split('::').pop().trim() === String(f.value).trim());
       try {
@@ -1331,7 +1332,7 @@ async function ipFile({ templateId, targets, submit, force = false }) {
     for (const [i, target] of targets.entries()) {
       const dup = IPR.alreadyReported(d0.ipHistory, templateId, target); if (dup && !force) { results.push({ target, status: 'skipped', note: `이미 ${dup.at.slice(0, 10)} 신고함` }); continue; }
       if (i) await sleep(5000 + Math.random() * 5000);   // 신고 사이 5~10초
-      const values = IPR.formValues(d0.ipForm, tpl, target);
+      const values = IPR.formValues(d0.ipForm, tpl, target, RT.todayIso());
       const tab = await chrome.tabs.create({ url: IPR.IP_FORM_URL, active: true }); let rec = { at: new Date().toISOString(), templateId, templateName: tpl.name, target, status: 'error', ticket: '', error: '' };
       try {
         await waitTabLoaded(tab.id); await sleep(1500);

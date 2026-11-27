@@ -1122,7 +1122,7 @@ $('#ip-pack').onchange = async (ev) => {
       const files = [];
       for (const f of t.files) { const id = Math.random().toString(36).slice(2, 10); await chrome.storage.local.set({ ['ipfile:' + id]: { name: f.name, type: f.type || '', dataUrl: f.dataUrl } }); files.push({ id, name: f.name, type: f.type || '', size: Math.round((f.dataUrl.length - f.dataUrl.indexOf(',') - 1) * 0.75) }); }
       let name = t.name; while (dd.ipTemplates.some((x) => x.name === name)) name += ' (새로 가져옴)';
-      const nt = { id: Math.random().toString(36).slice(2, 10), name, subject: t.subject, body: t.body, values: t.values, files }; dd.ipTemplates.push(nt); names.push(`${name} (첨부 ${files.length}개)`); ipCur = nt.id;
+      const nt = { id: Math.random().toString(36).slice(2, 10), name, subject: t.subject, body: t.body, values: t.values, byLabel: t.byLabel, checkRequired: t.checkRequired, files }; dd.ipTemplates.push(nt); names.push(`${name} (첨부 ${files.length}개)`); ipCur = nt.id;
     }
     await ipSaved(dd); ipDirty = false; renderIp(); msg('#ip-msg', `템플릿 ${pack.length}개를 가져왔습니다: ${names.join(', ')}`, 'ok');
   } catch (e) { msg('#ip-msg', e.message, 'err'); }
