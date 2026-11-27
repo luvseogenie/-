@@ -912,7 +912,7 @@ async function renderInventory() {
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
   const a = meta?.api; const notDone = a && a.items && (a.reason || a.err || (a.total && a.total > a.items) || (!a.added && a.requests <= 1 && !a.total));
   const apiTxt = a ? (a.items ? ` · 서버 데이터 ${a.items}개${a.mode ? ` [${a.mode} ${a.requests}번${a.stop ? ' · ' + a.stop : ''}]` : ''}${a.total ? ` (서버가 말한 전체 ${a.total}개${a.total > a.items ? ' — 덜 읽음' : ''})` : ''}${notDone ? ` · 더 불러오기: ${a.reason || a.err || a.stop || '안 됨'}${a.mode ? ` [${a.mode}]` : ''} (요청 칸: ${(a.keys || '-').slice(0, 120)} / 응답 칸: ${(a.topKeys || '-').slice(0, 80)})` : ''}` : ` · 서버 데이터 못 읽음 (${a.why})`) : '';
-  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta?.source === 'api' ? ` · 쿠팡 Open API ${meta.saved}개 옵션` : meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
+  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta?.source === 'api' ? ` · 쿠팡 Open API ${meta.saved}개 옵션${meta.resale ? ` (반품·중고 등 등록 상품에 없는 옵션 ${meta.resale}개 뺌)` : ''}` : meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
   const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;

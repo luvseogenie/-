@@ -5,6 +5,7 @@ export const CP_HOST = 'https://api-gateway.coupang.com';
 export const CP_ORIGIN = 'https://api-gateway.coupang.com/*';
 export const RG_INVENTORY = (v) => `/v2/providers/rg_open_api/apis/api/v1/vendors/${encodeURIComponent(v)}/rg/inventory/summaries`;
 export const RG_ORDERS = (v) => `/v2/providers/rg_open_api/apis/api/v1/vendors/${encodeURIComponent(v)}/rg/orders`;
+export const SELLER_PRODUCTS = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 const PAGE_GAP_MS = 1300;   // 분당 50회 제한 → 한 번 부르고 1.3초 쉼
 
 // 서명 시각: GMT 기준 yyMMdd'T'HHmmss'Z' (예: 261127T053105Z)
@@ -55,6 +56,33 @@ export async function rgInventoryAll(creds, { fetchImpl, gap = PAGE_GAP_MS, maxP
     const nt = j.nextToken ? String(j.nextToken) : null; token = nt && nt !== token ? nt : null;
   } while (token && pages < maxPages);
   return { items: out, pages };
+}
+// 내가 등록한 로켓그로스 상품 전체 (등록상품 → 옵션). 반품·중고 재판매 옵션은 여기 없다
+export async function rgProductsAll(creds, { fetchImpl, gap = PAGE_GAP_MS, maxPages = 100 } = {}) {
+  const out = []; let token = null; let pages = 0;
+  do {
+    if (pages) await sleep(gap);
+    const j = await cpGet(creds, SELLER_PRODUCTS, { vendorId: creds.vendorId.trim(), ...(token ? { nextToken: token } : {}), maxPerPage: 100, businessTypes: 'rocketGrowth' }, { fetchImpl });
+    out.push(...(j.data || [])); pages++;
+    const nt = j.nextToken != null ? String(j.nextToken).trim() : ''; token = nt && nt !== token ? nt : null;
+  } while (token && pages < maxPages);
+  return { products: out, pages };
+}
+// 등록상품 목록 → 로켓그로스 옵션ID 별 { product_id(등록상품ID), product_name, option_name, status }
+export function rgItemsFromProducts(products) {
+  const out = {};
+  for (const p of products || []) for (const it of p?.items || []) {
+    const rg = it?.rocketGrowthItemData || it?.rocketGrowthItem; const vid = rg?.vendorItemId; if (vid == null || vid === '') continue;
+    out[String(vid)] = { product_id: p.sellerProductId != null ? String(p.sellerProductId) : '', product_name: p.sellerProductName || '', option_name: it.itemName || '', status: p.statusName || '' };
+  }
+  return out;
+}
+// 재고 줄을 '내가 등록한 새 상품' 과 '그 밖(반품·중고 재판매 등)' 으로 나눈다. 등록 목록을 못 받았으면 나누지 않음
+export function splitResale(rows, reg) {
+  if (!reg || !Object.keys(reg).length) return { keep: rows, resale: [] };
+  const keep = [], resale = [];
+  for (const r of rows) { const g = reg[r.option_id]; if (!g) { resale.push(r); continue; } keep.push({ ...r, product_id: r.product_id || g.product_id, product_name: r.product_name || g.product_name, option_name: r.option_name || g.option_name }); }
+  return { keep, resale };
 }
 // 로켓그로스 주문 (결제일 기준, 한 번에 최대 30일 → 나눠 부름)
 const ymd = (iso) => iso.replace(/-/g, '');

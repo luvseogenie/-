@@ -152,8 +152,9 @@ export function inventoryForecast(d, today, settings = {}) {
     const ends = (x) => { const t = full(x); return t.endsWith(on) && !/\d$/.test(t.slice(0, t.length - on.length)); };   // '12개 블루' 가 '2개 블루' 로 잡히지 않게
     return cands.find((x) => nk(x.option_name) === on) || cands.find(ends) || null;
   };
+  const resaleIds = new Set(d.invResale?.ids || []);
   for (const [oid, f] of Object.entries(facts)) {
-    if (inv[oid] || !f.rg) continue;
+    if (inv[oid] || !f.rg || resaleIds.has(oid)) continue;
     if (!(f.product_id && pids.has(f.product_id)) && !(q30[oid] > 0)) continue;
     const st0 = takeStray(f);
     if (st0) { used.add(st0); base.push({ ...st0, option_id: oid, inv_option_id: st0.option_id, product_id: st0.product_id || f.product_id, option_name: f.option_name || st0.option_name }); continue; }

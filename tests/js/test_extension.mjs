@@ -1749,3 +1749,21 @@ console.log('extension logic: all checks passed');
   const f = INV.inventoryForecast(d, '2026-11-27'); assert.equal(f.rows[0].rate, 2); assert.equal(f.rows[0].daysLeft, 5);
   console.log('Coupang Open API signing, paging and inventory rows: all checks passed');
 }
+
+// Open API 재고: 내가 등록한 로켓그로스 옵션만 (반품·중고 재판매 옵션은 등록 목록에 없음)
+{
+  const CP = await import('../../extension/lib/cpapi.js'); const INV = await import('../../extension/lib/inventory.js');
+  const reg = CP.rgItemsFromProducts([{ sellerProductId: 15753767118, sellerProductName: 'DUGN 패딩조끼', statusName: '승인완료', items: [{ itemName: '블랙, 공용 XL', rocketGrowthItemData: { vendorItemId: 96167831007 } }, { itemName: '판매자배송만', marketPlaceItemData: { vendorItemId: 1 }, rocketGrowthItemData: null }] }, { sellerProductId: 2, sellerProductName: 'B', items: [{ itemName: '레드', rocketGrowthItem: { vendorItemId: 555 } }] }]);
+  assert.deepEqual(Object.keys(reg).sort(), ['555', '96167831007']); assert.deepEqual(reg['96167831007'], { product_id: '15753767118', product_name: 'DUGN 패딩조끼', option_name: '블랙, 공용 XL', status: '승인완료' });
+  const rows = [{ option_id: '96167831007', stock: 601 }, { option_id: '96288800840', stock: 0, option_name: '블랙, 공용 XL' }, { option_id: '555', stock: 3, product_name: '판매 기록 이름' }];
+  const sp = CP.splitResale(rows, reg);
+  assert.deepEqual(sp.keep.map((x) => [x.option_id, x.product_id, x.product_name, x.option_name]), [['96167831007', '15753767118', 'DUGN 패딩조끼', '블랙, 공용 XL'], ['555', '2', '판매 기록 이름', '레드']]);   // 이름이 이미 있으면 그대로
+  assert.deepEqual(sp.resale.map((x) => x.option_id), ['96288800840']);
+  assert.equal(CP.splitResale(rows, {}).keep.length, 3);   // 등록 목록을 못 받으면 그대로
+  // 반품·중고 옵션이 로켓그로스로 잘 팔려도 '품절 추정' 줄로 넣지 않는다
+  const sales = {}; for (let i = 1; i <= 7; i++) sales[`2026-11-${String(20 + i).padStart(2, '0')}`] = { r: { option_id: '96288800840', product_name: 'DUGN 패딩조끼', option_name: '블랙, 공용 XL', sales_type: '로켓그로스', quantity: 3 } };
+  const d = { inventory: { '2026-11-28': { 96167831007: { option_id: '96167831007', stock: 601, product_name: 'DUGN 패딩조끼' } } }, sales };
+  assert.ok(INV.inventoryForecast(d, '2026-11-28').rows.some((x) => x.option_id === '96288800840'));
+  d.invResale = { ids: ['96288800840'] }; assert.ok(!INV.inventoryForecast(d, '2026-11-28').rows.some((x) => x.option_id === '96288800840'));
+  console.log('Open API inventory keeps only registered Rocket Growth options: all checks passed');
+}

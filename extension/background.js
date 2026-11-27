@@ -880,11 +880,18 @@ function cpNames(d) {   // 옵션ID → 이름 (판매 기록 → 예전 재고 
 }
 async function collectInventoryApi(creds) {
   const t0 = Date.now(); const r = await CP.rgInventoryAll(creds);
-  const d = await S.load(); const rows = CP.inventoryRowsFromApi(r.items, cpNames(d)); const date = RT.todayIso();
-  if (!rows.length) throw new Error(`Open API 재고가 0개입니다 (${r.pages}쪽)`);
+  // 내가 등록한 로켓그로스 옵션 목록 (반품·중고 재판매 옵션은 등록 목록에 없음 → 재고에서 뺀다)
+  let reg = null, regPages = 0, regErr = '';
+  try { const pr = await CP.rgProductsAll(creds); reg = CP.rgItemsFromProducts(pr.products); regPages = pr.pages; } catch (e) { regErr = e.message; }
+  const d = await S.load(); const all = CP.inventoryRowsFromApi(r.items, cpNames(d)); const date = RT.todayIso();
+  if (!all.length) throw new Error(`Open API 재고가 0개입니다 (${r.pages}쪽)`);
+  const { keep: rows, resale } = CP.splitResale(all, reg);
+  if (!rows.length) throw new Error(`Open API 재고 ${all.length}개가 모두 등록 상품 목록(${Object.keys(reg || {}).length}개 옵션)에 없습니다`);
+  const date0 = date; if (d.inventory?.[date0]) for (const x of resale) delete d.inventory[date0][x.option_id];   // 같은 날 먼저 들어간 반품·중고 줄은 지운다
   S.setInventory(d, date, rows, { merge: true });
-  d.inventoryMeta = { date, at: Date.now(), source: 'api', saved: rows.length, pages: r.pages, screenRows: 0, notes: [] }; await S.save(d);
-  await log(`[재고] Open API 로 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, ${r.pages}번 호출, ${Math.round((Date.now() - t0) / 1000)}초 · 재고 0인 옵션 ${rows.filter((x) => !x.stock).length}개)`);
+  if (reg) d.invResale = { at: date, ids: resale.map((x) => x.option_id).slice(0, 5000), stock: resale.reduce((a, x) => a + (x.stock || 0), 0) };
+  d.inventoryMeta = { date, at: Date.now(), source: 'api', saved: rows.length, resale: resale.length, regOptions: reg ? Object.keys(reg).length : null, pages: r.pages, screenRows: 0, notes: [] }; await S.save(d);
+  await log(`[재고] Open API 로 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, 재고 ${r.pages}번 + 상품 목록 ${regPages}번 호출, ${Math.round((Date.now() - t0) / 1000)}초 · 재고 0인 옵션 ${rows.filter((x) => !x.stock).length}개)${reg ? ` · 등록 상품에 없는 옵션(반품·중고 재판매 등) ${resale.length}개 뺌${resale.length ? ` (재고 ${d.invResale.stock}개, 예: ${resale.slice(0, 5).map((x) => `${x.option_id}${x.option_name ? ' ' + x.option_name : ''}`).join(', ')})` : ''}` : ` · 등록 상품 목록을 못 받아 반품·중고를 가리지 못함: ${regErr}`}`);
   await cpNote(true, 'inventory');
   return { ok: true, saved: rows.length };
 }
