@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쿠팡 광고계산기",
-  "version": "0.62.0",
+  "version": "0.63.0",
   "description": "쿠팡 판매자센터·광고센터 화면의 어제 데이터를 저장하고 캠페인별 순이익 장부를 보여줍니다. 설치 외에 아무것도 필요 없습니다.",
   "permissions": [
     "storage",
@@ -11,7 +11,8 @@
     "tabs",
     "webNavigation",
     "notifications",
-    "downloads", "management",
+    "downloads",
+    "management",
     "offscreen"
   ],
   "host_permissions": [
@@ -21,7 +22,8 @@
     "https://raw.githubusercontent.com/*"
   ],
   "optional_host_permissions": [
-    "https://sellersupport-help.coupangcorp.com/*"
+    "https://sellersupport-help.coupangcorp.com/*",
+    "https://api-gateway.coupang.com/*"
   ],
   "background": {
     "service_worker": "background.js",

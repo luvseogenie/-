@@ -912,7 +912,7 @@ async function renderInventory() {
   const meta = DATA.inventoryMeta?.date === f.asOf ? DATA.inventoryMeta : null;
   const a = meta?.api; const notDone = a && a.items && (a.reason || a.err || (a.total && a.total > a.items) || (!a.added && a.requests <= 1 && !a.total));
   const apiTxt = a ? (a.items ? ` · 서버 데이터 ${a.items}개${a.mode ? ` [${a.mode} ${a.requests}번${a.stop ? ' · ' + a.stop : ''}]` : ''}${a.total ? ` (서버가 말한 전체 ${a.total}개${a.total > a.items ? ' — 덜 읽음' : ''})` : ''}${notDone ? ` · 더 불러오기: ${a.reason || a.err || a.stop || '안 됨'}${a.mode ? ` [${a.mode}]` : ''} (요청 칸: ${(a.keys || '-').slice(0, 120)} / 응답 칸: ${(a.topKeys || '-').slice(0, 80)})` : ''}` : ` · 서버 데이터 못 읽음 (${a.why})`) : '';
-  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
+  $('#inv-asof').textContent = f.asOf ? `${f.asOf} 기준${meta?.source === 'api' ? ` · 쿠팡 Open API ${meta.saved}개 옵션` : meta ? ` · 윙 화면 ${meta.screenRows}줄 ${meta.pages}쪽${apiTxt}${meta.excel ? ` + 엑셀 ${meta.excel}개` : ''}` : ''}` : '아직 재고를 읽지 않았습니다';
   const sortBy = $('#inv-sort').value || 'asc';
   const mine0 = S.brandCheckerLoose(DATA); const onlyMine = $('#inv-only-mine').checked; const mine = (...n) => !onlyMine || mine0(...n);
   const q = ($('#inv-search').value || '').trim().toLowerCase(); const onlyLow = $('#inv-only-low').checked; const sf = $('#inv-season-filter').value;
@@ -2013,12 +2013,12 @@ $('#restore').onchange = async (ev) => {
 };
 $('#sales-csv').onclick = () => { const d = DATA; const keys = ['date', 'option_id', 'option_name', 'product_name', 'product_id', 'category', 'sales_type', 'revenue', 'orders', 'quantity', 'visitors', 'views', 'carts', 'conversion']; const lines = [['날짜', '옵션ID', '옵션명', '상품명', '등록상품ID', '카테고리', '판매방식', '매출', '주문', '판매량', '방문자', '조회', '장바구니', '구매전환율'].join(',')]; for (const date of Object.keys(d.sales).sort()) for (const r of Object.values(d.sales[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('판매데이터.csv', lines.join('\n')); };
 $('#ads-csv').onclick = () => { const d = DATA; const keys = ['date', 'campaign', 'target_roas', 'budget', 'spend', 'ad_revenue', 'conversion', 'ctr', 'impressions', 'clicks', 'ad_orders', 'action']; const lines = [['날짜', '캠페인', '목표효율', '광고예산', '집행광고비', '광고전환매출', '전환율', '클릭률', '노출수', '클릭수', '광고전환판매수', 'ACTION'].join(',')]; for (const date of Object.keys(d.ads).sort()) for (const r of Object.values(d.ads[date])) lines.push(keys.map((k) => csvEsc(r[k])).join(',')); download('광고데이터.csv', lines.join('\n')); };
-const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23 };
+const SETTINGS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invApiFallback: false };
 async function loadSettings() {
   const s = await chrome.storage.sync.get(SETTINGS);
   for (const k of Object.keys(SETTINGS)) { const el = $('#set-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k]; }
   const { logs = [] } = await chrome.storage.local.get('logs'); $('#auto-log').textContent = logs.slice(-20).join('\n') || '(자동 수집 기록 없음)';
-  loadLogin();
+  loadLogin(); loadCpApi();
   try {
     const a = await chrome.runtime.sendMessage({ type: 'autoStatus' });
     const when = a.nextAt ? new Date(a.nextAt).toLocaleString('ko-KR') : '-';
@@ -2033,6 +2033,26 @@ async function loadSettings() {
     const dg = autoDiagnosis(a); if (a.enabled && dg.past && !a.doneToday && !a.running && dg.why) $('#auto-status').innerHTML += `<br>↳ ${dg.why}`;
   } catch { $('#auto-status').textContent = ''; }
 }
+async function loadCpApi() {
+  try {
+    const c = await chrome.runtime.sendMessage({ type: 'cpApiStatus' }); $('#cp-vendor').value = c.vendorId || ''; $('#cp-access').value = ''; $('#cp-access').placeholder = c.accessTail ? `Access Key 저장됨 (…${c.accessTail}) — 바꿀 때만` : 'Access Key'; $('#cp-secret').value = ''; $('#cp-secret').placeholder = c.hasSecret ? 'Secret Key 저장됨 — 바꿀 때만' : 'Secret Key';
+    const L = c.last; const on = c.ok && c.perm;
+    $('#cp-sub').innerHTML = !c.ok ? '<span class="sub">키 없음 (윙 화면으로 읽음)</span>' : !c.perm ? '<b style="color:#d03b3b">API 주소 허용 필요</b> <span class="sub">(저장하고 연결 확인을 누르세요)</span>' : L && !L.ok ? `<span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">마지막 호출 실패</b> <span class="sub">${esc(new Date(L.at).toLocaleString())} — ${esc(L.err)}</span>` : `<span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">연결됨</b>${L?.okAt ? ` <span class="sub">(${esc(new Date(L.okAt).toLocaleString())} 성공)</span>` : ''}`;
+    if (on !== undefined) $('#cp-clear').disabled = !c.ok && !c.vendorId;
+  } catch { /* 무시 */ }
+}
+$('#cp-save').onclick = async () => {
+  const vendorId = $('#cp-vendor').value.trim().toUpperCase(), accessKey = $('#cp-access').value.trim(), secretKey = $('#cp-secret').value.trim();
+  if (!/^A\d{5,}$/.test(vendorId)) { msg('#cp-msg', '업체코드는 A로 시작하는 번호입니다 (윙 OPEN API 키 화면의 업체코드)', 'err'); return; }
+  const granted = await chrome.permissions.request({ origins: ['https://api-gateway.coupang.com/*'] }).catch(() => false);   // 버튼을 누른 순간에만 물어볼 수 있음
+  const sv = await chrome.runtime.sendMessage({ type: 'cpApiSave', vendorId, accessKey, secretKey });
+  if (!sv?.ok) { msg('#cp-msg', 'Access Key 와 Secret Key 를 넣어 주세요', 'err'); loadCpApi(); return; }
+  if (!granted) { msg('#cp-msg', '키는 저장했지만 쿠팡 API 주소 접근을 허용하지 않아 쓸 수 없습니다. 다시 누르고 허용해 주세요', 'err'); loadCpApi(); return; }
+  msg('#cp-msg', '연결 확인 중…'); const r = await chrome.runtime.sendMessage({ type: 'cpApiTest' }).catch((e) => ({ ok: false, error: e.message }));
+  msg('#cp-msg', r?.ok ? `연결됨 — 로켓창고 재고 첫 쪽 ${r.first}개${r.more ? ' (더 있음)' : ''}. 이제 재고는 API 로 읽습니다 (재고 화면 → 지금 읽기)` : r?.error || '실패', r?.ok ? 'ok' : 'err'); loadCpApi();
+};
+$('#set-invApiFallback').onchange = async () => { await chrome.storage.sync.set({ invApiFallback: $('#set-invApiFallback').checked }); msg('#cp-msg', '저장했습니다', 'ok'); };
+$('#cp-clear').onclick = async () => { if (!confirm('저장된 Open API 키를 지울까요? (재고는 다시 윙 화면으로 읽습니다)')) return; await chrome.runtime.sendMessage({ type: 'cpApiClear' }); msg('#cp-msg', '지웠습니다', 'ok'); loadCpApi(); };
 async function loadLogin() {
   try { const l = await chrome.runtime.sendMessage({ type: 'loginStatus' }); $('#login-enabled').checked = !!l.enabled; $('#login-id').value = l.id || ''; $('#login-pw').value = ''; $('#login-pw').placeholder = l.hasPw ? '비밀번호 저장됨 (바꿀 때만 입력)' : '비밀번호'; const on = l.enabled && l.hasPw; $('#login-sub').innerHTML = on ? '<span class="dot" style="background:#1baf7a"></span><b style="color:#1baf7a">켜짐</b>' : '<span class="dot" style="background:#d03b3b"></span><b style="color:#d03b3b">꺼짐</b>' + (l.enabled && !l.hasPw ? ' <span class="sub">(비밀번호가 없어 동작 안 함)</span>' : ''); } catch { /* 무시 */ }
 }

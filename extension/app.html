@@ -479,6 +479,11 @@
             <p class="sub" style="margin:6px 0">쿠팡 로그인이 풀려 있으면 대신 로그인합니다. <b>아이디와 비밀번호가 이 PC 의 크롬 안에 저장됩니다</b> (다른 PC 로 동기화되지 않음). 쿠팡이 인증번호나 로봇 확인을 요구하는 날은 자동으로 넘어가지 못하니 그때는 직접 로그인해야 합니다. 공용 PC 에서는 켜지 마세요.</p>
             <div class="row"><label class="chk"><input type="checkbox" id="login-enabled"> 자동 로그인 켜기</label><input type="text" id="login-id" placeholder="쿠팡 윙 아이디" style="width:200px" autocomplete="off"><input type="password" id="login-pw" placeholder="비밀번호 (바꿀 때만 입력)" style="width:200px" autocomplete="new-password"><button class="btn primary sm" id="login-save">저장</button><button class="btn sm" id="login-clear">저장된 정보 지우기</button><span id="login-msg" class="msg"></span></div>
           </details>
+          <details style="margin-top:8px" id="cp-box"><summary>🔑 쿠팡 Open API (공식 판매자 API) <span id="cp-sub" style="margin-left:6px"></span></summary>
+            <p class="sub" style="margin:6px 0">윙 → 판매자정보 → <b>OPEN API 키 발급</b>(자체개발)에서 받은 키를 넣으면, <b>로켓그로스 재고를 윙 화면 대신 쿠팡이 허용한 API 로</b> 읽습니다 (옵션 전부, 재고 0 포함, 최근 30일 판매 수량도 함께). 키는 이 PC 크롬 안에만 저장되고 백업 파일에 들어가지 않습니다. 키를 발급할 때 넣은 <b>IP 주소</b>의 PC 에서만 동작합니다 — 집 인터넷 IP 가 바뀌면 윙 키 화면에서 새 IP 를 추가하세요 (findip.kr). 키는 180일마다 재발급해야 합니다.</p>
+            <div class="row" style="gap:6px;flex-wrap:wrap"><input id="cp-vendor" placeholder="업체코드 (A로 시작)" style="width:150px" autocomplete="off"><input id="cp-access" placeholder="Access Key" style="width:300px" autocomplete="off"><input type="password" id="cp-secret" placeholder="Secret Key" style="width:300px" autocomplete="new-password"><button class="btn primary sm" id="cp-save">저장하고 연결 확인</button><button class="btn sm" id="cp-clear">키 지우기</button><span id="cp-msg" class="msg"></span></div>
+            <div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="set-invApiFallback"> API 로 못 읽은 날은 윙 재고 화면으로 읽기 (재고 화면 주소가 있을 때)</label></div>
+          </details>
           <details style="margin-top:8px"><summary>고급: 파이썬 서버로도 보내기</summary><div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="set-serverSync"> 서버로도 전송</label><input id="set-server" style="width:240px" placeholder="http://127.0.0.1:8765"></div></details>
           <pre class="log" id="auto-log" style="margin-top:8px"></pre>
         </div>

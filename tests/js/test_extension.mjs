@@ -1717,3 +1717,35 @@ console.log('extension logic: all checks passed');
   assert.deepEqual(IPR.missingRequired(form, tpl), []); assert.deepEqual(IPR.missingRequired(form, { values: { reason: 'x' } }), ['설명']);
   console.log('IP report templates, targets and duplicate guard: all checks passed');
 }
+
+// 쿠팡 Open API: 서명(공식 예제 방식과 같은 값) · 재고/주문 응답 읽기 · 30일 나누기 · API 30일 판매를 발주 속도에 반영
+{
+  const CP = await import('../../extension/lib/cpapi.js'); const nodeCrypto = await import('node:crypto');
+  const now = new Date(Date.UTC(2026, 10, 27, 5, 31, 5));
+  assert.equal(CP.signedDate(now), '261127T053105Z');
+  assert.equal(CP.signedDate(now), now.toISOString().substr(2, 17).replace(/:/gi, '').replace(/-/gi, '') + 'Z');   // 공식 Node 예제와 같은 식
+  const path = CP.RG_ORDERS('A00012345'); const query = CP.buildQuery({ paidDateFrom: '20261101', paidDateTo: '20261127', nextToken: undefined });
+  assert.equal(query, 'paidDateFrom=20261101&paidDateTo=20261127');
+  const h = await CP.authHeader({ accessKey: 'AK', secretKey: 'SK' }, 'GET', path, query, now);
+  const want = nodeCrypto.createHmac('sha256', 'SK').update('261127T053105Z' + 'GET' + path + query).digest('hex');
+  assert.equal(h, `CEA algorithm=HmacSHA256, access-key=AK, signed-date=261127T053105Z, signature=${want}`);
+  assert.ok(CP.credsOk({ vendorId: 'A01492559', accessKey: 'a', secretKey: 'b' })); assert.ok(!CP.credsOk({ vendorId: '1492559', accessKey: 'a', secretKey: 'b' }));
+  // 페이지 넘기며 끝까지 (가짜 서버)
+  const seen = []; const pages = { '': { data: [{ vendorItemId: 111, externalSkuId: 9, inventoryDetails: { totalOrderableQuantity: 5 }, salesCountMap: { SALES_COUNT_LAST_THIRTY_DAYS: 60 } }], nextToken: '2' }, 2: { data: [{ vendorItemId: 222, inventoryDetails: { totalOrderableQuantity: 0 }, salesCountMap: {} }, { vendorItemId: 0 }] } };
+  const fake = async (url, opt) => { seen.push([url, opt.headers.Authorization.startsWith('CEA algorithm=HmacSHA256, access-key=AK, signed-date=')]); const t = new URL(url).searchParams.get('nextToken') || ''; return { ok: true, status: 200, text: async () => JSON.stringify(pages[t]) }; };
+  const inv = await CP.rgInventoryAll({ vendorId: 'A00012345', accessKey: 'AK', secretKey: 'SK' }, { fetchImpl: fake, gap: 0 });
+  assert.equal(inv.pages, 2); assert.equal(seen[1][0], 'https://api-gateway.coupang.com/v2/providers/rg_open_api/apis/api/v1/vendors/A00012345/rg/inventory/summaries?nextToken=2'); assert.ok(seen.every((x) => x[1]));
+  const rows = CP.inventoryRowsFromApi(inv.items, { 111: { product_name: 'DUGN 담요', option_name: '블루' } });
+  assert.deepEqual(rows.map((r) => [r.option_id, r.stock, r.sales30, r.product_name]), [['111', 5, 60, 'DUGN 담요'], ['222', 0, null, '']]);
+  // 오류 설명: 403 → IP 안내
+  const bad = async () => ({ ok: false, status: 403, text: async () => '' });
+  await assert.rejects(CP.cpGet({ vendorId: 'A1', accessKey: 'a', secretKey: 'b' }, '/x', {}, { fetchImpl: bad }), /IP/);
+  assert.deepEqual(CP.dateChunks('2026-10-01', '2026-11-27'), [['2026-10-01', '2026-10-30'], ['2026-10-31', '2026-11-27']]);
+  const byDay = CP.ordersByDay([{ paidAt: Date.UTC(2026, 10, 26, 16, 0), orderItems: [{ vendorItemId: 111, salesQuantity: 2, unitSalesPrice: '12,900' }] }, { paidAt: Date.UTC(2026, 10, 26, 14, 59), orderItems: [{ vendorItemId: 111, salesQuantity: 1, unitSalesPrice: '12900' }] }]);
+  assert.deepEqual(Object.keys(byDay).sort(), ['2026-11-26', '2026-11-27']); assert.equal(byDay['2026-11-27']['111'].revenue, 25800);   // 한국 시각 날짜
+  // 발주 속도: 판매 기록이 없어도 API 의 최근 30일 판매(60개 → 하루 2개)로 계산
+  const INV = await import('../../extension/lib/inventory.js');
+  const d = { inventory: { '2026-11-27': { 111: { option_id: '111', stock: 10, sales30: 60, product_name: 'DUGN 담요', option_name: '블루' } } }, sales: {} };
+  const f = INV.inventoryForecast(d, '2026-11-27'); assert.equal(f.rows[0].rate, 2); assert.equal(f.rows[0].daysLeft, 5);
+  console.log('Coupang Open API signing, paging and inventory rows: all checks passed');
+}

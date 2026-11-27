@@ -10,8 +10,9 @@ import * as RT from './lib/realtime.js';
 import * as INV from './lib/inventory.js';
 import * as COMP from './lib/competitor.js';
 import * as IPR from './lib/ipreport.js';
+import * as CP from './lib/cpapi.js';
 
-const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invUrl: '' };
+const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invUrl: '', invApiFallback: false };
 let expectUntil = 0, expectDate = null;
 let reportWaiter = null; // 리포트 다운로드 → 저장 결과를 기다리는 resolve
 const waitForReport = (ms) => new Promise((resolve) => { reportWaiter = resolve; setTimeout(() => { if (reportWaiter === resolve) { reportWaiter = null; resolve({ ok: false, error: '다운로드 대기 시간 초과' }); } }, ms); });
@@ -868,9 +869,31 @@ async function collectInventory() {
     return { ok: true, saved: rows.length };
   } finally { await close(); }
 }
+// ---- 쿠팡 Open API (공식 판매자 API): 키가 있으면 재고는 윙 화면 대신 API 로 읽는다 ----
+async function cpCreds() { const { cpApi } = await chrome.storage.local.get('cpApi'); return CP.credsOk(cpApi) ? { vendorId: cpApi.vendorId.trim(), accessKey: cpApi.accessKey.trim(), secretKey: cpApi.secretKey.trim() } : null; }
+async function cpReady() { const c = await cpCreds(); if (!c) return null; const ok = await chrome.permissions.contains({ origins: [CP.CP_ORIGIN] }).catch(() => false); return ok ? c : null; }
+async function cpNote(ok, what, err = '') { const { cpApiLast = {} } = await chrome.storage.local.get('cpApiLast'); await chrome.storage.local.set({ cpApiLast: { ...cpApiLast, at: Date.now(), ok, what, err: String(err).slice(0, 400), ...(ok ? { okAt: Date.now() } : {}) } }); }
+function cpNames(d) {   // 옵션ID → 이름 (판매 기록 → 예전 재고 줄)
+  const out = {}; for (const day of Object.keys(d.inventory || {}).sort()) for (const [oid, x] of Object.entries(d.inventory[day] || {})) out[oid] = { product_name: x.product_name || out[oid]?.product_name || '', option_name: x.option_name || out[oid]?.option_name || '', product_id: x.product_id || out[oid]?.product_id || '' };
+  for (const [oid, x] of Object.entries(S.optionFacts(d))) out[oid] = { product_name: x.product || out[oid]?.product_name || '', option_name: x.option_name || out[oid]?.option_name || '', product_id: x.product_id || out[oid]?.product_id || '' };
+  return out;
+}
+async function collectInventoryApi(creds) {
+  const t0 = Date.now(); const r = await CP.rgInventoryAll(creds);
+  const d = await S.load(); const rows = CP.inventoryRowsFromApi(r.items, cpNames(d)); const date = RT.todayIso();
+  if (!rows.length) throw new Error(`Open API 재고가 0개입니다 (${r.pages}쪽)`);
+  S.setInventory(d, date, rows, { merge: true });
+  d.inventoryMeta = { date, at: Date.now(), source: 'api', saved: rows.length, pages: r.pages, screenRows: 0, notes: [] }; await S.save(d);
+  await log(`[재고] Open API 로 로켓그로스 재고 ${rows.length}개 옵션 저장 (${date}, ${r.pages}번 호출, ${Math.round((Date.now() - t0) / 1000)}초 · 재고 0인 옵션 ${rows.filter((x) => !x.stock).length}개)`);
+  await cpNote(true, 'inventory');
+  return { ok: true, saved: rows.length };
+}
 async function inventoryRun(manual = false) {
-  const s = await getSettings(); if (!s.invUrl) return manual ? { ok: false, error: "재고 화면 주소가 비어 있습니다" } : null;
-  try { await collectInventory(); } catch (e) { await log(`[재고] 실패: ${e.message}`); return { ok: false, error: e.message }; }
+  const s = await getSettings(); const api = await cpReady();
+  if (!api && !s.invUrl) return manual ? { ok: false, error: "재고 화면 주소가 비어 있습니다 (또는 데이터·설정에서 쿠팡 Open API 키를 넣으세요)" } : null;
+  let viaApi = false;
+  if (api) { try { await collectInventoryApi(api); viaApi = true; } catch (e) { await cpNote(false, 'inventory', e.message); await log(`[재고] Open API 로 못 읽음: ${e.message}${s.invUrl && s.invApiFallback ? ' → 윙 화면으로 읽습니다' : ''}`); if (!(s.invUrl && s.invApiFallback)) return { ok: false, error: e.message }; } }
+  if (!viaApi) try { await collectInventory(); } catch (e) { await log(`[재고] 실패: ${e.message}`); return { ok: false, error: e.message }; }
   try {
     const d = await S.load(); const mine = S.brandCheckerLoose(d); const f = INV.inventoryForecast(d, RT.todayIso());
     const low = f.rows.filter((x) => ['out', 'danger', 'warn'].includes(x.level) && mine(x.option_name, x.product_name));
@@ -1145,7 +1168,7 @@ async function purgeEarlyYesterday() {
 // 재고는 하루 한 번: 주소가 있는데 오늘 재고가 아직 없으면(13시 자동 수집이 꺼져 있거나, 주소를 그 뒤에 넣었거나, 실패) 매시간 점검에서 읽는다 (하루 3번까지)
 async function inventoryCatchUp() {
   try {
-    const s = await getSettings(); if (!s.invUrl) return; const h = new Date().getHours(); if (h < 9 || h > 22) return;
+    const s = await getSettings(); if (!s.invUrl && !(await cpReady())) return; const h = new Date().getHours(); if (h < 9 || h > 22) return;
     if (rtRunning || autoRunning || job.running) return;
     const t = RT.todayIso(); const d = await S.loadLight(); if ((d.inventory || {})[t]) return;
     const { invTry = {} } = await chrome.storage.local.get('invTry'); const n = invTry.date === t ? invTry.n : 0; if (n >= 3) return;
@@ -1485,6 +1508,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'inventoryNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else { autoRunning = true; try { sendResponse(await inventoryRun(true)); } finally { autoRunning = false; } } }
     else if (msg.type === 'realtimeNow') { sendResponse(await realtimeRun(true)); }
+    else if (msg.type === 'cpApiSave') { const { cpApi: cur = {} } = await chrome.storage.local.get('cpApi'); const nx = { vendorId: String(msg.vendorId || '').trim().toUpperCase(), accessKey: String(msg.accessKey || '').trim() || cur.accessKey || '', secretKey: String(msg.secretKey || '').trim() || cur.secretKey || '' }; await chrome.storage.local.set({ cpApi: nx }); await log(`[Open API] 키 저장 (업체코드 ${nx.vendorId}, Access Key …${nx.accessKey.slice(-4)})`); sendResponse({ ok: CP.credsOk(nx) }); }
+    else if (msg.type === 'cpApiClear') { await chrome.storage.local.remove(['cpApi', 'cpApiLast']); await log('[Open API] 저장된 키를 지웠습니다'); sendResponse({ ok: true }); }
+    else if (msg.type === 'cpApiStatus') { const { cpApi = {}, cpApiLast = null } = await chrome.storage.local.get(['cpApi', 'cpApiLast']); sendResponse({ vendorId: cpApi.vendorId || '', accessTail: cpApi.accessKey ? cpApi.accessKey.slice(-4) : '', hasSecret: !!cpApi.secretKey, ok: CP.credsOk(cpApi), perm: await chrome.permissions.contains({ origins: [CP.CP_ORIGIN] }).catch(() => false), last: cpApiLast }); }
+    else if (msg.type === 'cpApiTest') {
+      const c = await cpCreds(); if (!c) sendResponse({ ok: false, error: '업체코드(A로 시작) · Access Key · Secret Key 를 모두 넣어 주세요' });
+      else if (!(await chrome.permissions.contains({ origins: [CP.CP_ORIGIN] }).catch(() => false))) sendResponse({ ok: false, error: '쿠팡 API 주소 접근이 허용되지 않았습니다' });
+      else { try { const j = await CP.cpGet(c, CP.RG_INVENTORY(c.vendorId), {}); const n = (j.data || []).length; await cpNote(true, 'test'); await log(`[Open API] 연결 확인 성공 — 로켓창고 재고 첫 쪽 ${n}개${j.nextToken ? ' (다음 쪽 있음)' : ''}`); sendResponse({ ok: true, first: n, more: !!j.nextToken }); } catch (e) { await cpNote(false, 'test', e.message); await log(`[Open API] 연결 확인 실패: ${e.message}`); sendResponse({ ok: false, error: e.message }); } }
+    }
     else if (msg.type === 'ipReadForm') { sendResponse(await ipReadForm()); }
     else if (msg.type === 'ipFile') { sendResponse(await ipFile(msg)); }
     else if (msg.type === 'competitorNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else sendResponse(await competitorRun(true, msg.id || null)); }

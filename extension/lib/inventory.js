@@ -207,7 +207,7 @@ export function inventoryForecast(d, today, settings = {}) {
     const key = keyOf(x); const ps = groupPs[key] || {}; const f = facts[x.option_id] || {};
     const lead = ps.leadDays != null && ps.leadDays !== '' ? Number(ps.leadDays) : st.leadDays;   // 상품마다 다른 입고 소요일 (없으면 기본값)
     const seasonType = seasonTypeOf(ps); const seasonEnd = seasonType === 'year' ? '' : ps.seasonEnd || '';
-    const r7 = (q7[x.option_id] || 0) / n7, r30 = (q30[x.option_id] || 0) / n30; const rate = Math.max(r7, r30);
+    const r7 = (q7[x.option_id] || 0) / n7, r30 = (q30[x.option_id] || 0) / n30; const rApi = Number(inv[x.option_id]?.sales30) > 0 ? Number(inv[x.option_id].sales30) / 30 : 0; const rate = Math.max(r7, r30, rApi);   // Open API 재고의 '최근 30일 판매'(로켓그로스) 도 함께
     const left = rate > 0 ? x.stock / rate : Infinity;
     const out = rate > 0 ? addDays(asOf, Math.floor(left)) : null;
     // 채울 기간 = 입고까지 + 보낼 양 + 안전 재고. 시즌 종료일이 있으면 그 날까지만 (시즌이 끝난 뒤 팔릴 양은 주문하지 않는다)
