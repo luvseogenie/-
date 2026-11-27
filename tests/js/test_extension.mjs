@@ -1694,3 +1694,26 @@ console.log('extension logic: all checks passed');
   assert.equal(rows[3].feeSrc, undefined);
   console.log('sourcing fees and sizes from Wing settlement files: all checks passed');
 }
+
+// 지식재산권 신고: 템플릿 빈칸 채우기 · 대상 줄 읽기 · 중복 신고 막기 · 필수 칸 확인
+{
+  const IPR = await import('../../extension/lib/ipreport.js');
+  assert.equal(IPR.productIdOf('https://www.coupang.com/vp/products/8790262924?itemId=1&vendorItemId=2'), '8790262924');
+  assert.equal(IPR.productIdOf('8790262924'), '8790262924'); assert.equal(IPR.productIdOf('https://example.com/x'), '');
+  const t = { url: 'https://www.coupang.com/vp/products/1234567890', seller: '짝퉁상회', product: '가품 담요' };
+  assert.equal(IPR.fillText('{상품URL} ({상품ID}) {판매자}/{상품명} {날짜} {모름}', t, '2026-11-27'), 'https://www.coupang.com/vp/products/1234567890 (1234567890) 짝퉁상회/가품 담요 2026-11-27 {모름}');
+  const tg = IPR.parseTargets('https://www.coupang.com/vp/products/111111 | 가게A | 상품A | 메모A\n\n  https://www.coupang.com/vp/products/222222\tB상회  \n');
+  assert.deepEqual(tg.map((x) => [x.productId, x.seller, x.product, x.note]), [['111111', '가게A', '상품A', '메모A'], ['222222', 'B상회', '', '']]);
+  const now = new Date().toISOString(); const old = new Date(Date.now() - 100 * 86400000).toISOString();
+  const hist = [{ at: now, templateId: 'a', status: 'submitted', target: { url: 'https://www.coupang.com/vp/products/111111?x=1' } }, { at: now, templateId: 'a', status: 'error', target: { url: tg[1].url } }, { at: old, templateId: 'b', status: 'submitted', target: { url: tg[1].url } }];
+  assert.ok(IPR.alreadyReported(hist, 'a', tg[0]));            // 같은 사유 · 같은 상품 번호 (주소 뒤가 달라도)
+  assert.equal(IPR.alreadyReported(hist, 'b', tg[0]), null);   // 다른 사유는 따로
+  assert.equal(IPR.alreadyReported(hist, 'a', tg[1]), null);   // 실패한 건 다시 신고 가능
+  assert.equal(IPR.alreadyReported(hist, 'b', tg[1]), null);   // 90일 지난 건 다시
+  const form = { fields: [{ key: 'reason', name: 'reason', label: '신고 사유', type: 'nesty', required: true, options: [{ value: 'tm', label: '상표권 침해' }] }, { key: 'desc', name: 'desc', label: '설명', type: 'textarea', required: true }, { key: 'memo', name: 'memo', label: '비고', type: 'text' }, { key: '__attach', name: '__attach', label: '첨부 파일', type: 'file' }] };
+  const tpl = { values: { reason: '상표권 침해', desc: '{판매자} 가 {상품URL} 에서 DUGN 상표를 무단 사용', memo: '' } };
+  const vals = IPR.formValues(form, tpl, tg[0], '2026-11-27');
+  assert.deepEqual(vals.map((v) => [v.key, v.value]), [['reason', '상표권 침해'], ['desc', '가게A 가 https://www.coupang.com/vp/products/111111 에서 DUGN 상표를 무단 사용']]);
+  assert.deepEqual(IPR.missingRequired(form, tpl), []); assert.deepEqual(IPR.missingRequired(form, { values: { reason: 'x' } }), ['설명']);
+  console.log('IP report templates, targets and duplicate guard: all checks passed');
+}

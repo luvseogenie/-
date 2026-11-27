@@ -9,6 +9,7 @@ import { checkRemote, reloadIfFilesChanged, rememberName } from './lib/update.js
 import * as RT from './lib/realtime.js';
 import * as INV from './lib/inventory.js';
 import * as COMP from './lib/competitor.js';
+import * as IPR from './lib/ipreport.js';
 
 const DEFAULTS = { salesUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date={date}&end_date={date}', adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales', autoEnabled: false, autoTime: '13:00', waitSeconds: 12, fillMissingDays: 7, ownWindow: true, reportEnabled: true, adsReportUrl: '', adsAccount: '', sellerName: '', serverSync: false, server: 'http://127.0.0.1:8765', excelAuto: false, realtimeEnabled: false, realtimeFrom: 9, realtimeTo: 23, invUrl: '' };
 let expectUntil = 0, expectDate = null;
@@ -891,7 +892,7 @@ async function rtNote(h, ok, why) {
   await chrome.storage.local.set({ ccrealtimeLast: { at, hour: h, ok, why: w }, ccrealtimeNotes: notes });
 }
 // 수집하는 동안(1~2분)에는 크롬이 백그라운드를 30초 만에 재우지 않게 20초마다 가벼운 크롬 기능을 부른다 (쉬는 중에는 부르지 않아 평소처럼 잠든다)
-setInterval(() => { if (rtRunning || autoRunning || job.running) chrome.runtime.getPlatformInfo().catch(() => {}); }, 20000);
+setInterval(() => { if (rtRunning || autoRunning || job.running || ipRunning || compRunning) chrome.runtime.getPlatformInfo().catch(() => {}); }, 20000);
 // 15분마다: 실시간 ROAS 를 받을 시각인데 이번 시각 기록이 없으면(정시 알람을 놓쳤거나 실패) 지금 받는다
 async function rtWatch() {
   try {
@@ -1193,6 +1194,134 @@ async function competitorRun(manual = false, onlyId = null) {
     return { ok: !errs.length, done, saved, error: errs.join(' / ') };
   } finally { compRunning = false; }
 }
+// ---- 지식재산권 신고: 쿠팡 판매자 지원센터 웹폼 읽기·채우기·제출 (사용자 브라우저에서, 로그인된 상태 그대로) ----
+// 웹폼 안에서 돌 함수들 (그 페이지에 넣어 실행)
+function ipReadFormInPage() {
+  return (async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const findForm = () => document.querySelector('form#new_request') || document.querySelector('form.request-form') || [...document.querySelectorAll('form')].find((f) => /requests/.test(f.getAttribute('action') || ''));
+    let form = null; for (let i = 0; i < 20 && !(form = findForm()); i++) await sleep(500);
+    const login = !!document.querySelector('input[type="password"]') || /signin|sign_in|login|access\//i.test(location.href);
+    if (!form) return { ok: false, login, url: location.href, title: document.title };
+    const clean = (t) => String(t || '').replace(/\s+/g, ' ').replace(/\s*\*\s*$/, '').trim();
+    const wrapOf = (el) => el.closest('.form-field, [data-garden-id="forms.field"], .field, fieldset');
+    const labelOf = (el) => { const w = wrapOf(el); const l = (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) || w?.querySelector('label, legend'); return clean(l?.innerText || el.getAttribute('aria-label') || ''); };
+    const flatTagger = (arr, pre = '') => { const out = []; for (const x of arr || []) { const lab = (pre ? pre + ' :: ' : '') + clean(x.label); if (x.options) out.push(...flatTagger(x.options, lab)); else if (x.value) out.push({ value: x.value, label: lab }); } return out; };
+    const fields = []; const seen = new Set();
+    for (const el of form.querySelectorAll('input, textarea, select')) {
+      const name = el.name || ''; if (!name || seen.has(name) || /authenticity_token|^utf8$/.test(name) || /^(submit|button|reset|image|file)$/.test(el.type)) continue;
+      if (el.type === 'hidden' && /ticket_form_id/.test(name)) continue; seen.add(name);
+      const w = wrapOf(el); let type = el.tagName === 'TEXTAREA' ? 'textarea' : el.tagName === 'SELECT' ? 'select' : (el.type || 'text'); let options = [];
+      if (type === 'select') options = [...el.options].filter((o) => o.value).map((o) => ({ value: o.value, label: clean(o.textContent) }));
+      if (type === 'hidden') {
+        const tg = el.getAttribute('data-tagger'); if (tg) { try { options = flatTagger(JSON.parse(tg)); } catch { /* 무시 */ } }
+        if (w?.querySelector('a.nesty-input')) type = 'nesty'; else if (w?.querySelector('[role="combobox"]')) type = 'combobox'; else if (!options.length) continue;
+      }
+      if (type === 'combobox' && !options.length) { const cb = w.querySelector('[role="combobox"]'); try { cb.click(); await sleep(400); options = [...document.querySelectorAll('[role="option"]')].map((o) => ({ value: clean(o.getAttribute('data-value') || o.innerText), label: clean(o.innerText) })).filter((o) => o.label); cb.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); document.body.click(); await sleep(200); } catch { /* 무시 */ } }
+      fields.push({ key: name, name, label: labelOf(el) || name, type, required: !!(w?.classList.contains('required') || el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(w?.querySelector('label')?.innerText || '')), options, hidden: w ? getComputedStyle(w).display === 'none' : false, hint: clean(w?.querySelector('.hint, [id$="_hint"], small, p')?.innerText || '').slice(0, 200) });
+    }
+    if (form.querySelector('input[type="file"]')) fields.push({ key: '__attach', name: '__attach', label: '첨부 파일', type: 'file', required: false, options: [] });
+    return { ok: true, url: location.href, title: document.title, fields };
+  })();
+}
+function ipFillFormInPage(values, files, submit) {
+  return (async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const findForm = () => document.querySelector('form#new_request') || document.querySelector('form.request-form') || [...document.querySelectorAll('form')].find((f) => /requests/.test(f.getAttribute('action') || ''));
+    let form = null; for (let i = 0; i < 20 && !(form = findForm()); i++) await sleep(500);
+    if (!form) return { ok: false, error: /signin|login|access\//i.test(location.href) || document.querySelector('input[type="password"]') ? '쿠팡 판매자 지원센터에 로그인이 필요합니다' : '웹폼을 찾지 못했습니다' };
+    const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+    const setVal = (el, v) => { const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); for (const t of ['input', 'change', 'blur']) el.dispatchEvent(new Event(t, { bubbles: true })); };
+    const done = [], errs = [];
+    for (const f of values) {
+      const el = form.querySelector(`[name="${CSS.escape(f.name)}"]`); if (!el) { errs.push(`${f.label}: 칸이 없음`); continue; }
+      const w = el.closest('.form-field, [data-garden-id="forms.field"], .field, fieldset');
+      const opt = (f.options || []).find((o) => o.label === f.value || o.value === f.value) || (f.options || []).find((o) => o.label.split('::').pop().trim() === String(f.value).trim());
+      try {
+        if (f.type === 'select') setVal(el, opt ? opt.value : f.value);
+        else if (f.type === 'nesty') {
+          const a = w?.querySelector('a.nesty-input'); const want = clean(opt ? opt.label.split('::').pop() : f.value); let ok = false;
+          if (a) { a.click(); await sleep(350); const li = [...document.querySelectorAll('.nesty-panel li, #nesty-panel li, .nesty-panel [role="option"]')].find((x) => clean(x.innerText) === want); if (li) { li.click(); ok = true; } else document.body.click(); }
+          if (!ok) { setVal(el, opt ? opt.value : f.value); if (a && opt) a.textContent = want; }
+        } else if (f.type === 'combobox') {
+          const cb = w?.querySelector('[role="combobox"]'); const want = clean(opt ? opt.label : f.value); cb.click(); await sleep(400);
+          const o = [...document.querySelectorAll('[role="option"]')].find((x) => clean(x.innerText) === want); if (o) o.click(); else { errs.push(`${f.label}: '${want}' 항목이 없음`); document.body.click(); }
+        } else if (f.type === 'checkbox') { const want = /^(1|true|예|네|체크|동의|yes|on|v|o)$/i.test(String(f.value).trim()); if (el.checked !== want) el.click(); }
+        else {
+          setVal(el, f.value);
+          const ed = w?.querySelector('[contenteditable="true"]'); if (ed) { ed.innerHTML = String(f.value).split('\n').map((l) => `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;') || '<br>'}</p>`).join(''); ed.dispatchEvent(new Event('input', { bubbles: true })); }
+        }
+        done.push(f.label);
+      } catch (e) { errs.push(`${f.label}: ${e.message}`); }
+      await sleep(300);   // 고른 값에 따라 아래 칸이 새로 나타나는 웹폼
+    }
+    if (files?.length) {
+      const inp = form.querySelector('input[type="file"]');
+      if (!inp) errs.push('첨부 칸이 없음');
+      else for (const fl of files) {
+        try { const b = await (await fetch(fl.dataUrl)).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], fl.name, { type: fl.type || b.type })); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); }
+        catch (e) { errs.push(`첨부 '${fl.name}': ${e.message}`); continue; }
+        for (let i = 0; i < 40; i++) { await sleep(500); const busy = document.querySelector('.upload-item[aria-busy="true"], .upload-progress:not([hidden]), [data-upload-status="uploading"], .upload-pending'); if (!busy && i >= 2) break; }
+        done.push(`첨부 ${fl.name}`);
+      }
+    }
+    if (submit) {
+      if (errs.length) return { ok: false, done, errs, submitted: false, error: '채우지 못한 칸이 있어 제출하지 않았습니다' };
+      const btn = form.querySelector('input[type="submit"], button[type="submit"]'); if (!btn) return { ok: false, done, errs, submitted: false, error: '제출 버튼을 찾지 못했습니다' };
+      setTimeout(() => btn.click(), 300); return { ok: true, done, errs, submitted: true };
+    }
+    return { ok: true, done, errs, submitted: false };
+  })();
+}
+async function waitTabLoaded(tabId, ms = 30000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { const t = await chrome.tabs.get(tabId).catch(() => null); if (!t) return false; if (t.status === 'complete') return true; await sleep(400); } return false; }
+async function ipReadForm() {
+  if (!(await chrome.permissions.contains({ origins: [IPR.IP_ORIGIN] }))) return { ok: false, error: '판매자 지원센터 사이트 접근 허용이 필요합니다', needPermission: true };
+  const tab = await chrome.tabs.create({ url: IPR.IP_FORM_URL, active: false });
+  try {
+    await waitTabLoaded(tab.id); await sleep(1500);
+    const [x] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: ipReadFormInPage }).catch((e) => { throw new Error(/error page/i.test(e.message) ? '판매자 지원센터 사이트를 열지 못했습니다 (인터넷 연결을 확인하세요)' : e.message); });
+    const r = x?.result; if (!r?.ok) return { ok: false, error: r?.login ? '쿠팡 판매자 지원센터에 로그인이 필요합니다 (그 사이트를 열어 로그인한 뒤 다시)' : `웹폼을 찾지 못했습니다 (${r?.title || ''} ${r?.url || ''})` };
+    const d = await S.load(); d.ipForm = { url: IPR.IP_FORM_URL, readAt: new Date().toISOString().slice(0, 16), fields: r.fields }; await S.save(d);
+    await log(`[지재권] 웹폼 칸 ${r.fields.length}개를 읽었습니다: ${r.fields.map((f) => `${f.label}(${f.type}${f.options?.length ? ' ' + f.options.length + '개 항목' : ''})`).join(', ').slice(0, 600)}`);
+    return { ok: true, fields: r.fields.length };
+  } catch (e) { return { ok: false, error: e.message }; } finally { chrome.tabs.remove(tab.id).catch(() => {}); }
+}
+let ipRunning = false;
+// 신고: 대상마다 웹폼을 새 탭으로 열어 채우고(제출까지 또는 채우기만), 기록을 남긴다
+async function ipFile({ templateId, targets, submit, force = false }) {
+  if (ipRunning) return { ok: false, error: '신고를 진행 중입니다' };
+  if (!(await chrome.permissions.contains({ origins: [IPR.IP_ORIGIN] }))) return { ok: false, error: '판매자 지원센터 사이트 접근 허용이 필요합니다', needPermission: true };
+  ipRunning = true; const results = [];
+  try {
+    const d0 = await S.load(); const tpl = (d0.ipTemplates || []).find((t) => t.id === templateId); if (!tpl) return { ok: false, error: '템플릿이 없습니다' };
+    if (!d0.ipForm?.fields?.length) return { ok: false, error: "먼저 '웹폼 칸 읽기' 를 해 주세요" };
+    const store = await chrome.storage.local.get((tpl.files || []).map((f) => 'ipfile:' + f.id)); const files = (tpl.files || []).map((f) => store['ipfile:' + f.id]).filter(Boolean);
+    for (const [i, target] of targets.entries()) {
+      const dup = IPR.alreadyReported(d0.ipHistory, templateId, target); if (dup && !force) { results.push({ target, status: 'skipped', note: `이미 ${dup.at.slice(0, 10)} 신고함` }); continue; }
+      if (i) await sleep(5000 + Math.random() * 5000);   // 신고 사이 5~10초
+      const values = IPR.formValues(d0.ipForm, tpl, target);
+      const tab = await chrome.tabs.create({ url: IPR.IP_FORM_URL, active: true }); let rec = { at: new Date().toISOString(), templateId, templateName: tpl.name, target, status: 'error', ticket: '', error: '' };
+      try {
+        await waitTabLoaded(tab.id); await sleep(1500);
+        const [x] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: ipFillFormInPage, args: [values, files, !!submit] }).catch((e) => { throw new Error(/error page/i.test(e.message) ? '판매자 지원센터 사이트를 열지 못했습니다' : e.message); });
+        const r = x?.result || { ok: false, error: '웹폼에서 결과를 받지 못했습니다' };
+        if (!r.ok) { rec.error = [r.error, ...(r.errs || [])].filter(Boolean).join(' / '); }
+        else if (!submit) { rec.status = 'filled'; rec.error = (r.errs || []).join(' / '); }
+        else {
+          // 제출 뒤 접수 번호 (주소가 /requests/12345 로 바뀜)
+          let ticket = ''; for (let k = 0; k < 60 && !ticket; k++) { await sleep(500); const t = await chrome.tabs.get(tab.id).catch(() => null); const m = t?.url?.match(/\/requests\/(\d+)/); if (m) ticket = m[1]; }
+          rec.status = ticket ? 'submitted' : 'unknown'; rec.ticket = ticket; if (!ticket) rec.error = '제출을 눌렀지만 접수 번호를 확인하지 못했습니다 (탭을 확인하세요)';
+        }
+      } catch (e) { rec.error = e.message; }
+      if (rec.status === 'submitted') chrome.tabs.remove(tab.id).catch(() => {});
+      const d = await S.load(); d.ipHistory = [...(d.ipHistory || []), rec].slice(-2000); await S.save(d); d0.ipHistory = d.ipHistory;
+      await log(`[지재권] ${tpl.name} · ${target.url} → ${rec.status === 'submitted' ? `접수 ${rec.ticket}` : rec.status === 'filled' ? '채움(제출은 직접)' : rec.status}${rec.error ? ' · ' + rec.error : ''}`);
+      results.push({ target, status: rec.status, ticket: rec.ticket, note: rec.error });
+      if (rec.status === 'error' || rec.status === 'unknown') break;   // 하나라도 안 되면 멈춤 (같은 문제로 여러 건 잘못 나가지 않게)
+    }
+    return { ok: true, results };
+  } finally { ipRunning = false; }
+}
 async function hourlyCheck() {
   try { const s0 = await getSettings(); if (s0.realtimeEnabled && (!await chrome.alarms.get('realtime').catch(() => null) || !await chrome.alarms.get('rt-watch').catch(() => null))) { await scheduleRealtime(); await log('[실시간] 매 정시 알람이 없어져 있어 다시 만들었습니다'); } } catch { /* 무시 */ }
   await purgeEarlyYesterday();
@@ -1356,6 +1485,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'expectReport') { expectUntil = Date.now() + 120000; expectDate = msg.date || null; sendResponse({ ok: true }); }
     else if (msg.type === 'inventoryNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else { autoRunning = true; try { sendResponse(await inventoryRun(true)); } finally { autoRunning = false; } } }
     else if (msg.type === 'realtimeNow') { sendResponse(await realtimeRun(true)); }
+    else if (msg.type === 'ipReadForm') { sendResponse(await ipReadForm()); }
+    else if (msg.type === 'ipFile') { sendResponse(await ipFile(msg)); }
     else if (msg.type === 'competitorNow') { if (rtRunning || autoRunning || job.running) sendResponse({ ok: false, error: '다른 수집 중입니다. 끝난 뒤 다시 누르세요' }); else sendResponse(await competitorRun(true, msg.id || null)); }
     else if (msg.type === 'collectRange') { collectRange(msg.start, msg.end, msg.kinds, msg.onlyMissing); sendResponse({ ok: true }); }
     else if (msg.type === 'jobStatus') sendResponse(job);

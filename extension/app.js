@@ -12,6 +12,7 @@ import * as INV from './lib/inventory.js';
 import { fileToRecords, fileSheetsRecords, parseXlsx } from './lib/xlsx.js';
 import * as COMP from './lib/competitor.js';
 import * as SRC from './lib/sourcing.js';
+import * as IPR from './lib/ipreport.js';
 import { fixDay as fixRtDay, recomputeDay as recomputeRtDay, computeSnapshot as computeRtSnapshot } from './lib/realtime.js';
 import { updateStatus, reloadIfFilesChanged, checkRemote, ZIP_URL, DEFAULT_FOLDER, probeFolder, applyUpdate, diskVersion } from './lib/update.js';
 import { fillWorkbook, inspectWorkbook } from './lib/excelfill.js';
@@ -66,7 +67,7 @@ $$('#range button').forEach((b) => b.onclick = () => setRange(b.dataset.r));
 const prevRange = () => { const len = Math.round((new Date(range.end) - new Date(range.start)) / 86400000) + 1; return [addDays(range.start, -len), addDays(range.start, -1)]; };
 
 /* ===== 페이지 전환 ===== */
-const TITLES = { sourcing: '소싱 계산기', comp: '경쟁사', inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
+const TITLES = { ip: '지재권 신고', sourcing: '소싱 계산기', comp: '경쟁사', inventory: '재고', tax: '세후 순마진', dash: '대시보드', ledger: '광고 장부', campaign: '캠페인 분석', traffic: '트래픽 효과', options: '캠페인 · 옵션', ads: '광고 입력', expense: '광고 외 지출', data: '데이터 · 설정' };
 let page = 'dash';
 function showPage(p) {
   page = TITLES[p] ? p : 'dash';
@@ -90,7 +91,7 @@ function resetPage(p) {
 $$('.nav button').forEach((b) => b.onclick = () => { resetPage(b.dataset.page); if (location.hash.slice(1) === b.dataset.page) showPage(b.dataset.page); else location.hash = b.dataset.page; });
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1).split('?')[0]));
 function renderCurrent() {
-  if (page === 'sourcing') renderSourcing(); else if (page === 'comp') renderComp(); else if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
+  if (page === 'ip') renderIp(); else if (page === 'sourcing') renderSourcing(); else if (page === 'comp') renderComp(); else if (page === 'inventory') renderInventory(); else if (page === 'tax') renderTax(); else if (page === 'dash') renderDash(); else if (page === 'campaign') renderCampaign(); else if (page === 'expense') renderExpense(); else if (page === 'traffic') renderTrafficEffect(); else if (page === 'ledger') renderLedger(); else if (page === 'options') renderOptions(); else if (page === 'ads') loadAds(); else if (page === 'data') { loadSettings(); renderImports(); }
 }
 async function refreshAll() { await reload(); renderFoot(); renderCurrent(); try { renderAdrowsBanner(); } catch { /* 무시 */ } }
 // 광고 캠페인에 연결돼 있는데 마진이 없는 옵션 → 모든 화면 맨 위에 알림 (마진 0원으로 계산되어 순이익이 실제보다 낮아진다)
@@ -1043,6 +1044,87 @@ $('#inv-url-save').onclick = async () => { const v = $('#inv-url').value.trim();
 $('#inv-set-save').onclick = async () => { const dd = await reload(); S.setInvSettings(dd, { leadDays: Number($('#inv-lead').value) || 0, coverDays: Number($('#inv-cover').value) || 30, safetyDays: Number($('#inv-safety').value) || 0, alertDays: Number($('#inv-alert').value) || 14, useInbound: $('#inv-use-inbound').checked }); await S.save(dd); await reload(); renderInventory(); msg('#inv-msg', '계산 기준을 저장했습니다', 'ok'); };
 $('#inv-now').onclick = async () => { const b = $('#inv-now'); b.disabled = true; msg('#inv-msg', '윙 재고 화면을 여는 중… (작은 창이 떴다 닫힙니다, 1분쯤)'); const r = await chrome.runtime.sendMessage({ type: 'inventoryNow' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderInventory(); msg('#inv-msg', r?.ok ? '재고를 읽었습니다' : `읽지 못했습니다: ${(r?.error || '').slice(0, 300)}`, r?.ok ? 'ok' : 'err'); };
 $('#inv-file').onchange = async (ev) => { const fl = ev.target.files[0]; if (!fl) return; try { const r = await importInventoryFile(await fl.arrayBuffer(), fl.name); await reload(); renderInventory(); msg('#inv-msg', `재고 ${r.saved}개 옵션을 저장했습니다`, 'ok'); } catch (e) { msg('#inv-msg', e.message, 'err'); } ev.target.value = ''; };
+
+/* ===== 지식재산권 신고 ===== */
+let ipCur = null;   // 지금 고친 템플릿 id
+let ipDirty = false;   // 템플릿 칸을 고치는 중 (저장 전) → 자동 새로 그리기로 지우지 않음
+const ipSaved = async (dd) => { await S.save(dd); await reload(); lastLocalRefresh = Date.now(); };
+const ipTpls = () => DATA.ipTemplates || [];
+async function renderIp() {
+  const granted = await chrome.permissions.contains({ origins: [IPR.IP_ORIGIN] }).catch(() => false);
+  $('#ip-perm').style.display = granted ? 'none' : ''; $('#ip-open').href = IPR.IP_FORM_URL;
+  const form = DATA.ipForm; $('#ip-form-info').textContent = form?.fields?.length ? `웹폼 칸 ${form.fields.length}개 (${form.readAt.replace('T', ' ')} 읽음)` : granted ? '아직 웹폼 칸을 읽지 않았습니다' : '먼저 사이트 접근을 허용해 주세요';
+  const tpls = ipTpls(); if (!ipCur || !tpls.some((t) => t.id === ipCur)) ipCur = tpls[0]?.id || null;
+  const opts = (sel) => tpls.map((t) => `<option value="${esc(t.id)}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  $('#ip-tpl').innerHTML = tpls.length ? opts(ipCur) : '<option value="">(템플릿 없음)</option>';
+  const runSel = $('#ip-run-tpl').value; $('#ip-run-tpl').innerHTML = tpls.length ? opts(tpls.some((t) => t.id === runSel) ? runSel : ipCur) : '<option value="">(템플릿 없음)</option>';
+  renderIpTemplate(false); renderIpHistory();
+}
+function renderIpTemplate(force = true) {
+  if (!force && ipDirty) return; ipDirty = false;
+  const t = ipTpls().find((x) => x.id === ipCur); const box = $('#ip-tpl-body'); const form = DATA.ipForm;
+  if (!t) { box.innerHTML = '<div class="sub">위에서 <b>+ 새 템플릿</b> 을 누르세요 (예: 상표권 – DUGN 상표 도용 / 저작권 – 상세페이지 이미지 도용).</div>'; $('#ip-tpl-miss').textContent = ''; return; }
+  if (!form?.fields?.length) { box.innerHTML = '<div class="sub">먼저 위에서 <b>웹폼 칸 읽기</b> 를 해 주세요. 쿠팡 웹폼의 칸이 그대로 여기에 나타납니다.</div>'; return; }
+  const miss = IPR.missingRequired(form, t); $('#ip-tpl-miss').textContent = miss.length ? `필수 칸 비어 있음: ${miss.join(', ')}` : '';
+  let h = `<div class="row" style="gap:6px"><span class="sub" style="width:150px">템플릿 이름</span><input id="ip-tpl-name" value="${esc(t.name)}" style="width:360px"></div>`;
+  for (const f of form.fields) {
+    if (f.type === 'file') {
+      h += `<div class="row" style="gap:6px;margin-top:6px;align-items:flex-start"><span class="sub" style="width:150px">첨부 서류</span><div><label class="btn sm">파일 추가 <input type="file" id="ip-file" multiple style="display:none"></label> <span class="sub">(상표등록증·저작물 원본·사업자등록증 등 — 한 번 올리면 저장)</span><div>${(t.files || []).map((fl) => `<span class="pill" style="margin:3px 4px 0 0">${esc(fl.name)} <span class="sub">${Math.round(fl.size / 1024)}KB</span> <a href="#" data-ip-fdel="${esc(fl.id)}">✕</a></span>`).join('') || '<span class="sub">없음</span>'}</div></div></div>`;
+      continue;
+    }
+    const v = t.values?.[f.key] ?? ''; const req = f.required ? ' <b style="color:#dc2626">*</b>' : '';
+    let ctl;
+    if (f.options?.length) ctl = `<select data-ip-k="${esc(f.key)}" style="max-width:520px"><option value="">(고르지 않음)</option>${f.options.map((o) => `<option value="${esc(o.label)}" ${o.label === v || o.value === v ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    else if (f.type === 'checkbox') ctl = `<label class="chk"><input type="checkbox" data-ip-k="${esc(f.key)}" ${/^(1|true|예|네|체크|동의|yes|on|v|o)$/i.test(String(v)) ? 'checked' : ''}> 체크</label>`;
+    else if (f.type === 'textarea') ctl = `<textarea data-ip-k="${esc(f.key)}" rows="5" style="width:640px">${esc(v)}</textarea>`;
+    else ctl = `<input data-ip-k="${esc(f.key)}" value="${esc(v)}" style="width:520px">`;
+    h += `<div class="row" style="gap:6px;margin-top:6px;align-items:flex-start"><span class="sub" style="width:150px" title="${esc(f.name)}">${esc(f.label)}${req}${f.hidden ? '<div style="font-size:10.5px">(위 칸에 따라 나타남)</div>' : ''}</span><div>${ctl}${f.hint ? `<div class="sub" style="font-size:11px;max-width:640px">${esc(f.hint)}</div>` : ''}</div></div>`;
+  }
+  h += `<div class="row" style="margin-top:8px"><button class="btn primary sm" id="ip-tpl-save">템플릿 저장</button></div>`;
+  box.innerHTML = h; box.oninput = box.onchange = (ev) => { if (ev.target.matches('[data-ip-k], #ip-tpl-name')) ipDirty = true; };
+  $('#ip-tpl-save').onclick = async () => {
+    const dd = await reload(); const tt = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!tt) return;
+    tt.name = $('#ip-tpl-name').value.trim() || tt.name; tt.values = {};
+    for (const el of $$('#ip-tpl-body [data-ip-k]')) tt.values[el.dataset.ipK] = el.type === 'checkbox' ? (el.checked ? '예' : '') : el.value;
+    await ipSaved(dd); ipDirty = false; renderIp(); msg('#ip-msg', '템플릿을 저장했습니다', 'ok');
+  };
+  const fi = $('#ip-file'); if (fi) fi.onchange = async (ev) => {
+    const fls = [...ev.target.files]; ev.target.value = ''; if (!fls.length) return;
+    const dd = await reload(); const tt = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!tt) return; tt.files ||= [];
+    for (const fl of fls) { if (fl.size > 20 * 1024 * 1024) { msg('#ip-msg', `'${fl.name}' 은 20MB 가 넘어 넣지 않았습니다`, 'err'); continue; } const id = Math.random().toString(36).slice(2, 10); const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(fl); }); await chrome.storage.local.set({ ['ipfile:' + id]: { name: fl.name, type: fl.type, dataUrl } }); tt.files.push({ id, name: fl.name, type: fl.type, size: fl.size }); }
+    await ipSaved(dd); renderIpTemplate(); msg('#ip-msg', '첨부 서류를 저장했습니다', 'ok');
+  };
+  $$('#ip-tpl-body a[data-ip-fdel]').forEach((a) => a.onclick = async (ev) => { ev.preventDefault(); const dd = await reload(); const tt = (dd.ipTemplates || []).find((x) => x.id === ipCur); tt.files = (tt.files || []).filter((f) => f.id !== a.dataset.ipFdel); await chrome.storage.local.remove('ipfile:' + a.dataset.ipFdel); await ipSaved(dd); renderIpTemplate(); });
+}
+function renderIpHistory() {
+  const hs = (DATA.ipHistory || []).slice().reverse().slice(0, 300); const L = { submitted: '접수됨', filled: '채움(직접 제출)', skipped: '건너뜀', unknown: '확인 필요', error: '실패' };
+  $('#ip-history').innerHTML = hs.length ? `<div class="tablewrap" style="max-height:360px"><table><thead><tr><th class="l">날짜</th><th class="l">사유</th><th class="l">상품</th><th class="l">판매자</th><th class="l">결과</th><th class="l">접수 번호 · 메모</th></tr></thead><tbody>${hs.map((h) => `<tr><td class="l sub">${esc(h.at.slice(0, 16).replace('T', ' '))}</td><td class="l">${esc(h.templateName)}</td><td class="l"><a href="${esc(h.target?.url || '')}" target="_blank" rel="noopener">${esc(h.target?.product || h.target?.productId || h.target?.url || '')}</a></td><td class="l">${esc(h.target?.seller || '')}</td><td class="l ${h.status === 'submitted' ? 'pos' : h.status === 'error' ? 'neg' : ''}">${L[h.status] || h.status}</td><td class="l sub">${h.ticket ? `<a href="https://sellersupport-help.coupangcorp.com/hc/ko/requests/${esc(h.ticket)}" target="_blank" rel="noopener">#${esc(h.ticket)}</a> ` : ''}${esc(h.error || '')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="sub">아직 신고 기록이 없습니다</div>';
+}
+$('#ip-perm').onclick = async () => { const ok = await chrome.permissions.request({ origins: [IPR.IP_ORIGIN] }).catch(() => false); msg('#ip-msg', ok ? '허용했습니다. 이제 웹폼 칸 읽기를 누르세요' : '허용하지 않았습니다', ok ? 'ok' : 'err'); renderIp(); };
+$('#ip-read').onclick = async () => { const b = $('#ip-read'); b.disabled = true; msg('#ip-msg', '웹폼을 여는 중… (작은 탭이 열렸다 닫힙니다)'); const r = await chrome.runtime.sendMessage({ type: 'ipReadForm' }).catch((e) => ({ ok: false, error: e.message })); b.disabled = false; await reload(); renderIp(); msg('#ip-msg', r?.ok ? `웹폼 칸 ${r.fields}개를 읽었습니다` : r?.error || '읽지 못했습니다', r?.ok ? 'ok' : 'err'); };
+$('#ip-tpl').onchange = () => { if (ipDirty && !confirm('저장하지 않은 템플릿 내용이 있습니다. 버리고 다른 템플릿으로 갈까요?')) { $('#ip-tpl').value = ipCur; return; } ipCur = $('#ip-tpl').value; renderIpTemplate(); };
+$('#ip-tpl-new').onclick = async () => { const name = prompt('템플릿 이름 (예: 상표권 – DUGN 상표 도용)'); if (!name) return; const dd = await reload(); dd.ipTemplates ||= []; const t = { id: Math.random().toString(36).slice(2, 10), name: name.trim(), values: {}, files: [] }; dd.ipTemplates.push(t); await ipSaved(dd); ipCur = t.id; ipDirty = false; renderIp(); };
+$('#ip-tpl-copy').onclick = async () => { const dd = await reload(); const src = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!src) return; const t = { ...JSON.parse(JSON.stringify(src)), id: Math.random().toString(36).slice(2, 10), name: src.name + ' (복사)' }; dd.ipTemplates.push(t); await ipSaved(dd); ipCur = t.id; ipDirty = false; renderIp(); };
+$('#ip-tpl-del').onclick = async () => { const dd = await reload(); const t = (dd.ipTemplates || []).find((x) => x.id === ipCur); if (!t || !confirm(`'${t.name}' 템플릿을 지울까요? (첨부 서류도 지워집니다)`)) return; await chrome.storage.local.remove((t.files || []).map((f) => 'ipfile:' + f.id)); dd.ipTemplates = dd.ipTemplates.filter((x) => x.id !== ipCur); await ipSaved(dd); ipCur = null; ipDirty = false; renderIp(); };
+const ipTargets = () => IPR.parseTargets($('#ip-targets').value);
+$('#ip-preview').onclick = () => {
+  const t = ipTpls().find((x) => x.id === $('#ip-run-tpl').value); const tg = ipTargets(); if (!t || !tg.length) { msg('#ip-run-msg', '사유와 침해 상품 주소를 넣으세요', 'err'); return; }
+  const day = localIso(today);
+  $('#ip-preview-box').innerHTML = tg.map((x, i) => { const dup = IPR.alreadyReported(DATA.ipHistory, t.id, x); const vals = IPR.formValues(DATA.ipForm, t, x, day); return `<details class="card" ${i ? '' : 'open'} style="margin-top:6px"><summary><b>${i + 1}. ${esc(x.url)}</b> ${dup ? `<span class="pill" style="background:#fff3c4;color:#6b4a00">이미 ${esc(dup.at.slice(0, 10))} 신고</span>` : ''}</summary>${vals.map((v) => `<div style="margin-top:4px"><span class="sub">${esc(v.label)}</span><div style="white-space:pre-wrap">${esc(v.value)}</div></div>`).join('')}<div class="sub" style="margin-top:4px">첨부: ${(t.files || []).map((f) => esc(f.name)).join(', ') || '없음'}</div></details>`; }).join('');
+};
+async function ipRun(submit) {
+  const t = ipTpls().find((x) => x.id === $('#ip-run-tpl').value); const tg = ipTargets(); if (!t || !tg.length) { msg('#ip-run-msg', '사유와 침해 상품 주소를 넣으세요', 'err'); return; }
+  if (ipDirty && t.id === ipCur) { msg('#ip-run-msg', '템플릿에 저장하지 않은 내용이 있습니다. 먼저 템플릿 저장을 눌러 주세요', 'err'); return; }
+  const miss = IPR.missingRequired(DATA.ipForm, t); if (miss.length) { msg('#ip-run-msg', `템플릿의 필수 칸이 비어 있습니다: ${miss.join(', ')}`, 'err'); return; }
+  if (submit && !confirm(`'${t.name}' 사유로 ${tg.length}건을 쿠팡에 제출합니다.\n\n신고 내용이 사실이며, 본인이 권리자(또는 권리자에게 위임받은 대리인)임을 확인합니다.\n허위 신고는 법적 책임이 따를 수 있습니다. 계속할까요?`)) return;
+  for (const b of ['#ip-submit', '#ip-fill']) $(b).disabled = true; msg('#ip-run-msg', `${tg.length}건 진행 중… (쿠팡 웹폼 탭이 차례로 열립니다)`);
+  const r = await chrome.runtime.sendMessage({ type: 'ipFile', templateId: t.id, targets: tg, submit, force: $('#ip-force').checked }).catch((e) => ({ ok: false, error: e.message }));
+  for (const b of ['#ip-submit', '#ip-fill']) $(b).disabled = false; await reload(); renderIpHistory();
+  if (!r?.ok) { msg('#ip-run-msg', r?.error || '실패', 'err'); return; }
+  const c = (k) => r.results.filter((x) => x.status === k).length;
+  msg('#ip-run-msg', `접수 ${c('submitted')}건 · 채움 ${c('filled')}건 · 건너뜀 ${c('skipped')}건${c('error') + c('unknown') ? ` · 확인 필요 ${c('error') + c('unknown')}건 (그 뒤는 멈춤 — 기록을 보세요)` : ''}`, c('error') + c('unknown') ? 'err' : 'ok');
+}
+$('#ip-submit').onclick = () => ipRun(true); $('#ip-fill').onclick = () => ipRun(false);
 
 /* ===== 소싱 계산기 ===== */
 const srcSettings = () => ({ ...SRC.DEFAULT_SOURCING, ...((DATA.sourcing || {}).fx != null ? { fx: DATA.sourcing.fx } : {}), ...((DATA.sourcing || {}).target != null ? { target: DATA.sourcing.target } : {}) });
